@@ -1,0 +1,164 @@
+models:
+  - x_presupuesto_de_venta
+  - x_cash_flow
+
+description: >
+  Dos modelos financieros complementarios: x_presupuesto_de_venta proyecta ventas
+  diarias por sucursal usando factor rolling y bandas estacionales; x_cash_flow
+  integra esa proyección con flujos reales (ventas POS, facturas de compra, IVA
+  estimado) para construir un flujo de caja operativo de 90 días.
+
+---
+
+# x_presupuesto_de_venta
+
+written_by: 05_finanzas/OH Presupuesto ventas.py
+read_by:
+  - 02_forecast/HM SI Forecast.py
+  - 05_finanzas/OH Flujo de Caja.py
+
+granularity: (x_studio_team_id, x_date_2025_eq)
+# 1 registro por (equipo, día). Cubre desde ayer hasta fin del año objetivo (2026).
+
+key_fields:
+  - x_studio_team_id (o nombre equivalente)
+  - x_date_2025_eq
+
+critical_fields:
+  x_date_2025_eq:
+    type: date
+    description: Fecha objetivo (día proyectado).
+  x_date_2024:
+    type: date
+    description: Fecha equivalente del año base (LY, mismo weekday por LY-364 o equivalente).
+  x_bruto_2024:
+    type: float
+    description: Venta real del día equivalente LY.
+  x_bruto_2025:
+    type: float
+    description: Venta real del día TY (> 0 solo si x_date_2025_eq <= ayer).
+  x_proj_2025:
+    type: float
+    description: >
+      Proyección de ventas. Para días pasados: sirve de baseline retroactivo.
+      Para días futuros: es el presupuesto operativo.
+  x_studio_presupuesto_actualizado:
+    type: float
+    description: >
+      Campo operativo principal: = x_bruto_2025 si fecha pasada, = x_proj_2025 si futura.
+      Este es el campo que consumen OH Flujo de Caja y dashboards.
+  x_factor_day:
+    type: float
+    description: Factor rolling calculado (blending 25% ventana corta, 75% ventana larga).
+  x_studio_tratamiento:
+    type: char
+    values:
+      - NORMAL
+      - FERIADO_ANO_ACTUAL
+      - FERIADO_ANO_ANTERIOR
+      - PROM_4_SEMANAS
+    description: >
+      Tratamiento aplicado. PROM_4_SEMANAS = el día LY era feriado y se usa
+      promedio de 4 semanas como base en vez del día puntual.
+  x_studio_floor_team:
+    type: boolean
+    description: True si se aplicó floor (ENABLE_TEAM_DAILY_FLOOR) para eliminar outlier.
+  x_studio_error_abs:
+    type: float
+    description: Error absoluto (actual - proyección). Solo para días históricos.
+  x_studio_error_pct:
+    type: float
+    description: Error porcentual. Solo para días históricos.
+  x_weekday:
+    type: integer
+    description: Día de la semana (0=lunes, 6=domingo).
+
+refresh_policy:
+  trigger: cron diario (recalcula ayer + futuro hasta fin del año objetivo)
+  full_rebuild: false
+  advisory_lock: false
+  notes: >
+    DELETE [date_from_target, horizon_end] para los equipos antes de CREATE.
+    El rango de delete es desde ayer hacia adelante; datos históricos anteriores
+    a ayer se conservan.
+
+notes:
+  - >
+    ALPHA_BLEND=0.25 significa 25% de peso en la ventana corta (45 días) y 75%
+    en la ventana larga (365 días). Cambiar este parámetro requiere validar WAPE
+    en retroactivo antes de promover a producción.
+  - >
+    Los feriados se leen desde x_holiday_occurrence + x_holiday_master. Si estos
+    modelos no existen, el script acepta override manual via contexto holiday_dates.
+  - >
+    El campo x_date_2024 NO es siempre el año 2024 — es el año base configurado
+    (puede ser 2024 o 2025 dependiendo del ciclo de calibración).
+
+---
+
+# x_cash_flow
+
+written_by: 05_finanzas/OH Flujo de Caja.py
+read_by: []  # dashboard directo, no alimenta otro script
+
+granularity: (x_source, x_date, x_partner_id opcionalmente)
+# Múltiples registros por fecha según fuente.
+
+key_fields:
+  - x_source
+  - x_date
+
+critical_fields:
+  x_source:
+    type: char
+    values:
+      - pos_sales         # Venta POS real del día D (entra D+1)
+      - sales_invoice     # Factura de venta (entra D+1)
+      - sales_budget      # Presupuesto futuro (entra D+1)
+      - purchase_invoice  # Factura de compra (sale en vencimiento)
+      - iva_projection    # IVA estimado F29 (sale día 20 mes siguiente)
+    description: Origen del flujo. Determina la sección del dashboard.
+  x_date:
+    type: date
+    description: Fecha del movimiento de caja (D+1 para ventas, vencimiento para compras).
+  x_amount_in:
+    type: float
+    description: Entrada de caja (ventas, cobros).
+  x_amount_out:
+    type: float
+    description: Salida de caja (pagos a proveedores, IVA).
+  x_state:
+    type: char
+    values:
+      - STATE_REAL       # Venta ya ocurrida (datos históricos POS/facturas)
+      - STATE_PROJECTED  # Proyección futura (presupuesto, IVA estimado)
+      - STATE_PENDING    # Factura compra con vencimiento futuro
+      - STATE_OVERDUE    # Factura compra con vencimiento pasado (sin pagar)
+  x_partner_id:
+    type: many2one
+    comodel: res.partner
+    description: Solo presente para source=purchase_invoice.
+  x_invoice_id:
+    type: many2one
+    comodel: account.move
+    description: Solo presente para source=purchase_invoice.
+
+refresh_policy:
+  trigger: cron diario (requiere x_presupuesto_de_venta del mismo día)
+  full_rebuild: true
+  advisory_lock: false
+  notes: >
+    DELETE sources IN (pos_sales, sales_invoice, sales_budget, purchase_invoice,
+    iva_projection) antes de recrear. Full rebuild en cada ejecución.
+
+notes:
+  - >
+    El IVA estimado usa lógica F29 operativo: débito (IVA débito de ventas) minus
+    crédito (IVA crédito de compras). El pago se proyecta el día 20 del mes siguiente.
+    Es una estimación — no reemplaza el cálculo oficial SII.
+  - >
+    Las facturas de venta tipo boleta (l10n_latam_document_type 39/41) se EXCLUYEN
+    del source sales_invoice (ya están en pos_sales). Solo facturas electrónicas (33).
+  - >
+    El script detecta dinámicamente los valores técnicos de campos selection de Studio
+    con tolerancia a espacios accidentales (bug conocido de Studio).
