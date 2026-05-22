@@ -1,0 +1,110 @@
+model: x_margen_por_producto_
+description: >
+  Margen real por producto calculado sobre ventas POS y SO. Parte desde el costo
+  neto (raw_product_price con fallback a standard_price), aplica ILA/IVA de compra,
+  y compara contra la venta neta sin ILA. Incluye semáforo de rentabilidad con
+  reglas diferenciadas para cigarrillos.
+
+written_by: 04_analitica/OH Calculo de Margen.py
+read_by: []  # analítica directa, no alimenta otro script del pipeline
+
+granularity: (x_studio_product_id, x_studio_date_from, x_studio_date_to)
+# 1 registro por producto por período analizado. El período puede ser un mes o un rango custom.
+
+key_fields:
+  - x_studio_product_id
+  - x_studio_date_from
+  - x_studio_date_to
+
+critical_fields:
+  x_studio_product_id:
+    type: many2one
+    comodel: product.product
+
+  # Venta
+  x_studio_qty:
+    type: float
+    description: Unidades vendidas (POS + SO combinados).
+  x_studio_price_net_total:
+    type: float
+    description: Venta neta total (sin IVA, sin ILA venta en modo 'none').
+  x_studio_venta_bruta_total:
+    type: float
+    description: Venta bruta total (con todos los impuestos incluidos).
+
+  # Costo
+  x_studio_raw_price:
+    type: float
+    description: Costo base raw_product_price. 0 si no configurado (flag_raw_zero=True).
+  x_studio_costo_neto_unit:
+    type: float
+    description: Costo neto por unidad (raw_price antes de impuestos).
+  x_studio_ila_factor:
+    type: float
+    description: Factor multiplicador ILA compra (ej: 1.10 si ILA=10%).
+  x_studio_iva_compra:
+    type: float
+    description: Factor multiplicador IVA compra (ej: 1.19 si IVA=19%).
+  x_studio_costo_oh_unit:
+    type: float
+    description: Costo OH = costo_neto × ILA compra (el IVA compra es recuperable).
+  x_studio_costo_oh_total:
+    type: float
+    description: costo_oh_unit × qty.
+
+  # Margen
+  x_studio_margin_total:
+    type: float
+    description: Margen total CLP = venta_neta - costo_oh_total.
+  x_studio_margin_pct:
+    type: float
+    description: Margen % sobre venta neta. Negativo = pérdida.
+  x_studio_rentab_sobre_costo:
+    type: float
+    description: Margen / costo_oh_total (rentabilidad sobre inversión).
+
+  # Semáforo
+  x_studio_semaforo_margen:
+    type: char
+    values: [verde, amarillo, rojo, gris]
+    description: >
+      verde = margen en rango objetivo.
+      amarillo = fuera del rango pero no crítico.
+      rojo = margen negativo o extremo.
+      gris = sin datos de costo suficientes.
+  x_studio_motivo_semaforo:
+    type: char
+    values:
+      - ok
+      - fuera_rango_objetivo
+      - margen_extremo
+      - cigarro_ok
+      - cigarro_fuera_rango
+      - sin_raw
+      - fallback_std
+    description: Razón detallada del semáforo asignado.
+  x_studio_es_cigarro:
+    type: boolean
+    description: >
+      True si el producto pertenece a categoría cigarrillos (cigarette_category_ids).
+      Los cigarrillos tienen thresholds de semáforo diferentes al resto.
+
+refresh_policy:
+  trigger: manual o cron mensual
+  full_rebuild: false
+  advisory_lock: false
+  notes: >
+    DELETE rango solapante [date_from, date_to] antes de CREATE.
+    No hace purge completo — coexisten registros de diferentes períodos.
+
+notes:
+  - >
+    raw_product_price es el campo de costo operativo de OH Market. Si es 0 o no
+    existe, el script usa standard_price como fallback y activa flag_raw_zero=True.
+    Los registros con flag_raw_zero=True tienen costo estimado, no real.
+  - >
+    ILA venta NO se suma al precio en modo 'none' (default). El cálculo de margen
+    compara venta neta contra costo OH (que sí incluye ILA compra).
+  - >
+    La tabla sale.report (vista SQL de Odoo) se usa para las ventas SO.
+    Si la vista no está actualizada, el período SO puede quedar incompleto.
