@@ -1,0 +1,149 @@
+models:
+  - x_analisis_de_stock
+  - x_stock_balance_daily
+
+description: >
+  Dos modelos que representan el estado del inventario desde perspectivas
+  complementarias: x_analisis_de_stock es un snapshot de necesidades de compra/traslado
+  calculado en el pipeline; x_stock_balance_daily es una serie diaria reconstruida
+  que permite análisis de quiebres históricos y cobertura.
+
+---
+
+# x_analisis_de_stock
+
+written_by: 03_stock/OH Analisis de Stock.py
+read_by:
+  - 03_stock/OH Generacion de Documentos.py
+
+granularity: (x_studio_team_id, x_studio_product_id, x_studio_snapshot_date)
+
+key_fields:
+  - x_studio_team_id
+  - x_studio_product_id
+  - x_studio_snapshot_date
+
+critical_fields:
+  x_studio_team_id:
+    type: many2one
+    comodel: crm.team
+  x_studio_product_id:
+    type: many2one
+    comodel: product.product
+  x_studio_snapshot_date:
+    type: date
+    description: Fecha del cálculo. OH Generacion de Documentos filtra por el snapshot más reciente.
+  x_studio_stock_real:
+    type: float
+    description: >
+      Stock físico actual por ubicación interna del equipo (stock.quant).
+      ADVERTENCIA: no incluye stock en tránsito (transferencias internas en progreso).
+      Ver Analisis_de_Stock_proceso.md para propuesta de campo x_studio_stock_en_transito.
+  x_studio_qty_a_pedir:
+    type: float
+    description: Cantidad a pedir expresada en cajas (UoM compra). 0 si no hay necesidad.
+  x_studio_abcxyz:
+    type: char
+    description: Clasificación heredada de x_calculo_abc_xyz al momento del snapshot.
+  x_studio_proveedor_id:
+    type: many2one
+    comodel: res.partner
+  x_studio_uom_compra:
+    type: many2one
+    comodel: uom.uom
+    description: >
+      UoM de compra validada como caja (STRICT_PURCHASE_UOM_BOX=True).
+      Si el producto no tiene UoM caja configurada, se excluye del análisis.
+
+refresh_policy:
+  trigger: paso 4 del pipeline (después de HM SI Forecast)
+  full_rebuild: true
+  advisory_lock: false
+  notes: >
+    Ejecuta vía server action ID 1502. El snapshot anterior se conserva hasta que
+    OH Generacion de Documentos lo consume; luego se puede purgar.
+
+notes:
+  - >
+    OH Generacion de Documentos busca el snapshot más reciente via
+    _latest_snapshot_after(run_start_ts). Si el análisis falló a mitad, el snapshot
+    puede quedar incompleto — verificar x_studio_prereq_ok en x_supply_generation.
+  - >
+    El campo x_studio_stock_real NO refleja stock en tránsito. Para productos con
+    transferencias internas pendientes, la qty_a_pedir puede sobreestimar la necesidad.
+
+---
+
+# x_stock_balance_daily
+
+written_by: 03_stock/Stock Balance Daily.py
+read_by: []  # solo analítica directa (no alimenta otro script del pipeline)
+
+granularity: (x_team_id, x_warehouse_id, x_product_id, x_date)
+
+key_fields:
+  - x_team_id
+  - x_warehouse_id
+  - x_product_id
+  - x_date
+
+critical_fields:
+  x_team_id:
+    type: many2one
+    comodel: crm.team
+  x_warehouse_id:
+    type: many2one
+    comodel: stock.warehouse
+  x_product_id:
+    type: many2one
+    comodel: product.product
+  x_date:
+    type: date
+    description: Día del balance.
+  x_qty_balance:
+    type: float
+    description: Stock al cierre del día (roll-backward desde stock.quant actual).
+  x_qty_start:
+    type: float
+    description: Stock al inicio del día (= x_qty_balance del día anterior).
+  x_qty_in:
+    type: float
+    description: Entradas de stock durante el día (recepciones, traslados entrantes).
+  x_qty_out:
+    type: float
+    description: Salidas de stock durante el día (ventas, traslados salientes).
+  x_stockout:
+    type: boolean
+    description: True si x_qty_balance <= 0 (quiebre completo).
+  x_stockout_partial:
+    type: boolean
+    description: True si x_qty_start > 0 y x_qty_balance <= 0 (quiebre intradiario).
+  x_abcxyz:
+    type: char
+    description: Clasificación ABC-XYZ al momento del run.
+  x_run_version:
+    type: char
+    description: Versión del script que generó el registro.
+  x_run_id:
+    type: char
+    description: UUID corto del run para agrupar registros de la misma ejecución.
+  x_mode:
+    type: char
+    values: [backfill, incremental]
+
+refresh_policy:
+  trigger: cron diario (modo incremental, recalcula últimos 7 días)
+  full_rebuild: false
+  advisory_lock: 99009440
+  notes: >
+    Modo incremental: DELETE [today-tail_window, today] + reconstrucción.
+    Modo backfill: DELETE rango explícito + reconstrucción completa.
+    El roll-backward requiere que stock.quant esté actualizado al momento de ejecución.
+
+notes:
+  - >
+    La reconstrucción usa roll-backward desde stock.quant (ancla = hoy).
+    Datos más de 90 días atrás pueden acumular drift si hubo ajustes manuales de inventario.
+  - >
+    Los movimientos sin team/warehouse mapeado en pos.config se registran como
+    "huérfanos" y se excluyen del balance.
