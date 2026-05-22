@@ -1,0 +1,181 @@
+models:
+  - x_price_change_event
+  - x_price_coreccion
+  - x_hm_si_forecast
+
+description: >
+  Tres modelos que forman la cadena de señales de forecast:
+  (1) x_price_change_event captura cambios de régimen de precio;
+  (2) x_price_coreccion traduce esos cambios en factores de ajuste de demanda;
+  (3) x_hm_si_forecast es el pronóstico final de unidades por semana.
+
+---
+
+# x_price_change_event
+
+written_by: 02_forecast/OH Cambio de Precio.py
+read_by:
+  - 02_forecast/OH Price Correccion.py
+  - 02_forecast/HM SI Forecast.py
+
+granularity: (x_studio_product_id, x_studio_period_start)
+
+key_fields:
+  - x_studio_product_id
+  - x_studio_period_start
+
+critical_fields:
+  x_studio_product_id:
+    type: many2one
+    comodel: product.product
+  x_studio_period_start:
+    type: date
+    description: Primera semana del nuevo régimen de precio.
+  x_studio_base_price:
+    type: float
+    description: Precio del régimen anterior (bucket $50).
+  x_studio_price_eff:
+    type: float
+    description: Precio del nuevo régimen.
+  x_studio_delta_pct:
+    type: float
+    description: Variación porcentual (negativo = baja, positivo = sube).
+  x_studio_direction:
+    type: char
+    values: [Sube, Baja]
+  x_studio_support_weeks:
+    type: integer
+    description: Duración del régimen anterior en semanas.
+  x_studio_is_real_change:
+    type: boolean
+    description: True = cambio confirmado por umbral mínimo (MIN_ABS=$50, MIN_PCT=5%).
+
+refresh_policy:
+  trigger: cron diario (ventana incremental de 12 semanas)
+  full_rebuild: false
+  advisory_lock: 99009414
+  notes: Purge previo de la ventana [rebuild_from, today] antes de INSERT.
+
+---
+
+# x_price_coreccion
+
+written_by: 02_forecast/OH Price Correccion.py
+read_by:
+  - 02_forecast/HM SI Forecast.py
+
+granularity: (x_studio_product_id, x_studio_target_week_start)
+
+key_fields:
+  - x_studio_product_id
+  - x_studio_target_week_start
+
+critical_fields:
+  x_studio_product_id:
+    type: many2one
+    comodel: product.product
+  x_studio_target_week_start:
+    type: date
+    description: Semana del evento de precio/promo (no la semana siguiente).
+  x_studio_factor_corr:
+    type: float
+    range: [0.76, 1.20]
+    description: >
+      Factor de ajuste de demanda. <1.0 = presión bajista (competidor subió),
+      >1.0 = impulso alcista (competidor bajó o promo disparó demanda).
+  x_studio_tipo_alerta:
+    type: char
+    values:
+      - PROMO_DISPARO
+      - PROMO_SATURACION
+      - SUBIDA_LEVE
+      - SUBIDA_FUERTE
+      - SUBIDA_CANIBAL
+      - BAJADA_LEVE
+      - BAJADA_FUERTE
+      - BAJADA_CANIBAL
+  x_studio_indice_canibal:
+    type: float
+    range: [0.0, 1.0]
+    description: CPI ponderado por ABC de competidores en la misma sub-categoría L3.
+  x_studio_source:
+    type: char
+    values: [price_change, promo]
+  x_studio_abcxyz:
+    type: char
+    description: Clasificación ABC-XYZ al momento del cálculo (auditoría).
+
+refresh_policy:
+  trigger: ejecutar después de OH Cambio de Precio, antes de HM SI Forecast
+  full_rebuild: true
+  advisory_lock: 99009612
+  notes: >
+    El modelo tiene typo Studio intencional en el nombre: x_price_coreccion (una 'r').
+    No cambiar sin migración de datos.
+
+---
+
+# x_hm_si_forecast
+
+written_by: 02_forecast/HM SI Forecast.py
+read_by:
+  - 02_forecast/OH Forecast Backtest.py
+  - 03_stock/OH Analisis de Stock.py
+
+granularity: (x_studio_team_id, x_studio_product_id, x_studio_target_week_start)
+
+key_fields:
+  - x_studio_team_id
+  - x_studio_product_id
+  - x_studio_target_week_start
+
+critical_fields:
+  x_studio_mu_week:
+    type: float
+    description: Pronóstico de unidades para la semana objetivo. Campo operativo principal.
+  x_studio_sigma_week:
+    type: float
+    description: Desviación estándar del pronóstico.
+  x_studio_si_current:
+    type: float
+    description: Índice estacional de la semana actual.
+  x_studio_si_next:
+    type: float
+    description: Índice estacional de la semana objetivo.
+  x_studio_si_level:
+    type: char
+    values: [sku, local_categ, categ_global, global]
+    description: Nivel jerárquico donde se resolvió el SI (por falta de datos en niveles inferiores).
+  x_studio_forecast_zone:
+    type: char
+    values: [Z1, Z2, Z3, Z4]
+    description: >
+      Router de tratamiento: Z1=core, Z2=controlled, Z3=secondary, Z4=no_forecast.
+      Ver HM_SI_v4_proceso.md para definición de cada zona.
+  x_studio_demand_method:
+    type: char
+    values: [heuristic, sba, croston, seasonal_naive]
+    description: Modelo ganador del bake-off AUTO_MODEL (v3.39). No disponible en versiones anteriores.
+  x_studio_regimen:
+    type: char
+    values: [REG-0, REG-1, REG-2, REG-3, REG-4, REG-5, REG-6, REG-7, REG-8]
+    description: Heredado de x_calculo_abc_xyz. DESCRIPTIVO — no afecta cálculo.
+  x_studio_collapse_detected:
+    type: boolean
+    description: True si se detectó colapso de demanda (SMA_corto/SMA_largo < 0.30). v3.37.
+
+refresh_policy:
+  trigger: productivo-core, paso 4 del pipeline (después de Price Correccion)
+  full_rebuild: true
+  advisory_lock: 99009438
+
+notes:
+  - >
+    x_studio_mu_week = 0 para Z4 (no_forecast). Stock Analisis debe tratar 0
+    como "sin señal" y no como demanda cero confirmada.
+  - >
+    El campo x_studio_regimen NO debe usarse para lógica de cálculo downstream.
+    Es solo para agrupación analítica en backtest.
+  - >
+    Backtest de referencia: v3.39 WAPE=66.94%, BIAS=-4.5% sobre conjunto de evaluación.
+    Ver CHANGELOG.md para historial de versiones y métricas.
