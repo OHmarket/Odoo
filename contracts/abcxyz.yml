@@ -1,0 +1,95 @@
+model: x_calculo_abc_xyz
+description: >
+  Segmentación ABC (valor) × XYZ (variabilidad de demanda) por SKU y equipo/sucursal.
+  Base obligatoria de todo el pipeline: forecast, análisis de stock y balance diario
+  leen esta tabla para obtener la clasificación vigente.
+
+written_by: 01_segmentacion/OH Calculo ABCXYZ.py
+read_by:
+  - 02_forecast/OH Price Correccion.py
+  - 02_forecast/HM SI Forecast.py
+  - 03_stock/OH Analisis de Stock.py
+  - 03_stock/Stock Balance Daily.py
+
+granularity: (x_studio_team_id, x_studio_product_id)
+# 1 registro por par (equipo, producto). Full rebuild por equipo en cada ejecución.
+
+key_fields:
+  - x_studio_team_id
+  - x_studio_product_id
+
+critical_fields:
+  x_studio_abcxyz:
+    type: char
+    example: "AX"
+    description: >
+      Concatenación ABC + XYZ. ABC clasifica por participación en ventas acumuladas
+      (Pareto 80/95/100). XYZ clasifica por coeficiente de variación de demanda semanal
+      (Syntetos-Boylan).
+  x_studio_abc_class:
+    type: char
+    values: [A, B, C]
+    description: A = top 80% ventas, B = 80–95%, C = resto.
+  x_studio_xyz_class:
+    type: char
+    values: [X, Y, Z]
+    description: X = demanda estable (CV²<0.5), Y = variable (0.5–1.0), Z = errática (>1.0).
+  x_studio_regimen:
+    type: char
+    values: [REG-0, REG-1, REG-2, REG-3, REG-4, REG-5, REG-6, REG-7, REG-8]
+    description: >
+      Régimen canónico de 9 segmentos derivado de ABCXYZ × series_type.
+      DESCRIPTIVO: NO interviene en el cálculo del forecast (per HM_SI_v4_proceso.md).
+      Se persiste en x_hm_si_forecast para análisis de WAPE por segmento.
+  x_studio_series_type:
+    type: char
+    values: [smooth, erratic, lumpy, no_signal]
+    description: Tipo de serie en ventana de 52 semanas (Syntetos-Boylan 2005).
+  x_studio_series_type_short:
+    type: char
+    values: [smooth, erratic, lumpy, no_signal]
+    description: Tipo de serie en ventana de 12 semanas (v19.4). Captura cambios recientes.
+  x_studio_series_type_active:
+    type: char
+    values: [smooth, erratic, lumpy, no_signal]
+    description: >
+      La serie que consume HM SI Forecast. Es series_type_short si difiere de
+      series_type (señal de cambio de comportamiento); si no difieren, usa series_type.
+  x_studio_gmroi:
+    type: float
+    description: Gross Margin Return on Investment. Snapshot al momento del cálculo.
+  x_studio_adi_weeks:
+    type: float
+    description: Average Demand Interval en semanas. Mide frecuencia de demanda no-cero.
+  x_studio_cv2:
+    type: float
+    description: Coeficiente de variación² de la demanda semanal.
+  x_studio_ciclo_de_vida:
+    type: char
+    values: [ramp_up, mature, declining, dead]
+    description: >
+      Ciclo de vida detectado comparando ventas recientes vs históricas.
+      HM SI Forecast usa esto para gate P1 (declining/dead → forecast = 0).
+  x_studio_snapshot_date:
+    type: date
+    description: Fecha del último cálculo completo.
+
+refresh_policy:
+  trigger: manual o cron semanal (antes del pipeline de forecast)
+  full_rebuild: true
+  advisory_lock: 99009611
+  notes: >
+    Borra y recrea todos los registros del equipo en cada ejecución.
+    Es el paso 1 del pipeline; si los datos son obsoletos, todo el downstream
+    (forecast, stock) trabaja con clasificaciones viejas.
+
+notes:
+  - >
+    Sin datos frescos de x_calculo_abc_xyz, HM SI Forecast falla en la carga del
+    router context (Z1/Z2/Z3/Z4) y Stock Analisis no puede filtrar por ABC.
+  - >
+    El campo x_studio_regimen es descriptivo. No debe usarse para lógica de cálculo;
+    sirve para agrupar resultados de backtest por segmento canónico.
+  - >
+    La versión v19.4 añade series_type_short (12 semanas). Scripts que solo leen
+    series_type (largo, 52 sem) siguen siendo compatibles.
