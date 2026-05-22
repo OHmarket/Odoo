@@ -1,0 +1,206 @@
+====================================================================================================
+TOP 300 SKUs POR VOLUMEN REAL (universo COMPLETO, sin filtrar bolsas)
+====================================================================================================
+Universo total SKUs           : 1,966
+Top 300 concentra            : 215,921 u  (76.7% del volumen)
+SKUs para 50% volumen         : 77
+SKUs para 80% volumen         : 351
+SKUs para 95% volumen         : 781
+
+Metricas Top 300:
+  Real total     : 215,921
+  Forecast total : 206,908
+  WAPE           : 56.47%
+  BIAS           : +4.17%
+
+====================================================================================================
+COMPOSICION del Top 300 por exclusion
+====================================================================================================
+En core limpio       : 148 SKUs  (84,206 u, WAPE 48.48%, BIAS +10.26%)
+En bolsa de ruido    : 152 SKUs  (131,715 u, WAPE 61.58%, BIAS +0.28%)
+
+====================================================================================================
+Por categoria L1 — Top 300
+====================================================================================================
+              categ_l1  skus       real      fcst   abs_err       err  wape_%  bias_%  %_real_top
+   Bebidas Alcohólicas   119 107,716.00 95,061.85 62,317.69 12,654.15   57.85   11.75       49.89
+Bebidas No Alcohólicas    84  43,960.00 41,814.67 19,185.72  2,145.33   43.64    4.88       20.36
+ Cigarrillos y Tabacos    35  31,749.00 38,731.18 17,054.39 -6,982.18   53.72  -21.99       14.70
+        Snack y Cóctel    32  10,928.00 10,380.08  8,702.76    547.92   79.64    5.01        5.06
+      Esenciales Hogar    12  10,043.00  7,642.35  6,069.40  2,400.65   60.43   23.90        4.65
+            Congelados     4   7,018.00  6,306.70  2,462.79    711.30   35.09   10.14        3.25
+               Impulso    14   4,507.00  6,971.24  6,137.26 -2,464.24  136.17  -54.68        2.09
+
+====================================================================================================
+Por abcxyz — Top 300
+====================================================================================================
+abcxyz  skus       real       fcst   abs_err       err  wape_%  bias_%  %_real_top
+    AX   199 154,238.00 156,633.03 74,432.98 -2,395.03   48.26   -1.55       71.43
+    AY    54  42,587.00  33,543.20 30,748.65  9,043.80   72.20   21.24       19.72
+    BY    20   7,568.00   6,073.15  6,184.43  1,494.85   81.72   19.75        3.50
+    BX    17   4,989.00   4,983.76  3,559.19      5.24   71.34    0.10        2.31
+    AZ     5   4,728.00   3,828.15  4,851.13    899.85  102.60   19.03        2.19
+    BZ     3   1,248.00   1,488.91  1,581.70   -240.91  126.74  -19.30        0.58
+    CY     1     332.00     247.15    348.77     84.85  105.05   25.56        0.15
+    CZ     1     231.00     110.72    223.17    120.28   96.61   52.07        0.11
+
+====================================================================================================
+Por series_type — Top 300
+====================================================================================================
+series_type  skus       real       fcst   abs_err       err  wape_%  bias_%  %_real_top
+     smooth   194 156,374.00 158,787.75 77,115.83 -2,413.75   49.31   -1.54       72.42
+      lumpy    43  34,416.00  22,629.52 24,597.14 11,786.48   71.47   34.25       15.94
+    erratic    62  23,866.00  25,019.36 19,328.39 -1,153.36   80.99   -4.83       11.05
+  no_signal     1   1,265.00     471.44    888.64    793.56   70.25   62.73        0.59
+
+====================================================================================================
+Por forecast_zone — Top 300
+====================================================================================================
+forecast_zone  skus       real       fcst   abs_err       err  wape_%  bias_%  %_real_top
+           Z1   215 158,942.00 161,466.68 77,769.31 -2,524.68   48.93   -1.59       73.61
+           Z2    51  41,884.00  32,642.45 29,910.98  9,241.55   71.41   22.06       19.40
+           Z3    23  12,397.00   9,853.14 11,158.65  2,543.86   90.01   20.52        5.74
+           Z4    11   2,698.00   2,945.81  3,091.06   -247.81  114.57   -9.18        1.25
+
+====================================================================================================
+Por importancia — Top 300
+====================================================================================================
+importancia  skus       real       fcst   abs_err      err  wape_%  bias_%  %_real_top
+    critico    91 128,092.00 120,917.49 62,189.37 7,174.51   48.55    5.60       59.32
+       alto   144  63,268.00  63,247.34 39,847.68    20.66   62.98    0.03       29.30
+      medio    61  23,334.00  21,666.89 18,850.11 1,667.11   80.78    7.14       10.81
+       bajo     4   1,227.00   1,076.36  1,042.85   150.64   84.99   12.28        0.57
+
+====================================================================================================
+Por ciclo_de_vida — Top 300
+====================================================================================================
+ciclo_de_vida  skus       real       fcst    abs_err      err  wape_%  bias_%  %_real_top
+       mature   296 211,112.00 205,303.84 118,361.56 5,808.16   56.07    2.75       97.77
+     seasonal     4   4,809.00   1,604.23   3,568.44 3,204.77   74.20   66.64        2.23
+
+====================================================================================================
+Por price_dynamics_segment — Top 300
+====================================================================================================
+price_dynamics_segment  skus       real       fcst   abs_err       err  wape_%  bias_%  %_real_top
+          stable_price   204 122,725.00 124,516.86 69,402.82 -1,791.86   56.55   -1.46       56.84
+moderate_price_changes    72  51,123.00  42,946.88 31,675.87  8,176.12   61.96   15.99       23.68
+   frequent_price_core    18  35,713.00  34,067.74 16,886.82  1,645.26   47.28    4.61       16.54
+ recent_price_unstable     6   6,360.00   5,376.60  3,964.50    983.40   62.33   15.46        2.95
+
+====================================================================================================
+CALIDAD DEL FORECAST — distribucion de WAPE del Top 300
+====================================================================================================
+             wape_bucket  skus      real      fcst       err  %_skus  %_real  bias_%
+          bueno (20-35%)    16 43,040.00 39,523.27  3,516.73    5.33   19.93    8.17
+      aceptable (35-50%)    57 45,415.00 46,355.62   -940.62   19.00   21.03   -2.07
+           malo (50-70%)   128 78,757.00 75,433.34  3,323.66   42.67   36.47    4.22
+      muy malo (70-100%)    76 42,548.00 35,239.39  7,308.61   25.33   19.71   17.18
+fuera de control (>100%)    23  6,161.00 10,356.46 -4,195.46    7.67    2.85  -68.10
+
+====================================================================================================
+BIAS — distribucion del Top 300
+====================================================================================================
+          bias_bucket  skus      real  %_skus  %_real
+ sobre fuerte (<-50%)    16  4,719.00    5.33    2.19
+    sobre (-50..-20%)    32 21,442.00   10.67    9.93
+sobre leve (-20..-5%)    70 40,573.00   23.33   18.79
+  calibrado (-5..+5%)    66 44,986.00   22.00   20.83
+  sub leve (+5..+20%)    67 61,491.00   22.33   28.48
+      sub (+20..+50%)    41 35,062.00   13.67   16.24
+   sub fuerte (>+50%)     8  7,648.00    2.67    3.54
+
+====================================================================================================
+LISTADO COMPLETO — Top 300 ordenado por volumen real
+====================================================================================================
+ rank                                                              product_id  real_total  fcst_total  wape_%  bias_% abcxyz series_type forecast_zone importancia ciclo_de_vida  es_ruido                                          categ_l2
+    1            [451500] CERVEZA ROYAL GUARD GOLDEN LAGER LATA UNIDAD 710 CC   12,621.00    7,113.12   77.96   43.64     AY       lumpy            Z2     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+    2                               [9430] CERVEZA QUILMES LATA UNIDAD 710 CC   12,525.00   10,904.20   26.94   12.94     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+    3                             [9413] CERVEZA BUDWEISER LATA UNIDAD 710 CC    6,807.00    7,064.55   64.17   -3.78     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+    4                      [9407] CERVEZA STELLA ARTOIS BOTELLA UNIDAD 660 CC    6,633.00    6,701.04   64.41   -1.03     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+    5                                 [HIELO GOURMET 1 KILO] HIELO HDOSO 1 KG    5,285.00    4,516.80   29.26   14.54     AX      smooth            Z1     critico        mature     False                                Congelados / Hielo
+    6                [9958] CERVEZA CUSQUEÑA GOLDEN LAGER LATA UNIDAD 710 CC.    4,846.00    4,112.30   63.87   15.14     AY      smooth            Z2     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+    7                                       [0136] BEBIDA COCA COLA DES 1.5 L    3,695.00    3,399.64   24.66    7.99     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+    8                          [78012523] CIGARRILLO PALL MALL AZUL 20 BLANDO    3,586.00    3,944.99   34.66  -10.01     AX      smooth            Z1     critico        mature      True                  Cigarrillos y Tabacos / Cigarros
+    9                    [10138154] CIGARRILLO LUCKY STRIKE PATTERSON BLUE 20    2,918.00    2,933.57   26.30   -0.53     AX      smooth            Z1     critico        mature      True                  Cigarrillos y Tabacos / Cigarros
+   10                                            [8005] VASO COCA-COLA 350 CC    2,751.00    3,311.44   66.26  -20.37     AX      smooth            Z1     critico        mature     False                       Esenciales Hogar / Despensa
+   11                       [451548] CERVEZA CRISTAL ULTRA LATA UNIDAD 710 CC    2,690.00      812.32   74.69   69.80     AZ       lumpy            Z3        alto      seasonal      True                    Bebidas Alcohólicas / Cervezas
+   12                                       [0143] BEBIDA COCA COLA DES 2.5 L    2,588.00    2,343.60   29.64    9.44     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   13                                 [10102124] CIGARRILLO PALL MALL AZUL 10    2,526.00    2,752.01   41.16   -8.95     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   14                               [10106938] CIGARRILLO KENT NEO BELMONT 20    1,824.00    2,173.22   36.15  -19.15     AX      smooth            Z1     critico        mature      True                  Cigarrillos y Tabacos / Cigarros
+   15                                    [9640] COCTEL CAPEL ICE APPLE 275 CC    1,812.00    1,519.25   54.16   16.16     AX      smooth            Z1     critico        mature     False          Bebidas Alcohólicas / Cócteles y Licores
+   16                                         [0154] BEBIDA COCA COLA DES 3 L    1,795.00    1,818.45   30.69   -1.31     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   17                                 [1963] ENERGETICA MONSTER ENERGY 473 CC    1,695.00    1,564.40   29.31    7.70     AX      smooth            Z1     critico        mature     False Bebidas No Alcohólicas / Isotónicas y Energéticas
+   18                                  [450237] CERVEZA CRISTAL LATA 6X470 CC    1,653.00    1,659.36   39.30   -0.38     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   19                       [10177120] CIGARRILLO PALL MALL SUNRISE MIX XL 20    1,558.00    1,737.26   40.41  -11.51     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   20                             [10091121] CIGARRILLO PALL MALL BOOST XL 20    1,555.00    1,892.45   47.74  -21.70     AX      smooth            Z1     critico        mature      True                  Cigarrillos y Tabacos / Cigarros
+   21                       [451381] CERVEZA ESCUDO SILVER LATA UNIDAD 710 CC    1,545.00    1,918.16   59.47  -24.15     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   22                                [AZ25-50000] ENCENDEDOR RONSON CLEARLITE    1,504.00    2,043.12   79.96  -35.85     AX      smooth            Z1     critico        mature      True                Cigarrillos y Tabacos / Accesorios
+   23                               [10116575] CIGARRILLO KENT NEO BELMONT 10    1,489.00    1,390.34   31.36    6.63     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   24                                          [0177] BEBIDA COCA COLA 591 CC    1,459.00    1,370.32   31.59    6.08     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   25                                  [9843] CERVEZA CORONA BOTELLA 6X330 CC    1,455.00    1,621.75   45.90  -11.46     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   26                              [450607] CERVEZA CRISTAL BOTELLA RET 1.2 L    1,439.00    1,703.10   52.80  -18.35     AY      smooth            Z2     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   27                               [450604] CERVEZA ESCUDO BOTELLA RET 1.2 L    1,412.00    1,466.79   51.02   -3.88     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   28                                          [0757] BEBIDA SPRITE DES 1.5 L    1,375.00    1,191.24   27.84   13.36     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   29                                [9414] CERVEZA BECKER LATA UNIDAD 710 CC    1,371.00    1,530.19   54.37  -11.61     AX     erratic            Z1        alto        mature      True                    Bebidas Alcohólicas / Cervezas
+   30                                  [9639] COCTEL CAPEL ICE BERRIES 275 CC    1,360.00      967.91   76.13   28.83     AY     erratic            Z2     critico        mature     False          Bebidas Alcohólicas / Cócteles y Licores
+   31                             [450850] CERVEZA PATAGONIA RED LAGER 470 CC    1,348.00    1,463.78   50.61   -8.59     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   32                          [798190253701] ENERGETICA SCORE GORILLA 473 CC    1,337.00    1,001.32   39.19   25.11     AX       lumpy            Z1     critico        mature     False Bebidas No Alcohólicas / Isotónicas y Energéticas
+   33                              [10159647] CIGARRILLO PALL MALL AZUL XL 20    1,326.00    1,622.61   47.82  -22.37     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   34                              [10107101] CIGARRILLO KENT NEO IKON MIX 20    1,324.00    1,785.40   48.99  -34.85     AX      smooth            Z1     critico        mature      True                  Cigarrillos y Tabacos / Cigarros
+   35                                 [HIELO GOURMET 2 KILO] HIELO HDOSO 2 KG    1,320.00    1,458.94   43.58  -10.53     AX      smooth            Z1     critico        mature     False                                Congelados / Hielo
+   36                        [1726] CERVEZA MICHELOB ULTRA LATA UNIDAD 710 CC    1,265.00      471.44   70.25   62.73     AZ   no_signal            Z3       medio      seasonal      True                    Bebidas Alcohólicas / Cervezas
+   37                           [450851] CERVEZA PATAGONIA HOPPY LAGER 470 CC    1,259.00    1,333.70   46.70   -5.93     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   38                           [447042] COCTEL MISTRAL ICE BLEND LATA 355 CC    1,243.00    1,048.22   38.25   15.67     AX      smooth            Z1     critico        mature     False          Bebidas Alcohólicas / Cócteles y Licores
+   39                     [10168963] CIGARRILLO LUCKY STRIKE COMPACT CLICK 20    1,186.00    1,460.04   49.98  -23.11     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   40                                     [0161] BEBIDA COCA COLA LATA 350 CC    1,149.00    1,154.95   40.45   -0.52     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   41                                  [0377] BEBIDA COCA COLA ZERO DES 1.5 L    1,138.00    1,006.76   32.66   11.53     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   42                             [502657] BROWNIE NUTRA BIEN BRAUNICHOC 35 G    1,111.00      566.20   57.95   49.04     AY     erratic            Z2        alto        mature     False                      Esenciales Hogar / Panadería
+   43                                          [445761] PISCO MISTRAL 35º 1 L    1,086.00      918.02   33.10   15.47     AX      smooth            Z1     critico        mature     False                  Bebidas Alcohólicas / Destilados
+   44                                [10102304] CIGARRILLO PALL MALL BOOST 10    1,082.00    1,445.64   56.18  -33.61     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   45                 [451216] CERVEZA AUSTRAL CALAFATE BOTELLA UNIDAD 500 CC    1,057.00    1,150.51   43.56   -8.85     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   46                                      [870409] ENERGETICA REDBULL 250 CC    1,030.00      919.74   33.24   10.70     AX      smooth            Z1     critico        mature     False Bebidas No Alcohólicas / Isotónicas y Energéticas
+   47                                         [BOLSAMEDIANA] BOLSA MEDIANA OH    1,016.00    1,094.80   42.07   -7.76     AY       lumpy            Z2     critico        mature     False                   Esenciales Hogar / Aseo y Otros
+   48                         [451395] CERVEZA ROYAL GUARD LATA UNIDAD 710 CC    1,012.00      660.61   57.12   34.72     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   49                                   [447076] COCTEL 3R ICE BERRIES 275 CC      997.00      563.95   56.15   43.44     AY       lumpy            Z2       medio        mature     False          Bebidas Alcohólicas / Cócteles y Licores
+   50                     [451269] CERVEZA DOLBEK MAQUI BOTELLA UNIDAD 500 CC      994.00    1,007.48   46.37   -1.36     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   51                                   [9646] COCTEL CAPEL ICE SANDÍA 275 CC      972.00      713.53   59.12   26.59     AY       lumpy            Z2        alto        mature     False          Bebidas Alcohólicas / Cócteles y Licores
+   52                          [10119781] CIGARRILLO PALL MALL CLICK ON XL 20      961.00    1,276.09   56.33  -32.79     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   53                                   [447085] COCTEL 3R ICE MANZANA 275 CC      926.00      669.10   47.81   27.74     AY       lumpy            Z2       medio        mature     False          Bebidas Alcohólicas / Cócteles y Licores
+   54                            [451430] CERVEZA HEINEKEN LATA UNIDAD 710 CC      921.00      964.34   51.39   -4.71     AX      smooth            Z1        alto        mature      True                    Bebidas Alcohólicas / Cervezas
+   55                                [10107016] CIGARRILLO KENT NEO TROPIC 20      889.00    1,269.69   60.13  -42.82     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   56                             [451394] CERVEZA CRISTAL LATA UNIDAD 710 CC      882.00    1,022.32   49.34  -15.91     AY      smooth            Z2     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   57                             [9448] CERVEZA CORONA BOTELLA UNIDAD 620 CC      863.00      815.92   49.59    5.46     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   58                                  [1966] ENERGETICA MONSTER ULTRA 473 CC      861.00      816.54   37.54    5.16     AX      smooth            Z1     critico        mature     False Bebidas No Alcohólicas / Isotónicas y Energéticas
+   59                              [450684] CERVEZA ROYAL GUARD LATA 6X470 CC      858.00      545.88   49.81   36.38     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   60                               [871335] ENERGETICA REDBULL YELLOW 250 CC      831.00      844.25   51.39   -1.59     AX      smooth            Z1     critico        mature     False Bebidas No Alcohólicas / Isotónicas y Energéticas
+   61                                           [24956] BIZCOCHO GANSITO 50 G      830.00      394.83   54.94   52.43     BY       lumpy            Z3       medio        mature     False                      Esenciales Hogar / Panadería
+   62                                          [964669] BIZCOCHO MANKEKE 90 G      812.00      400.32   54.21   50.70     AY      smooth            Z2        alto        mature     False                      Esenciales Hogar / Panadería
+   63                                      [7845] JUGO KAPO FRAMBRUESA 252 CC      812.00      774.61   40.16    4.60     AX      smooth            Z1        alto        mature     False                    Bebidas No Alcohólicas / Jugos
+   64                                          [0759] BEBIDA SPRITE DES 2.5 L      810.00      726.42   30.45   10.32     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   65                 [14004770] CERVEZA ODISSEA AMBER ALE LATA UNIDAD 470 CC      805.00      625.84   54.67   22.26     AX     erratic            Z1        alto        mature      True                    Bebidas Alcohólicas / Cervezas
+   66                                       [9093] WHISKEY JACK & COKE 350 CC      793.00      767.78   53.64    3.18     AX     erratic            Z1        alto        mature     False                  Bebidas Alcohólicas / Destilados
+   67                                            [25746] ALFAJOR LAGUITO 70 G      784.00      467.95   46.59   40.31     AY     erratic            Z2        alto        mature      True            Snack y Cóctel / Galletas y Colaciones
+   68       [450855] CERVEZA KUNSTMANN VALDIVIA PALE LAGER LATA UNIDAD 470 CC      772.00      802.27   51.90   -3.92     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   69                                              [501601] ALFAJOR ALFI 60 G      761.00      412.13   55.73   45.84     AY     erratic            Z2       medio        mature      True            Snack y Cóctel / Galletas y Colaciones
+   70                             [10102361] CIGARRILLO PALL MALL CLICK ON 10      740.00      984.74   65.97  -33.07     AX      smooth            Z1       medio        mature      True                  Cigarrillos y Tabacos / Cigarros
+   71                                   [447077] COCTEL 3R ICE GUARANA 275 CC      732.00      458.71   51.40   37.34     BY       lumpy            Z3       medio        mature     False          Bebidas Alcohólicas / Cócteles y Licores
+   72                [451453] CERVEZA LEMON STONES BERRIES LATA UNIDAD 470 CC      726.00      797.97   52.78   -9.91     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   73                                           [5380] BIZCOCHO PINGUINO 80 G      720.00      421.82   55.25   41.41     AY       lumpy            Z2        alto        mature     False                      Esenciales Hogar / Panadería
+   74                                 [871037] ENERGETICA REDBULL ACAI 250 CC      703.00      599.71   42.06   14.69     AX      smooth            Z1     critico        mature     False Bebidas No Alcohólicas / Isotónicas y Energéticas
+   75                            [450592] CERVEZA ESCUDO SILVER LATA 6X470 CC      703.00      748.83   45.66   -6.52     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   76                                  [0378] BEBIDA COCA COLA ZERO DES 2.5 L      697.00      605.48   36.02   13.13     AX      smooth            Z1     critico        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   77                          [9522] PISCO ALTO DEL CARMEN ROBLE DEL SUR 1 L      665.00      463.14   40.36   30.36     AX      smooth            Z1     critico        mature     False                  Bebidas Alcohólicas / Destilados
+   78                                            [965265] BIZCOCHO ROLLO 32 G      658.00      239.00   71.64   63.68     BY       lumpy            Z3       medio        mature     False                      Esenciales Hogar / Panadería
+   79                                 [2233] AGUA MINERAL VITAL CON GAS 1.6 L      656.00      600.06   39.14    8.53     AX      smooth            Z1     critico        mature     False                    Bebidas No Alcohólicas / Aguas
+   80                        [502660] BROWNIE NUTRA BIEN CHIPS CHOCOLATE 62 G      652.00      433.45   53.59   33.52     AY     erratic            Z2        alto        mature      True                     Impulso / Chocolates y Dulces
+   81                           [450916] CERVEZA PATAGONIA BLACK LAGER 470 CC      647.00      672.06   66.38   -3.87     AX     erratic            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   82                                  [10107043] CIGARRILLO KENT NEO ROSE 20      645.00    1,014.98   75.29  -57.36     AX      smooth            Z1        alto        mature      True                  Cigarrillos y Tabacos / Cigarros
+   83               [450749] CERVEZA KUNSTMANN TOROBAYO BOTELLA UNIDAD 500 CC      627.00      680.12   47.59   -8.47     AX      smooth            Z1     critico        mature      True                    Bebidas Alcohólicas / Cervezas
+   84                            [451523] CERVEZA COORS BOTELLA UNIDAD 620 CC      623.00      209.75   71.84   66.33     BZ       lumpy            Z3       medio      seasonal      True                    Bebidas Alcohólicas / Cervezas
+   85                     [300064531] PAPAS FRITAS LAYS CORTE AMERICANO 330 G      605.00      573.39   96.12    5.22     AY     erratic            Z2        alto        mature      True                   Snack y Cóctel / Snack y Cóctel
+   86                                [2218] AGUA MINERAL VITAL CON GAS 600 CC      598.00      581.10   48.31    2.83     AX      smooth            Z1     critico        mature     False                    Bebidas No Alcohólicas / Aguas
+   87                 [7802100004680] CERVEZA LEMON STONES LATA UNIDAD 470 CC      583.00      662.53   49.26  -13.64     AX      smooth            Z1        alto        mature      True                    Bebidas Alcohólicas / Cervezas
+   88                                         [0173] BEBIDA COCA COLA DES 1 L      575.00      642.45   40.57  -11.73     AX      smooth            Z1        alto        mature     False         Bebidas No Alcohólicas / Bebidas Gaseosas
+   89                                            [23355] BIZCOCHO RAYITA 60 G      571.00      298.57   61.75   47.71     BY     erratic            Z3       medio        mature     False                      Esenciales Hogar / Panadería
+   90                          [10102204] CIGARRILLO PALL MALL ROJO 20 BLANDO      568.00      883.44   85.83  -55.53     AX      smooth            Z1       medio        mature      True                  Cigarrillos y Tabacos / Cigarros
+   91     

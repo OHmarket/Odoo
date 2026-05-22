@@ -1,0 +1,160 @@
+==========================================================================================
+1. ESTRUCTURA
+==========================================================================================
+Filas: 20,391
+Columnas (37):
+  Created on
+  ciclo_de_vida
+  series_type
+  abcxyz
+  regimen
+  forecast_zone
+  forecast_scope_reason
+  forecast_model_code
+  forecast_scope
+  mu_week_price_delta
+  price_elasticity_used
+  price_adj_factor_max
+  price_adj_factor_min
+  price_adjust_enabled
+  mu_week_pre_bias
+  units_sold_adjusted
+  price_adj_factor_avg
+  price_adjust_weeks
+  price_current_eff
+  price_events_12w
+  price_events_104w
+  price_dynamics_segment
+  si_level
+  si_sku_factor
+  si_main_factor
+  sigma_week
+  mu_week
+  week_start
+  categ_id
+  product_id
+  team_id
+  si_n_years
+  si_next
+  si_current
+  sigma_base
+  mu_base
+  Descripción
+
+==========================================================================================
+2. CAMPOS DETECTADOS
+==========================================================================================
+  team_id                   -> team_id    [OK]
+  product_id                -> product_id    [OK]
+  week_start                -> week_start    [OK]
+  mu_week                   -> mu_week    [OK]
+  mu_week_pre_bias          -> mu_week_pre_bias    [OK]
+  sigma_week                -> sigma_week    [OK]
+  forecast_zone             -> forecast_zone    [OK]
+  regimen                   -> regimen    [OK]
+  forecast_model_code       -> forecast_model_code    [OK]
+  abcxyz                    -> abcxyz    [OK]
+  series_type               -> series_type    [OK]
+  ciclo_de_vida             -> ciclo_de_vida    [OK]
+
+==========================================================================================
+3. DISTRIBUCION POR REGIMEN
+==========================================================================================
+  REG-1: 5,616
+  REG-2: 3,947
+  REG-0: 2,589
+  REG-4: 2,360
+  REG-3: 1,824
+  REG-8: 1,797
+  REG-7: 1,565
+  REG-6: 483
+  REG-5: 210
+
+==========================================================================================
+4. DISTRIBUCION POR FORECAST_MODEL_CODE
+==========================================================================================
+  hw_a020_b010_g015               5,616 ( 27.5%)
+  hw_a025_b010_g015               3,947 ( 19.4%)
+  no_forecast                     2,589 ( 12.7%)
+  hw_a040_b010_g015               2,360 ( 11.6%)
+  hw_a030_b010_g010               1,824 (  8.9%)
+  hw_seasonal_a020_g030           1,797 (  8.8%)
+  sba_a005                        1,565 (  7.7%)
+  sba_a010                          483 (  2.4%)
+  sba_a015                          210 (  1.0%)
+
+  >> HW triple activo en: 15,544 SKUs (76.2%)
+  >> SBA (lumpy/intermittent): 2,258 SKUs (11.1%)
+  >> no_forecast (REG-0): 2,589 SKUs
+
+==========================================================================================
+5. DISTRIBUCION POR FORECAST_ZONE (deberia ser identica a regimen)
+==========================================================================================
+  REG-1: 5,616
+  REG-2: 3,947
+  REG-0: 2,589
+  REG-4: 2,360
+  REG-3: 1,824
+  REG-8: 1,797
+  REG-7: 1,565
+  REG-6: 483
+  REG-5: 210
+
+==========================================================================================
+6. CRUCE regimen x model_code
+==========================================================================================
+forecast_model_code  hw_a020_b010_g015  hw_a025_b010_g015  hw_a030_b010_g010  hw_a040_b010_g015  hw_seasonal_a020_g030  no_forecast  sba_a005  sba_a010  sba_a015
+regimen                                                                                                                                                          
+REG-0                                0                  0                  0                  0                      0         2589         0         0         0
+REG-1                             5616                  0                  0                  0                      0            0         0         0         0
+REG-2                                0               3947                  0                  0                      0            0         0         0         0
+REG-3                                0                  0               1824                  0                      0            0         0         0         0
+REG-4                                0                  0                  0               2360                      0            0         0         0         0
+REG-5                                0                  0                  0                  0                      0            0         0         0       210
+REG-6                                0                  0                  0                  0                      0            0         0       483         0
+REG-7                                0                  0                  0                  0                      0            0      1565         0         0
+REG-8                                0                  0                  0                  0                   1797            0         0         0         0
+
+==========================================================================================
+7. RANGOS DE MU_WEEK
+==========================================================================================
+count    20391.000000
+mean         1.906582
+std          7.435985
+min          0.000000
+10%          0.000000
+25%          0.000000
+50%          0.292756
+75%          1.422402
+90%          4.027419
+95%          7.681717
+99%         23.798300
+max        281.923946
+
+  mu_week == 0: 5,802 (28.5%)
+  mu_week > 0 : 14,589
+
+  mu_week_pre_bias == mu_week: 20,391 (100.0%)
+  (en v4.1 deben ser iguales — no hay clamps que difieran)
+
+==========================================================================================
+8. COBERTURA
+==========================================================================================
+  Teams unicos:    12
+  Productos unicos:1962
+  Pares (team, prod): 20,391
+
+==========================================================================================
+9. SANITY CHECK — forecast > 0 por regimen
+==========================================================================================
+  REG-0: n=2,589  con_forecast>0=0 (  0.0%)  mu_avg=  0.00  mu_max=    0.0
+  REG-1: n=5,616  con_forecast>0=5,401 ( 96.2%)  mu_avg=  5.43  mu_max=  281.9
+  REG-2: n=3,947  con_forecast>0=3,264 ( 82.7%)  mu_avg=  1.04  mu_max=   24.1
+  REG-3: n=1,824  con_forecast>0=1,252 ( 68.6%)  mu_avg=  0.45  mu_max=   10.5
+  REG-4: n=2,360  con_forecast>0=1,209 ( 51.2%)  mu_avg=  0.51  mu_max=   23.2
+  REG-5: n=210  con_forecast>0=202 ( 96.2%)  mu_avg=  1.19  mu_max=   16.0
+  REG-6: n=483  con_forecast>0=445 ( 92.1%)  mu_avg=  0.36  mu_max=    3.3
+  REG-7: n=1,565  con_forecast>0=1,345 ( 85.9%)  mu_avg=  0.27  mu_max=    7.4
+  REG-8: n=1,797  con_forecast>0=1,471 ( 81.9%)  mu_avg=  0.76  mu_max=   93.0
+
+DONE.

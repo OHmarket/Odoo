@@ -1,0 +1,112 @@
+==========================================================================================
+Universo: 80,689 filas | semanas: 3 | teams: 12
+==========================================================================================
+
+==========================================================================================
+1. METRICAS GLOBALES POR METHOD
+==========================================================================================
+                        scenario     n   real   forecast  wape_%  bias_%  fcst_vs_real_%
+         hm_si (todas las filas) 60298 111436 198,871.14  135.54  -78.46           78.46
+hm_si (activas: real>0 o fcst>0) 46421 111436 198,871.14  135.54  -78.46           78.46
+           old (todas las filas) 20391  32548  42,712.70   80.77  -31.23           31.23
+  old (activas: real>0 o fcst>0) 16541  32548  42,712.70   80.77  -31.23           31.23
+
+==========================================================================================
+2. COBERTURA POR METHOD
+==========================================================================================
+  method=hm_si: SKUs=1,966  teams=12  pares(team,sku)=20,534  semanas=3
+  method=old: SKUs=1,962  teams=12  pares(team,sku)=20,391  semanas=1
+
+==========================================================================================
+3. COMPOSICION POR BUCKET (cuentas)
+==========================================================================================
+method              hm_si    old
+bucket                          
+forecast_sin_venta  25712  10369
+sin_movimiento      13877   3850
+vendio_y_forecast   19517   6049
+venta_sin_forecast   1192    123
+
+  Tasa de cobertura del forecast (cuando hubo venta):
+  hm_si: ventas con forecast 19,517/20,709 (94.2%); ventas sin forecast 1,192/20,709 (5.8%)
+  old: ventas con forecast 6,049/6,172 (98.0%); ventas sin forecast 123/6,172 (2.0%)
+
+==========================================================================================
+4. METRICAS HM-SI POR REGIMEN
+==========================================================================================
+   regimen     n  real   forecast   wape_%    bias_%  fcst_vs_real_%
+     REG-0  2586    16       0.00   100.00    100.00         -100.00
+     REG-1  5616 25468  44,847.35   133.84    -76.09           76.09
+     REG-2  3943  3593   6,364.86   164.56    -77.15           77.15
+     REG-3  1818   730     994.90   160.30    -36.29           36.29
+     REG-4  2360  1150   1,960.07   165.21    -70.44           70.44
+     REG-5   210    14     291.01 2,071.76 -1,978.66        1,978.66
+     REG-6   481    21     178.26   899.76   -748.87          748.87
+     REG-7  1565   131     449.95   410.10   -243.47          243.47
+     REG-8  1783  1381   1,342.37   115.94      2.80           -2.80
+NaN (gaps) 39936 78932 142,442.37   133.46    -80.46           80.46
+
+==========================================================================================
+5. COMPARATIVA PAREADA — solo filas con MATCH (mismo team+product+week en ambos)
+==========================================================================================
+
+  Filas pareadas: 20,391
+  Real coherente entre metodos: 100.0%
+
+  WAPE hm_si: 140.55%  vs  WAPE old: 80.77%   delta: +59.78 pp
+  BIAS hm_si: -73.37%  vs  BIAS old: -31.23%   delta: -42.14 pp
+  Forecast hm_si: 56,429  |  OLD: 42,713  |  Real: 32,548
+
+  Por regimen (solo filas pareadas con regimen poblado):
+regimen    n  real  wape_hm_si_%  wape_old_%  bias_hm_si_%  bias_old_%  delta_wape_pp
+  REG-0 2586    16        100.00    1,093.63        100.00     -945.71        -993.63
+  REG-1 5616 25468        133.84       67.44        -76.09      -29.12          66.39
+  REG-2 3943  3593        164.56      125.85        -77.15      -44.62          38.72
+  REG-3 1818   730        160.30      150.37        -36.29      -28.30           9.93
+  REG-4 2360  1150        165.21      150.12        -70.44      -65.06          15.09
+  REG-5  210    14      2,071.76      586.57     -1,978.66     -438.63       1,485.19
+  REG-6  481    21        899.76      392.26       -748.87     -261.09         507.50
+  REG-7 1565   131        410.10      200.52       -243.47      -51.96         209.57
+  REG-8 1783  1381        115.94       81.16          2.80        7.26          34.78
+
+==========================================================================================
+6. TOP 15 SKUs donde HM-SI MEJORA mas vs OLD (delta abs_err agregado)
+==========================================================================================
+                                              product_id  n  real  abs_err_hm  abs_err_old  fcst_hm  fcst_old  delta_abs_err  wape_hm  wape_old
+[9958] CERVEZA CUSQUEÑA GOLDEN LAGER LATA UNIDAD 710 CC. 12    42      526.26       753.54   568.26    795.54        -227.29 1,252.99  1,794.15
+                          [5142668] CHOCOLATE CHUBI 20 G 11     0        2.46        30.26     2.46     30.26         -27.80      NaN       NaN
+                    [5115318] CHICLE BIGTIME REFRESCANTE 12     0       20.50        47.96    20.50     47.96         -27.46      NaN       NaN
+     [10168963] CIGARRILLO LUCKY STRIKE COMPACT CLICK 20 12    66      101.09       126.55   167.09    192.55         -25.46   153.17    191.74
+     [300064531] PAPAS FRITAS LAYS CORTE AMERICANO 330 G 12     0       77.73        99.25    77.73     99.25         -21.51      NaN       NaN
+                [5151151] CHOCOLATE BON O BON LECHE 15 G 12     0        9.47        30.89     9.47     30.89         -21.42      NaN       NaN
+      [871342] ENERGETICA REDBULL FRUTA DE DRAGON 250 CC 12    13       11.53        32.58    13.91     44.83         -21.06    88.67    250.64
+                     [5168470] GALLETA SELZ CLASICA 35 G 12     3        8.86        29.43     8.44     31.80         -20.57   295.47    980.97
+           [10189131] CIGARRILLO LUCKY STRIKE ECLIPSE 20 12    22       48.16        68.46    65.78     83.13         -20.30   218.90    311.18
+                      [7843029] CHOCOLATE TIFANY'S 20 G  11     1        3.10        22.10     2.10     23.10         -19.00   309.66  2,209.58
+            [5151292] CHOCOLATE BON O BON CHOCOLATE 15 G 11     1       15.77        34.49    16.77     35.49         -18.72 1,576.64  3,448.54
+             [451394] CERVEZA CRISTAL LATA UNIDAD 710 CC 12   100       62.37        79.44    51.85    173.51         -17.07    62.37     79.44
+                        CIGARRILLO LUCKY STRIKE AMBER 20 12     0       11.87        28.47    11.87     28.47         -16.59      NaN       NaN
+                           [5138079] CARAMELO ALKA MENTA 12     0        8.14        24.04     8.14     24.04         -15.90      NaN       NaN
+                           [5115322] CHICLE BIGTIME AQUA 12     0       26.89        42.70    26.89     42.70         -15.81      NaN       NaN
+
+==========================================================================================
+7. TOP 15 SKUs donde HM-SI EMPEORA mas vs OLD
+==========================================================================================
+                                                  product_id  n  real  abs_err_hm  abs_err_old  fcst_hm  fcst_old  delta_abs_err  wape_hm  wape_old
+                 [9413] CERVEZA BUDWEISER LATA UNIDAD 710 CC 12   943    2,607.88       312.40 3,534.51  1,070.02       2,295.48   276.55     33.13
+                     [450298] CERVEZA CRISTAL LATA 12X470 CC 12    47    1,354.22        33.40 1,401.22     67.07       1,320.82 2,881.33     71.07
+                   [9430] CERVEZA QUILMES LATA UNIDAD 710 CC 12  1168      898.88       447.20 1,085.23  1,594.07         451.68    76.96     38.29
+                   [451105] CERVEZA COORS LATA UNIDAD 710 CC 12    69      462.58        31.70   515.58     69.71         430.87   670.40     45.95
+          [9407] CERVEZA STELLA ARTOIS BOTELLA UNIDAD 660 CC 12  1371      824.54       455.43   780.45  1,019.47         369.11    60.14     33.22
+                                [8005] VASO COCA-COLA 350 CC 12   341      517.54       167.30   646.21    413.03         350.24   151.77     49.06
+[451500] CERVEZA ROYAL GUARD GOLDEN LAGER LATA UNIDAD 710 CC 12   142    1,493.20     1,152.14 1,635.20  1,294.14         341.06 1,051.55    811.37
+                           [0143] BEBIDA COCA COLA DES 2.5 L 12   373      375.17        81.37   624.97    375.46         293.80   100.58     21.82
+                    [AZ25-50000] ENCENDEDOR RONSON CLEARLITE 12   314      383.22       100.54   467.44    243.34         282.69   122.05     32.02
+                     [HIELO GOURMET 1 KILO] HIELO HDOSO 1 KG 12   632      413.79       135.83   651.31    726.08         277.96    65.47     21.49
+   [300058912] PAPAS FRITAS LAYS ARTESANAS SALSA VERDE 150 G 12     3      264.84        21.68   267.84     23.35         243.16 8,827.99    722.64
+                    [9414] CERVEZA BECKER LATA UNIDAD 710 CC 12    88      329.18        89.86   387.23    172.92         239.32   374.07    102.11
+                              [0177] BEBIDA COCA COLA 591 CC 12   209      273.60        41.80   419.02    217.33         231.81   130.91     20.00
+        [10138154] CIGARRILLO LUCKY STRIKE PATTERSON BLUE 20 12   370      303.19        80.35   537.26    421.73         222.84    81.94     21.72
+                 [300060146] PAPAS FRITAS LAYS KETCHUP 180 G 11     0      227.12         8.45   227.12      8.45         218.67      NaN       NaN
+
+DONE.

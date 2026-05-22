@@ -1,0 +1,57 @@
+
+Fix A — SKUs (product,team) constantes en cola: 1,147
+        Cobertura: 14,919 u real / 34,083 u cola
+
+Fix B — filas BZ-lumpy: 1,723 | AZ-lumpy: 563 | CZ-lumpy: 4,305
+
+Fix C — SKUs rescate (forecast siempre 0, venta en >=2 sem): 84
+        Cobertura demanda: 233 u
+
+================================================================================
+RESULTADOS — METRICAS COLA
+================================================================================
+                       scenario      real      fcst   abs_err  wape_%  bias_%  delta_wape_pp  delta_bias_pp
+                  BASELINE cola 34,083.00 29,380.67 34,381.67  100.88   13.80           0.00           0.00
+FIX A — reclasificar constantes 34,083.00 34,321.45 32,502.34   95.36   -0.70          -5.51         -14.50
+         FIX A — variante 0.85x 34,083.00 32,083.60 32,565.90   95.55    5.87          -5.33          -7.93
+  FIX B — revertir caps BZ y AZ 34,083.00 29,578.18 34,516.95  101.27   13.22           0.40          -0.58
+ FIX C — rescate Z4 no_forecast 34,083.00 29,613.67 34,439.48  101.05   13.11           0.17          -0.68
+            FIX A+B+C combinado 34,083.00 34,690.27 32,686.05   95.90   -1.78          -4.97         -15.58
+
+================================================================================
+RESULTADOS — METRICAS CORE COMPLETO (cabeza no cambia)
+================================================================================
+      scenario       real       fcst   abs_err  wape_%  bias_%  delta_wape_pp  delta_bias_pp
+ CORE baseline 120,147.00 115,106.68 77,631.31   64.61    4.20           0.00           0.00
+CORE con A+B+C 120,147.00 120,416.28 75,935.69   63.20   -0.22          -1.41          -4.42
+
+================================================================================
+DESCOMPOSICION — efecto incremental al aplicar fixes en orden A -> B -> C
+================================================================================
+     scenario      real      fcst   abs_err  wape_%  bias_%  delta_wape_pp  delta_bias_pp
+BASELINE cola 34,083.00 29,380.67 34,381.67  100.88   13.80           0.00           0.00
+       Solo A 34,083.00 34,321.45 32,502.34   95.36   -0.70          -5.51         -14.50
+        A + B 34,083.00 34,514.02 32,626.99   95.73   -1.26          -5.15         -15.06
+    A + B + C 34,083.00 34,730.02 32,696.80   95.93   -1.90          -4.94         -15.70
+
+================================================================================
+VALIDACION FIX A — Top 15 sub-forecast en cola DESPUES de Fix A
+================================================================================
+                                                          product_id   real  fcst_post  abs_err_post  err_post
+[7802175001645] COCTEL MISTRAL ICE SUPER FRUIT BOTELLA UNIDAD 275 CC 169.00      78.41        141.83     90.59
+                                         [965262] BIZCOCHO TKCH 34 G 378.00     332.08        238.58     45.92
+                               [9637] COCTEL CAPEL ICE MOJITO 275 CC 171.00     128.59        221.97     42.41
+                                         [C593-6] PILA PANASONIC AAA  53.00      18.37         61.41     34.63
+                       [871268] BEBIDA TÉ FRÍO LIPTON DURAZNO 600 CC  65.00      38.52         72.66     26.48
+                      [9645] COCTEL ALTO DEL CARMEN ICE LEMON 310 CC  75.00      49.37         84.40     25.63
+                                  ENERGETICA SCORE CUBA LIBRE 473 CC  84.00      59.25         70.47     24.75
+                  [12292621] HELADO CRAZY SANGURUCHO VAINILLA 125 ML 112.00      89.27         82.12     22.73
+       [7808704700065] VINO MISIONES DE RENGO SAUVIGNON BLANC 750 CC  41.00      18.61         34.96     22.39
+             [6258] VINO 120 TRES MEDALLAS CABERNET SAUVIGNON 700 CC  39.00      17.16         45.23     21.84
+                               [447077] COCTEL 3R ICE GUARANA 275 CC 352.00     331.46        144.14     20.54
+[DPSB65] VINO DOÑA DOMINGA CLÁSICO DE FAMILIA SAUVIGNON BLANC 750 CC  52.00      31.88         70.64     20.12
+                               [12317444] HELADO CRAZY FLOCOS 170 ML  71.00      51.54         71.43     19.46
+                         [445759] COCTEL MISTRAL ICE ENERGY 4X275 CC  73.00      53.82         72.82     19.18
+ [DG CS 57] VINO DOÑA DOMINGA GRAN RESERVA CABERNET SAUVIGNON 750 CC  34.00      14.98         40.08     19.02
+
+DONE.

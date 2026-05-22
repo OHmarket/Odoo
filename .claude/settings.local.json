@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python -)",
+      "Bash(python -c \"import pandas as pd; df = pd.read_excel\\(r'c:/Users/sanhu/Mi unidad/Proyectos/Desarrollo/Odoo Produccion/OH Forecast Backtest \\(x_forecast_backtest\\) \\(4\\).xlsx'\\); print\\(df.shape\\); print\\(df.columns.tolist\\(\\)\\)\")",
+      "Bash(python)",
+      "Bash(python -c \"import pandas as pd; df = pd.read_excel\\('OH Forecast Backtest \\(x_forecast_backtest\\) \\(5\\).xlsx'\\); print\\(df.shape\\); print\\(df.columns.tolist\\(\\)\\); print\\(df.dtypes\\); print\\(df.head\\(3\\)\\)\")",
+      "Bash(python -c \"import pandas as pd; df = pd.read_excel\\('c:/Users/sanhu/Mi unidad/Proyectos/Desarrollo/Odoo Produccion/OH Forecast Backtest \\(x_forecast_backtest\\) \\(5\\).xlsx'\\); print\\('Shape:', df.shape\\); print\\('Cols:'\\); [print\\(' ', c\\) for c in df.columns]\")",
+      "Bash(powershell -Command \"Get-Item 'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\OH Forecast Backtest \\(x_forecast_backtest\\).csv' | Select-Object Length, LastWriteTime\")",
+      "Bash(powershell -Command \"Get-Content 'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\OH Forecast Backtest \\(x_forecast_backtest\\).csv' -TotalCount 3\")",
+      "Bash(powershell -Command \"\\(Get-Content 'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\OH Forecast Backtest \\(x_forecast_backtest\\).csv' | Measure-Object -Line\\).Lines\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(r'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\5- HM SI Forecast.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_forecast_baselines.py\")",
+      "Bash(powershell -Command \"Get-Item 'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\OH Forecast Backtest \\(x_forecast_backtest\\) \\(6\\).xlsx' | Select-Object Length, LastWriteTime\")",
+      "Bash(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_zone_check.py\")",
+      "Bash(tee \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_zone_check.txt\")",
+      "Bash(powershell -Command \"Copy-Item 'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\4- OH Forecast Backtest.py' -Destination 'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\OH_Forecast_Backtest_v11_0_PERF_referencia.py'; Get-Item 'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\OH_Forecast_Backtest_v11_0_PERF_referencia.py' | Select-Object Length\")",
+      "PowerShell(Copy-Item \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\5- HM SI Forecast.py\" \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\HM_SI_v4_3_canonical_descartado.py\")",
+      "PowerShell(Copy-Item \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\HM_SI_v3_24_referencia.py\" \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\5- HM SI Forecast.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_v325_reg8_fix.py\")",
+      "PowerShell($df = Import-Csv \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_abc_alarmas.csv\" -Delimiter ',' | Select-Object -First 1; $df.PSObject.Properties.Name -join \"`n\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_importancia_revenue_proxy.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_z1_eq_abc_a.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_matriz_abcxyz.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_columna_x.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_precios_promos.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_precios_cervezas.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_bt_cervezas_direccion.py\")",
+      "PowerShell(python \"c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\analisis backtest\\\\2026-05-12\\\\_detector_v4.py\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(r'c:\\\\Users\\\\sanhu\\\\Mi unidad\\\\Proyectos\\\\Desarrollo\\\\Odoo Produccion\\\\7- OH Price Correccion.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python _bt_v329_vs_baseline.py)",
+      "Bash(python _forecast_cero_con_ventas.py)",
+      "Bash(python _bt_v331_real.py)",
+      "Bash(python _z4_mature_anomalos.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(r'c:/Users/sanhu/Mi unidad/Proyectos/Desarrollo/Odoo Produccion/3- OH Analisis de Stock.py', encoding='utf-8'\\).read\\(\\)\\); print\\('SYNTAX OK'\\)\")"
+    ]
+  }
+}

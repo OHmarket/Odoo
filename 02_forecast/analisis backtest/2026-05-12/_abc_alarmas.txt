@@ -1,0 +1,202 @@
+==========================================================================================
+SKUs SIN INVENTARIO: 367 (18.1% del catalogo)
+==========================================================================================
+
+--- Por abcxyz ---
+abcxyz  n_sin_stock   mu_sum  mu_p50  mu_max  %_de_sin_stock  n_total  %_sin_stock_del_grupo
+    CZ          168   188.96    0.14   21.08           45.78      742                  22.64
+    AX           44 2,326.09   34.95  258.63           11.99      290                  15.17
+    AY           43 1,010.04   20.88   58.38           11.72      210                  20.48
+    BY           41   685.40   13.83   69.76           11.17      280                  14.64
+    BZ           32   481.98   11.39   34.42            8.72      132                  24.24
+    CY           25   172.64    2.84   57.46            6.81      208                  12.02
+    AZ            9   193.78   20.55   32.34            2.45       40                  22.50
+    BX            5    90.96   17.13   31.27            1.36      113                   4.42
+
+--- Por importancia ---
+importancia  n_sin_stock   mu_sum  mu_p50  mu_max  %_de_sin_stock  n_total  %_sin_stock_del_grupo
+       Bajo          198   420.39    0.25   57.46           53.95     1013                  19.55
+      Medio           94 1,616.83   15.79   69.76           25.61      607                  15.49
+       Alto           53 1,455.60   25.30   77.30           14.44      304                  17.43
+    Critico           22 1,657.02   53.49  258.63            5.99      101                  21.78
+
+--- Por regimen ---
+regimen  n_sin_stock   mu_sum  mu_p50  mu_max  %_de_sin_stock  n_total  %_sin_stock_del_grupo
+  REG-0          142   412.10    0.08   34.42           38.69      423                  33.57
+  REG-1           78 3,120.77   27.45  258.63           21.25      469                  16.63
+  REG-2           38   663.90   14.53   69.76           10.35      335                  11.34
+  REG-4           34   556.79   15.28   43.15            9.26      204                  16.67
+  REG-8           31    74.27    1.35   14.70            8.45      202                  15.35
+  REG-3           20   160.17    3.12   57.46            5.45      176                  11.36
+  REG-7           16   121.72    1.43   32.34            4.36      154                  10.39
+  REG-6            5    21.63    3.05    9.18            1.36       44                  11.36
+  REG-5            3    18.51    7.94    8.50            0.82       18                  16.67
+
+--- Por ciclo de vida ---
+       ciclo  n_sin_stock   mu_sum  mu_p50  mu_max  %_de_sin_stock  n_total  %_sin_stock_del_grupo
+      mature          190 4,662.89   17.06  258.63           51.77     1402                  13.55
+   declining           72   408.62    1.37   34.42           19.62      217                  33.18
+    seasonal           52    75.06    0.25   14.70           14.17      254                  20.47
+intermittent           30     3.28    0.00    0.77            8.17       82                  36.59
+        dead           22     0.00    0.00    0.00            5.99       65                  33.85
+     ramp_up            1     0.00    0.00    0.00            0.27        5                  20.00
+
+==========================================================================================
+RESUMEN POR NIVEL DE ALARMA
+==========================================================================================
+  alarma  skus  mu_total  mu_mediana
+    ROJA    74  3,081.20       30.33
+ NARANJA    71  1,245.33       15.73
+AMARILLA    25    214.20        5.24
+    INFO   197    609.12        0.23
+
+==========================================================================================
+ALARMA ROJA — 74 SKUs (ordenados por mu_week desc)
+==========================================================================================
+                                                      product abcxyz regimen importancia  ciclo  mu_week  adi  cv2                                                    categ
+                       [9843] CERVEZA CORONA BOTELLA 6X330 CC     AX   REG-1     Critico mature   258.63 0.96 0.19  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                       [450237] CERVEZA CRISTAL LATA 6X470 CC     AX   REG-1     Critico mature   249.65 0.96 0.06  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                   [450684] CERVEZA ROYAL GUARD LATA 6X470 CC     AX   REG-1     Critico mature   136.94 0.96 0.19        Bebidas Alcohólicas / Cervezas / Cervezas Premium
+                 [450592] CERVEZA ESCUDO SILVER LATA 6X470 CC     AX   REG-1     Critico mature   100.97 0.96 0.09  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                      [450746] CERVEZA HEINEKEN LATA 6X470 CC     AX   REG-1     Critico mature    99.57 0.96 0.20  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                    [RECARGAS 20 LTS] AGUA HDOSO RECARGA 20 L     AX   REG-1     Critico mature    86.30 0.96 0.20                 Bebidas No Alcohólicas / Aguas / Bidones
+               [300056498] TWISTOS MINITOSTADITAS JAMON 100 G     AX   REG-1        Alto mature    77.30 1.00 0.16           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                                [300056452] CHOCO CRACS 160 G     AX   REG-1     Critico mature    73.03 1.00 0.12           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                      [450691] CERVEZA COORS BOTELLA 6X355 CC     AX   REG-1     Critico mature    66.61 0.96 0.20  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                       [450235] CERVEZA CRISTAL LATA 6X350 CC     AX   REG-1     Critico mature    63.81 0.96 0.13  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                      [10089420] CIGARRILLO KENT SILVER UP 20     AX   REG-1        Alto mature    60.03 0.96 0.22                         Cigarrillos y Tabacos / Cigarros
+                        [450403] CERVEZA SOL BOTELLA 6X330 CC     AX   REG-1     Critico mature    59.08 0.96 0.24  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                 [10091095] CIGARRILLO PALL MALL SUNSET XL 20     AY   REG-1        Alto mature    58.38 1.13 0.12                         Cigarrillos y Tabacos / Cigarros
+                [450336] CERVEZA ROYAL GUARD BOTELLA 6X355 CC     AX   REG-1     Critico mature    55.77 0.96 0.22        Bebidas Alcohólicas / Cervezas / Cervezas Premium
+                         [5141405] CHICLE BIGTIME ULTRA GREEN     AY   REG-1        Alto mature    52.54 1.08 0.35       Impulso / Chocolates y Dulces / Chicles y Mentitas
+                         [5141404] CHICLE BIGTIME ULTRA CLEAN     AY   REG-1        Alto mature    51.56 1.13 0.28       Impulso / Chocolates y Dulces / Chicles y Mentitas
+              [7802130002496] CERVEZA BUDWEISER LATA 6X473 CC     AX   REG-1     Critico mature    51.20 0.96 0.16  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                   [450295] CERVEZA HEINEKEN BOTELLA 6X330 CC     AX   REG-1     Critico mature    48.60 0.96 0.21  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                   [445407] COCTEL MISTRAL ICE BLEND 4X275 CC     AX   REG-1     Critico mature    47.38 0.96 0.15  Bebidas Alcohólicas / Cócteles y Licores / Cócteles Ice
+                         [450737] CERVEZA COORS LATA 6X470 CC     AX   REG-1     Critico mature    46.82 0.96 0.16  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                              [300064334] DORITOS QUESO 200 G     AX   REG-1        Alto mature    44.16 0.96 0.17           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                [7792798012947] CERVEZA QUILMES LATA 6X473 CC     AX   REG-1     Critico mature    44.16 0.96 0.16  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+               [300056591] TWISTOS MINITOSTADITAS QUESO 100 G     AX   REG-1        Alto mature    43.95 0.96 0.13           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                          [5141403] CHICLE BIGTIME ULTRA ROJO     AY   REG-1        Alto mature    43.53 1.08 0.29       Impulso / Chocolates y Dulces / Chicles y Mentitas
+   [451200] CERVEZA ROYAL GUARD GOLDEN LAGER BOTELLA 6X355 CC     AY   REG-4        Alto mature    43.15 0.96 0.68        Bebidas Alcohólicas / Cervezas / Cervezas Premium
+                           [K003-K0000] PAPELILLO OCB PREMIUM     AY   REG-1        Alto mature    42.26 1.04 0.36                       Cigarrillos y Tabacos / Accesorios
+                  [300058529] RAMITAS EVERCRISP SALADAS 230 G     AX   REG-1        Alto mature    38.03 0.96 0.12           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                               [7570] CHOCOLATE TRENCITO 24 G     AY   REG-4        Alto mature    37.23 0.96 0.84               Impulso / Chocolates y Dulces / Chocolates
+            [300036388] CABRITAS EVERCRISP CON CARAMELO 250 G     AX   REG-1        Alto mature    35.86 0.96 0.19           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                                  [300056613] DE TODITO 120 G     AX   REG-1        Alto mature    34.03 0.96 0.19           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                        [450133] CERVEZA ESCUDO LATA 6X470 CC     AX   REG-1        Alto mature    32.63 0.96 0.11  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                   CERVEZA LEMON STONES BERRIES LATA 6X470 CC     AY   REG-1     Critico mature    32.10 0.96 0.47  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                             CIGARRILLO LUCKY STRIKE AMBER 20     AY   REG-4     Critico mature    31.75 1.00 0.50                         Cigarrillos y Tabacos / Cigarros
+                            [300060213] DE TODITO DULCE 220 G     AX   REG-1        Alto mature    31.75 1.00 0.12           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+         [300060101] PAPAS FRITAS LAYS ARTESANAS MERKEN 150 G     AX   REG-1        Alto mature    30.89 0.96 0.16           Snack y Cóctel / Snack y Cóctel / Papas Fritas
+[201700212] PAPAS FRITAS MARCO POLO RUSTICAS SAL DE MAR 185 G     AY   REG-1        Alto mature    30.62 1.24 0.44           Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                      [300064336] CHEETOS PALITOS QUESO 250 G     AX   REG-1        Alto mature    30.36 1.00 0.09           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                  [451112] CERVEZA LEMON STONES LATA 6X470 CC     AY   REG-4        Alto mature    30.30 0.96 0.51  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+           [604581] CERVEZA AUSTRAL CALAFATE BOTELLA 4X330 CC     AX   REG-1     Critico mature    30.24 0.96 0.23    Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+                                   [300055261] CHEEZELS 200 G     AX   REG-1        Alto mature    30.18 0.96 0.19           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                      [595] CERVEZA ROYAL GUARD LATA 6X350 CC     AX   REG-1     Critico mature    28.82 0.96 0.22        Bebidas Alcohólicas / Cervezas / Cervezas Premium
+         [451404] CERVEZA LEMON STONES MARACUYA LATA 6X470 CC     AY   REG-1        Alto mature    27.75 0.96 0.34  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+[450859] CERVEZA KUNSTMANN VALDIVIA PALE ALE BOTELLA 6X330 CC     AX   REG-1     Critico mature    27.16 0.96 0.24    Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+            [450554] CERVEZA CRISTAL 0.0 RADLER LATA 6X350 CC     AY   REG-1        Alto mature    27.01 0.96 0.33    Bebidas Alcohólicas / Cervezas / Cervezas sin Alcohol
+                           [450736] CERVEZA SOL LATA 6X470 CC     AX   REG-1        Alto mature    26.68 0.96 0.22  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                                   [300061240] GATOLATE 200 G     AX   REG-1        Alto mature    26.57 0.96 0.19           Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                [450754] CERVEZA MALTA MORENITA LATA 6X470 CC     AX   REG-1        Alto mature    25.30 0.96 0.05  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                        [300054969] CHIS POP TUTI FRUTI 200 G     AX   REG-1        Alto mature    23.87 0.96 0.22       Impulso / Chocolates y Dulces / Chicles y Mentitas
+             [445847] COCTEL MISTRAL ICE SUPER FRUIT 4X275 CC     AY   REG-1        Alto mature    23.19 1.04 0.42  Bebidas Alcohólicas / Cócteles y Licores / Cócteles Ice
+               [450704] CERVEZA HEINEKEN 0.0 BOTELLA 6X330 CC     AY   REG-1        Alto mature    22.95 0.96 0.29  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+           [7493] CERVEZA KUNSTMANN TOROBAYO BOTELLA 4X330 CC     AY   REG-1        Alto mature    22.86 0.96 0.28    Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+   [7802130000676] CERVEZA BECKER CLASSIC LAGER LATA 6X473 CC     AY   REG-1        Alto mature    21.65 0.96 0.39  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                     [CS81-2REGU] GALLETA OREO ORIGINAL 108 G     AY   REG-1        Alto mature    20.88 1.18 0.45 Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                     [445580] COCTEL MISTRAL ICE DRY 4X275 CC     AX   REG-1        Alto mature    20.32 0.96 0.13  Bebidas Alcohólicas / Cócteles y Licores / Cócteles Ice
+         [450555] CERVEZA CRISTAL 0.0 RADLER BOTELLA 6X355 CC     AY   REG-1        Alto mature    20.05 0.96 0.41    Bebidas Alcohólicas / Cervezas / Cervezas sin Alcohol
+    [201700496] PAPAS FRITAS MARCO POLO CORTE AMERICANO 350 G     AY   REG-4        Alto mature    19.84 1.08 0.57           Snack y Cóctel / Snack y Cóctel / Papas Fritas
+           [7891991014779] CERVEZA BUDWEISER BOTELLA 6X330 CC     AY   REG-1        Alto mature    19.75 0.96 0.34  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                      [450255] CERVEZA HEINEKEN LATA 6X350 CC     AY   REG-1        Alto mature    18.51 0.96 0.33  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                        [450692] CERVEZA COORS LATA 12X350 CC     AY   REG-1     Critico mature    18.45 0.96 0.36  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                        [450010] CERVEZA ESCUDO LATA 6X350 CC     AX   REG-1        Alto mature    18.16 0.96 0.10  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+  [7802130002922] CERVEZA CUSQUEÑA GOLDEN LAGER LATA 6X473 CC     AX   REG-1        Alto mature    17.03 0.96 0.17  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+            [451158] CERVEZA KUNSTMANN TOROBAYO LATA 4X470 CC     AX   REG-1        Alto mature    15.16 0.96 0.24    Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+            [451403] CERVEZA LEMON STONES MANGO LATA 6X470 CC     AY   REG-4        Alto mature    15.07 0.96 0.76  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+              [450112] CERVEZA AUSTRAL LAGER BOTELLA 4X330 CC     AY   REG-1        Alto mature    14.24 0.96 0.46    Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+                    [450325] CERVEZA CRISTAL BOTELLA 6X355 CC     AY   REG-1        Alto mature    13.43 0.96 0.31  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+             [450302] CERVEZA KUNSTMANN MIEL BOTELLA 4X330 CC     AX   REG-1        Alto mature    12.14 0.96 0.19    Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+            [451122] CERVEZA ROYAL GUARD 0.0 BOTELLA 6X355 CC     AY   REG-1        Alto mature    11.67 0.96 0.39  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+      [450363] CERVEZA KUNSTMANN SIN ALCOHOL BOTELLA 4X330 CC     AY   REG-1        Alto mature    11.43 0.96 0.36    Bebidas Alcohólicas / Cervezas / Cervezas sin Alcohol
+                  [451106] CERVEZA HEINEKEN 0.0 LATA 6X470 CC     AY   REG-1        Alto mature    10.80 0.96 0.34  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                  [445759] COCTEL MISTRAL ICE ENERGY 4X275 CC     AY   REG-1        Alto mature     9.76 1.04 0.34  Bebidas Alcohólicas / Cócteles y Licores / Cócteles Ice
+                   [450189] CERVEZA CRISTAL 0.0 LATA 6X350 CC     AY   REG-1        Alto mature     9.74 0.96 0.29    Bebidas Alcohólicas / Cervezas / Cervezas sin Alcohol
+         [450477] CERVEZA KUNSTMANN ARANDANO BOTELLA 4X330 CC     AX   REG-1        Alto mature     7.91 0.96 0.24    Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+           [9809] CERVEZA BECKER CLASSIC LAGER LATA 12X354 CC     AY   REG-1        Alto mature     6.60 0.96 0.27  Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+              [102310320] CHOCOLATE FERRERO ROCHER 8 UN 100 G     AZ   REG-4        Alto mature     5.09 1.24 0.53               Impulso / Chocolates y Dulces / Chocolates
+
+==========================================================================================
+ALARMA NARANJA — 71 SKUs (ordenados por mu_week desc)
+==========================================================================================
+                                                                     product abcxyz regimen importancia  ciclo  mu_week  adi  cv2                                                          categ
+                                    [5151151] CHOCOLATE BON O BON LECHE 15 G     BY   REG-2       Medio mature    69.76 1.00 0.46               Impulso / Chocolates y Dulces / Bombones y otros
+                                   [5151153] CHOCOLATE BON O BON BLANCO 15 G     BY   REG-2       Medio mature    52.34 0.96 0.38               Impulso / Chocolates y Dulces / Bombones y otros
+                                [5151292] CHOCOLATE BON O BON CHOCOLATE 15 G     BY   REG-2       Medio mature    49.43 0.96 0.33               Impulso / Chocolates y Dulces / Bombones y otros
+                                  [5141246] GOMITAS MOGUL ROLLO EXTREME 35 G     BY   REG-2       Medio mature    41.14 1.04 0.39          Impulso / Chocolates y Dulces / Gomitas y Masticables
+                              [5141234] GOMITAS MOGUL EXTREME GUSANITOS 25 G     BY   REG-2       Medio mature    36.72 1.04 0.33          Impulso / Chocolates y Dulces / Gomitas y Masticables
+                                              [5107116] CHOCOLATE GOLPE 27 G     BY   REG-2       Medio mature    34.36 1.04 0.31               Impulso / Chocolates y Dulces / Bombones y otros
+                                          [N035-40000] BIZCOCHO CHOCMAN 33 G     BZ   REG-4       Medio mature    33.85 1.24 0.60               Impulso / Chocolates y Dulces / Bombones y otros
+                                               [5138079] CARAMELO ALKA MENTA     BX   REG-2       Medio mature    31.27 1.04 0.16                Impulso / Chocolates y Dulces / Caramelos Duros
+                                                  [96050] OBLEA CHOKITA 30 G     BZ   REG-4       Medio mature    28.96 1.13 0.61                     Impulso / Chocolates y Dulces / Chocolates
+                                   [5168886] GALLETA ROCKLETS VAINILLA 165 G     AY   REG-1       Medio mature    28.28 1.08 0.27       Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                                           [87890] CHOCOLATE SAHNE NUSS 14 G     BZ   REG-4       Medio mature    26.74 1.18 0.95                     Impulso / Chocolates y Dulces / Chocolates
+                                 [AU66-0CHOC] CHOCOLATE BOMBON CHOCO 16.67 G     BY   REG-2       Medio mature    25.14 0.96 0.48               Impulso / Chocolates y Dulces / Bombones y otros
+                                                  [300054180] GATOLATE 100 G     AX   REG-1       Medio mature    24.34 0.96 0.22                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                   [300058912] PAPAS FRITAS LAYS ARTESANAS SALSA VERDE 150 G     AX   REG-1       Medio mature    23.51 0.96 0.18                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                                 [N715-4LECH] GALLETA DONUTS CHOCOLATE 105 G     AZ   REG-4       Medio mature    23.22 1.24 0.61       Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                                  [AP80-4CHOC] GALLETA GRETEL CHOCOLATE 85 G     AY   REG-4       Medio mature    22.12 1.18 0.53       Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                  [201700511] PAPAS FRITAS MARCO POLO CREMA CIBOULETTE 180 G     AY   REG-1       Medio mature    22.00 1.18 0.34                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                          [N715-4CHBC] GALLETA DONUTS CHOCOLATE BLANCO 105 G     AY   REG-1       Medio mature    21.44 1.24 0.42       Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                                     [300054088] CHEETOS PALITOS QUESO 110 G     AX   REG-1       Medio mature    21.20 0.96 0.21                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                          [L213-5ARAN] CHICLE ORBIT ARANDANO SIN AZUCAR 14 G     BZ   REG-4       Medio mature    20.55 1.24 0.53             Impulso / Chocolates y Dulces / Chicles y Mentitas
+                          [201700051] SNACK MARCOPOLO MANI SALADO MIEL 150 G     AZ   REG-1       Medio mature    20.55 1.30 0.41                         Snack y Cóctel / Snack y Cóctel / Maní
+                                       [101920034] CARAMELO MENTOS MINT 29 G     BY   REG-2       Medio mature    20.41 1.13 0.23                Impulso / Chocolates y Dulces / Caramelos Duros
+                                   [300054998] RAMITAS EVERCRISP QUESO 110 G     BX   REG-2       Medio mature    20.26 1.00 0.12                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                                      [H531-00000] CHOCOLATE SNICKERS 52.7 G     AZ   REG-4       Medio mature    19.69 1.18 1.45                     Impulso / Chocolates y Dulces / Chocolates
+                          [101920032] CARAMELO MENTOS ROLLO TUTTI FRUTI 29 G     BY   REG-2       Medio mature    18.09 1.00 0.42                Impulso / Chocolates y Dulces / Caramelos Duros
+                     [201700508] PAPAS FRITAS MARCO POLO JAMON SERRANO 180 G     BY   REG-2       Medio mature    18.07 1.18 0.30                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                                  [201700457] RAMITAS MARCO POLO QUESO 230 G     BY   REG-2       Medio mature    17.89 1.08 0.47                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                            [201700054] SNACK MARCOPOLO MANI CON PASAS 180 G     AY   REG-1       Medio mature    17.47 1.08 0.43                         Snack y Cóctel / Snack y Cóctel / Maní
+            [300061250] PAPAS FRITAS LAYS ARTESANAS CEBOLLA Y PIMIENTA 150 G     BX   REG-2       Medio mature    17.13 0.96 0.21                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                       [300060405] PAPAS FRITAS LAYS ARTESANAS CAPRESE 150 G     BY   REG-2       Medio mature    17.09 1.00 0.25                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                                                 [102310110] NUTELLA GO 52 G     AY   REG-4       Medio mature    16.44 1.13 0.51                     Impulso / Chocolates y Dulces / Chocolates
+                        [201700517] CRUNCHIS MARCO POLO SUFLE DE QUESO 200 G     BY   REG-4       Medio mature    16.41 1.04 0.50                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                        [L213-5EUCA] CHICLE ORBIT EUCALIPTUS SIN AZUCAR 14 G     BY   REG-4       Medio mature    16.23 1.08 0.51             Impulso / Chocolates y Dulces / Chicles y Mentitas
+                                [201700458] RAMITAS MARCO POLO SALADAS 230 G     BY   REG-2       Medio mature    16.14 1.13 0.40                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                        [L213-5BUBB] CHICLE ORBIT BUBBLEMINT SIN AZUCAR 14 G     BZ   REG-4       Medio mature    15.84 1.04 0.94             Impulso / Chocolates y Dulces / Chicles y Mentitas
+          [201700239] PAPAS FRITAS MARCO POLO RUSTICAS QUESO Y OREGANO 185 G     AY   REG-1       Medio mature    15.73 1.08 0.35                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                        [201700516] CRUNCHIS MARCO POLO SUFLE DE PAPAS 200 G     BY   REG-2       Medio mature    15.70 1.13 0.46                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                               [9300] GALLETA KUKY CHIP CHIPERS BLANCO 190 G     BY   REG-4       Medio mature    15.49 1.04 0.66       Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                                 [300055263] RAMITAS EVERCRISP SALADAS 110 G     BX   REG-2       Medio mature    15.16 0.96 0.21                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                          [K056-0CEBO] PAPA FRITA KRYZPO CREMA CEBOLLA 130 G     BY   REG-2       Medio mature    14.87 1.08 0.47                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                                 [10210210] VINO EXPORTACION TINTO TETRA 2 L     AZ   REG-4       Medio mature    14.59 1.08 0.71              Bebidas Alcohólicas / Vinos / Formatos Económicos
+                           [N698-0FRUT] GALLETA GRETEL YOGHURT FRUTILLA 85 G     BY   REG-2       Medio mature    14.19 1.08 0.42       Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                                        CERVEZA KROSS STOUT BOTELLA 4X330 CC     AY   REG-1       Medio mature    13.86 1.05 0.46              Bebidas Alcohólicas / Cervezas / Cervezas Premium
+[232700540] ENCURTIDO ACEITUNAS DON JUAN RELLENAS DE PASTA DE PIMIENTO 250 G     BY   REG-4       Medio mature    13.83 1.00 0.65       Snack y Cóctel / Snack y Cóctel / Aceitunas y Encurtidos
+                           [201700497] PAPAS FRITAS MARCO POLO CASERAS 350 G     AY   REG-1       Medio mature    13.59 1.18 0.33                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                         [201700361] PAPAS FRITAS MARCO POLO SNACK MIX 290 G     AY   REG-4       Medio mature    12.79 1.04 0.50                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                              [201700460] SNACK MARCOPOLO MANI SIN SAL 150 G     BY   REG-4       Medio mature    12.73 0.96 0.54                         Snack y Cóctel / Snack y Cóctel / Maní
+                                        [81170] GALLETA KUKY CHOCOLATE 120 G     BY   REG-2       Medio mature    12.05 1.13 0.47       Snack y Cóctel / Galletas y Colaciones / Galletas Dulces
+                                [10207540] VINO EXPORTACION BLANCO TETRA 2 L     BZ   REG-4       Medio mature    11.70 1.04 0.83              Bebidas Alcohólicas / Vinos / Formatos Económicos
+                     [102400071] PAPAS FRITAS PRINGLES CREMA Y CEBOLLA 109 G     BY   REG-2       Medio mature    10.96 0.96 0.48                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                            [101800144] CHOCOLATE HERSHEY'S CHOC. LECHE 82 G     BY   REG-2       Medio mature    10.34 1.30 0.38                     Impulso / Chocolates y Dulces / Chocolates
+                                  [201700513] CRUNCHIS MARCO POLO MANI 200 G     BY   REG-2       Medio mature     9.86 1.00 0.46                 Snack y Cóctel / Snack y Cóctel / Otros Snacks
+                      [201700554] PAPAS FRITAS MARCO POLO CREMA Y SOYA 180 G     BY   REG-2       Medio mature     9.68 0.96 0.46                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+                             [94480] OBLEA KIT KAT CHOCOLATE DE LECHE 41.5 G     BZ   REG-5       Medio mature     8.50 1.44 0.68                     Impulso / Chocolates y Dulces / Chocolates
+                  [101920061] CARAMELO MENTOS CLEARBREATH WINTERGREEN 17,5 G     BY   REG-2       Medio mature     8.04 1.04 0.26                Impulso / Chocolates y Dulces / Caramelos Duros
+                             [102400070] PAPAS FRITAS PRINGLES CLASICA 104 G     BY   REG-2       Medio mature     7.94 0.96 0.35                 Snack y Cóctel / Snack y Cóctel / Papas Fritas
+            [7804673220023] CERVEZA CUELLO NEGRO STOUT BOTELLA UNIDAD 330 CC     BZ   REG-5       Medio mature     7.94 1.62 1.01          Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+                      [BE60015] BEBIDA ISOTONICA HYDROSHOCK BLUE SHOCK 1.5 L     BY   REG-4       Medio mature     7.79 0.96 0.50 Bebidas No Alcohólicas / Isotónicas y Energéticas / Isotónicas
+                         [7802130001765] CERVEZA STELLA ARTOIS LATA 6X473 CC     BY   REG-4       Medio mature     7.76 0.96 0.58              Bebidas Alcohólicas / Cervezas / Cervezas Premium
+                      [7792798006052] CERVEZA STELLA ARTOIS BOTELLA 6X330 CC     AY   REG-4       Medio mature     7.23 0.96 0.64              Bebidas Alcohólicas / Cervezas / Cervezas Premium
+                             [10199547] VAPE VUSE GO WATERMELON ICE 1K PUFFS     BX   REG-2       Medio mature     7.14 0.96 0.21                           Cigarrillos y Tabacos / Electrónicos
+                   [201200066] ENCURTIDO PEPINILLO EN VINAGRE DON JUAN 360 G     BY   REG-2       Medio mature     6.31 1.08 0.43                         Esenciales Hogar / Despensa / Despensa
+                  [450774] CERVEZA AUSTRAL TORRES DEL PAINE BOTELLA 4X330 CC     BY   REG-2       Medio mature     5.80 0.96 0.35          Bebidas Alcohólicas / Cervezas / Cervezas Artesanales
+                              [102300062] CHOCOLATE FERRERO ROCHER 4 UN 50 G     BZ   REG-4       Medio mature     4.74 1.18 0.62                     Impulso / Chocolates y Dulces / Chocolates
+                                     VAPE ZOFO STX MIX VIOLET VIBES 4K PUFFS     BY   REG-2       Medio mature     4.30 1.24 0.23                           Cigarrillos y Tabacos / Electrónicos
+              [7753749001229] CERVEZA CUSQUEÑA GOLDEN LAGER BOTELLA 6X330 CC     BY   REG-2       Medio mature     4.15 1.04 0.44        Bebidas Alcohólicas / Cervezas / Cervezas Tradicionales
+                         [G559-50000] PRESERVATIVO LIFESTYLE NUDA 3 UNI

@@ -1,0 +1,246 @@
+================================================================================
+1. ESTRUCTURA
+================================================================================
+Filas: 2,025
+Columnas (39):
+  Created on
+  mu_trend_method
+  calc_version
+  period_end
+  inv_valor_avg
+  gmroi_class
+  gmroi
+  regimen
+  series_type
+  cv2
+  adi
+  Promedio Semanal
+  zero_sales_24m
+  last_sale_week
+  weeks_since_last_sale
+  ABCXYZ
+  Categoria
+  ABC
+  assortment_status
+  Trimestres activos
+  Trazabilidad corta
+  age_weeks
+  Ranking ABCXYZ
+  p_q8
+  Ciclo de Vida
+  Puntaje
+  p_q4
+  Motivo Eliminar
+  Uni. último trimestre
+  p_q7
+  Eliminar Caracteristicas
+  n_weeks
+  Uni. Trimestre LY
+  importancia
+  Eliminar (Si/No)
+  Estabilidad
+  XYZ
+  Producto
+  Desviación STD Semanal
+
+================================================================================
+2. MAPEO DE COLUMNAS DETECTADO
+================================================================================
+  abcxyz             -> ABCXYZ    [OK]
+  abc                -> ABC    [OK]
+  xyz                -> XYZ    [OK]
+  adi                -> adi    [OK]
+  cv2                -> cv2    [OK]
+  series_type        -> series_type    [OK]
+  regimen            -> regimen    [OK]
+  gmroi              -> gmroi    [OK]
+  gmroi_class        -> gmroi_class    [OK]
+  inv_valor_avg      -> inv_valor_avg    [OK]
+  ciclo_de_vida      -> Ciclo de Vida    [OK]
+  importancia        -> importancia    [OK]
+  mu_week            -> Promedio Semanal    [OK]
+  cv                 -> Estabilidad    [OK]
+  product_id         -> Producto    [OK]
+
+================================================================================
+3. POBLAMIENTO DE COLUMNAS NUEVAS
+================================================================================
+  adi                                  nulos:      0   ceros/vacios:    149
+  cv2                                  nulos:      0   ceros/vacios:    279
+  series_type                          nulos:      0   ceros/vacios:      0
+  regimen                              nulos:      0   ceros/vacios:      0
+  gmroi                                nulos:      0   ceros/vacios:  1,256
+  gmroi_class                          nulos:      0   ceros/vacios:      0
+  inv_valor_avg                        nulos:      0   ceros/vacios:  1,229
+
+================================================================================
+4. DISTRIBUCION series_type
+================================================================================
+series_type
+smooth          985
+intermittent    344
+no_signal       290
+erratic         245
+lumpy           161
+
+  intermittent (clase NUEVA Syntetos-Boylan): 344
+
+================================================================================
+5. DISTRIBUCION regimen
+================================================================================
+regimen
+REG-1    469
+REG-0    423
+REG-2    335
+REG-4    204
+REG-8    202
+REG-3    176
+REG-7    154
+REG-6     44
+REG-5     18
+
+================================================================================
+6. DISTRIBUCION gmroi_class
+================================================================================
+gmroi_class
+G_D    1449
+G_C     192
+G_A     192
+G_B     192
+
+================================================================================
+7. RANGOS DE METRICAS NUMERICAS
+================================================================================
+
+  ADI (adi):
+count    2025.000000
+mean        2.181657
+std         3.805030
+min         0.000000
+10%         0.962963
+25%         0.962963
+50%         1.040000
+75%         1.625000
+90%         3.714286
+95%         8.666667
+max        26.000000
+
+  CV2 (cv2):
+count    2025.000000
+mean        0.349265
+std         0.463436
+min         0.000000
+10%         0.000000
+25%         0.125000
+50%         0.277778
+75%         0.447525
+90%         0.650943
+95%         0.863434
+max         8.034238
+
+  GMROI (gmroi):
+count    2025.000000
+mean       20.753462
+std       172.283674
+min         0.000000
+10%         0.000000
+25%         0.000000
+50%         0.000000
+75%         4.310813
+90%        16.786404
+95%        34.448354
+max      3602.067183
+
+  inv_valor_avg (inv_valor_avg):
+count    2.025000e+03
+mean     5.762306e+04
+std      1.742480e+05
+min      0.000000e+00
+10%      0.000000e+00
+25%      0.000000e+00
+50%      0.000000e+00
+75%      5.894400e+04
+90%      1.665782e+05
+95%      2.382198e+05
+max      3.713360e+06
+
+  mu_week (Promedio Semanal):
+count    2025.000000
+mean       23.088189
+std        95.527484
+min         0.000000
+10%         0.000000
+25%         0.576923
+50%         4.627530
+75%        20.637168
+90%        45.856154
+95%        81.113231
+max      2659.806154
+
+  cv (clasico) (Estabilidad):
+count    2025.000000
+mean       74.484600
+std       260.615770
+min         0.000000
+10%         0.337148
+25%         0.507433
+50%         0.811646
+75%         1.503468
+90%         3.523891
+95%       999.000000
+max       999.000000
+
+================================================================================
+8. CROSS series_type x regimen (conteo)
+================================================================================
+regimen       REG-0  REG-1  REG-2  REG-3  REG-4  REG-5  REG-6  REG-7  REG-8
+series_type                                                                
+erratic           6      0      0      0    204      0      0      0     35
+intermittent     85      1      0      0      0      0      0    154    104
+lumpy            38      0      0      0      0     18     44      0     61
+no_signal       290      0      0      0      0      0      0      0      0
+smooth            4    468    335    176      0      0      0      0      2
+
+================================================================================
+9. CROSS abcxyz x series_type (conteo)
+================================================================================
+series_type  erratic  intermittent  lumpy  no_signal  smooth
+ABCXYZ                                                      
+AX                 0             0      0          0     290
+AY                33             0      0          0     177
+AZ                25             6      6          0       3
+BX                 0             0      0          0     113
+BY                56             3      0          0     221
+BZ                52            40     37          0       3
+CX                 0             0      0          0      10
+CY                35            12      0          0     161
+CZ                44           283    118        290       7
+
+================================================================================
+10. EJEMPLOS de SKUs clasificados como 'intermittent' (top 15 por mu_week)
+================================================================================
+                                                         Producto ABCXYZ      adi      cv2  Promedio Semanal regimen
+                            [447076] COCTEL 3R ICE BERRIES 275 CC     AZ 1.733333 0.157114         94.769231   REG-8
+                            [447077] COCTEL 3R ICE GUARANA 275 CC     BZ 1.733333 0.124920         75.653846   REG-8
+                                       [87910] OBLEA SUPER 8 29 G     BZ 1.529412 0.271874         54.269231   REG-0
+                    [201700459] SNACK MARCOPOLO MANI SALADO 150 G     AZ 1.368421 0.337545         32.340000   REG-7
+                   [201700260] SNACK MARCOPOLO MANI JAPONES 100 G     AZ 1.444444 0.314826         32.162308   REG-7
+                     [36800] GALLETA TRITON CHOCOLATE MCKAY 116 G     BZ 1.368421 0.426327         29.538462   REG-0
+                                  [N482-1FLIP] GOMITAS FLIPY 25 G     BZ 1.625000 0.357941         25.972692   REG-7
+                      [36760] GALLETA TRITON VAINILLA MCKAY 116 G     BZ 1.444444 0.392983         24.047692   REG-8
+            [L213-5HIER] CHICLE ORBIT HIERBABUENA SIN AZUCAR 14 G     BZ 1.368421 0.457217         21.076923   REG-0
+                    [K056-0ORIG] PAPA FRITA KRYZPO ORIGINAL 130 G     BZ 1.529412 0.441063         20.730769   REG-0
+                [41120] GALLETA KUKY CHIP CHIPERS CHOCOLATE 190 G     BZ 1.625000 0.458544         19.269231   REG-0
+[201700594] PAPAS FRITAS MARCO POLO CORTE AMERICANO KETCHUP 180 G     BZ 1.333333 0.369963         16.600000   REG-0
+              BEBIDA EN POLVO EXTRA LIFE ORANGE MANGO FUSION 15 G     BZ 1.529412 0.455249         14.730769   REG-0
+              [6478] VINO TORO DE PIEDRA RESERVA CARMENERE 750 CC     BZ 1.444444 0.315063         13.623077   REG-8
+             [858] VINO TORO DE PIEDRA GRAN RESERVA MERLOT 750 CC     BZ 1.444444 0.360958         12.169231   REG-7
+
+================================================================================
+11. COBERTURA DE STOCK (lectura desde x_analisis_de_stock)
+================================================================================
+  SKUs con inv_valor_avg > 0 :    796  (39.3%)
+  SKUs con inv_valor_avg = 0 :  1,229  (60.7%)
+  SKUs con gmroi > 0         :    769  (38.0%)
+
+DONE.

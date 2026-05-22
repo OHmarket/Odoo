@@ -1,0 +1,213 @@
+================================================================================
+1. DEFINICION DE COLA — CORE vs CABEZA vs COLA
+================================================================================
+                                           grupo     n       real       fcst  wape_%  bias_%  fcst_desperdiciado
+                                      CORE TOTAL 88106 120,147.00 115,106.68   64.61    4.20           19,922.13
+CABEZA (Z1/Z2/Z3 + AX/AY/BY/BX + smooth/erratic) 16282  86,064.00  85,726.01   50.25    0.39            6,743.97
+        COLA (Z4 OR abcxyz_Z OR lumpy/no_signal) 71824  34,083.00  29,380.67  100.88   13.80           13,178.16
+
+Cola = 81.5% filas core / 28.4% volumen real core
+
+================================================================================
+2. SALUD DE FILAS — COLA
+================================================================================
+Filas cola                :     71,824
+Ambos 0 (inertes)         :     35,043  ( 48.8%)
+Solo real (falto fcst)    :      2,922  (  4.1%)
+Solo fcst (sobra)         :     20,400  ( 28.4%)
+Con actividad             :     36,781  ( 51.2%)
+
+================================================================================
+3. DESCOMPOSICION COLA por abcxyz x series_type (BIAS %)
+================================================================================
+abcxyz  series_type     n     real     fcst     err  bias_%  wape_%
+    AY        lumpy  2721 5,153.00 4,451.02  701.98   13.62   13.62
+    BY      erratic  7516 4,956.00 4,173.39  782.61   15.79   15.79
+    BY        lumpy  5510 4,424.00 3,586.71  837.29   18.93   18.93
+    AY      erratic  3254 2,947.00 2,575.55  371.45   12.60   12.60
+    AX        lumpy  1815 2,695.00 2,431.12  263.88    9.79    9.79
+    BX       smooth  2379 2,530.00 2,356.13  173.87    6.87    6.87
+    CZ        lumpy 23101 2,486.00 2,099.29  386.71   15.56   15.56
+    CY      erratic  4721 1,725.00 1,600.71  124.29    7.21    7.21
+    BX        lumpy  1328 1,199.00 1,074.95  124.05   10.35   10.35
+    AX       smooth  1320 1,063.00   753.51  309.49   29.12   29.12
+    CY        lumpy  3070 1,036.00   893.50  142.50   13.76   13.76
+    BZ        lumpy  4413   991.00 1,180.78 -189.78  -19.15   19.15
+    BX      erratic   489   651.00   576.64   74.36   11.42   11.42
+    CZ    no_signal  7042   557.00   350.51  206.49   37.07   37.07
+    AZ        lumpy   890   515.00   586.07  -71.07  -13.80   13.80
+    AX      erratic   199   257.00   151.33  105.67   41.12   41.12
+    CX       smooth   252   165.00   139.89   25.11   15.22   15.22
+    CY    no_signal   405    83.00    33.61   49.39   59.51   59.51
+    CX        lumpy   148    78.00    82.06   -4.06   -5.21    5.21
+    AY       smooth    39    56.00    56.30   -0.30   -0.54    0.54
+    BY    no_signal   221    55.00    30.43   24.57   44.68   44.68
+    BZ    no_signal   420    27.00    13.63   13.37   49.52   49.52
+    CX      erratic    14    26.00    26.85   -0.85   -3.25    3.25
+    AY intermittent     3    25.00    13.45   11.55   46.22   46.22
+    BY       smooth    17    17.00    22.96   -5.96  -35.07   35.07
+    AY    no_signal    16    10.00     6.55    3.45   34.49   34.49
+    CY       smooth     3     6.00     3.98    2.02   33.72   33.72
+    AZ    no_signal    20     6.00     2.34    3.66   61.07   61.07
+    BY intermittent     4     4.00     4.75   -0.75  -18.78   18.78
+    AX intermittent     4     3.00     6.04   -3.04 -101.25  101.25
+
+================================================================================
+4. COLA — caracterizacion por SKU (no por fila)
+================================================================================
+
+SKUs de cola por intensidad de venta (fraccion de semanas con venta):
+                    skus  real_total  fcst_total
+bucket_venta                                    
+sin_venta            188        0.00       61.21
+esporadica (1-15%)   416    2,398.00    2,044.94
+lumpy (15-40%)       298    8,418.00    8,652.18
+regular (40-70%)     254   15,021.00   12,923.75
+constante (>70%)     102    8,246.00    5,698.58
+
+================================================================================
+5. COLA — SKUs problema A: SIN venta pero CON forecast (poda candidatos)
+================================================================================
+SKUs sin venta en 7 sem pero con forecast >0: 11
+Forecast desperdiciado por ellos:             61 u
+Promedio por SKU:                             5.56 u
+Top 15 SKUs candidatos a poda:
+                                                product_id  n_semanas  real_total  fcst_total  n_semanas_con_venta  n_semanas_con_fcst  intensidad_venta  intensidad_fcst bucket_venta
+                    BEBIDA ISOTONICA SUEROX NARANJA 630 CC         77        0.00       24.64                    0                  49              0.00             0.64    sin_venta
+                              [8005] VASO COCA-COLA 350 CC          3        0.00       21.08                    0                   3              0.00             1.00    sin_venta
+                           NECTAR JUMEX PIÑA & COCO 335 CC         77        0.00        8.35                    0                  29              0.00             0.38    sin_venta
+                  [871209] AGUA CACHANTUN + GRANADA 600 CC          3        0.00        2.29                    0                   3              0.00             1.00    sin_venta
+                    [1007639] LICOR BRANDY SOBERANO 700 CC         45        0.00        1.02                    0                   3              0.00             0.07    sin_venta
+[10104338] VINO SANGRE DE TORO RESERVA ETIQUETA ROJA 750CC         70        0.00        1.01                    0                   8              0.00             0.11    sin_venta
+                              ESPUMANTE MAVAM MAGIC 750 CC         17        0.00        1.00                    0                   7              0.00             0.41    sin_venta
+                   [2133] AGUA MINERAL VITAL SIN GAS 1.6 L          1        0.00        0.94                    0                   1              0.00             1.00    sin_venta
+                         [0574] BEBIDA FANTA RET. 2 L (A)          77        0.00        0.36                    0                   3              0.00             0.04    sin_venta
+                [259170] WHISKEY JACK DANIELS HONEY 375 CC         66        0.00        0.28                    0                   3              0.00             0.05    sin_venta
+          [0-0113] LICOR MOMENTUM MIDNIGHT BLUE 17º 750 CC         35        0.00        0.26                    0                   3              0.00             0.09    sin_venta
+
+================================================================================
+6. COLA — SKUs problema B: CON venta pero SIN forecast (sub-pronostico)
+================================================================================
+SKUs con venta pero forecast=0 en todo el periodo: 111
+Demanda real perdida:                              215 u
+Top 15:
+                                                        product_id  n_semanas  real_total  fcst_total  n_semanas_con_venta  n_semanas_con_fcst  intensidad_venta  intensidad_fcst       bucket_venta
+                  [CJR12] JAMON PIERNA ARTESANAL CORTE PLUMA 125 G         56       18.00        0.00                    6                   0              0.11             0.00 esporadica (1-15%)
+                          [7501008611135] RON BACARDI AÑEJO 750 CC         77        6.00        0.00                    5                   0              0.06             0.00 esporadica (1-15%)
+                           PACK PISCO LOS NICHOS 35° 750 CC + VASO         70        6.00        0.00                    6                   0              0.09             0.00 esporadica (1-15%)
+     PACK WHISKY JOHNNIE WALKER BLACK LABEL 750 CC + PETACA 200 CC         30        5.00        0.00                    5                   0              0.17             0.00     lumpy (15-40%)
+[6959237326381] SOPA INSTANTANEA VITELLI SABOR POLLO PICANTE SUAVE         77        5.00        0.00                    2                   0              0.03             0.00 esporadica (1-15%)
+ [10210003] COCTEL DE VINO EXPORTACION SELECTO FRUTAL MELVIN 1.5 L         70        5.00        0.00                    2                   0              0.03             0.00 esporadica (1-15%)
+                                                LICOR CYNAR 750 CC         41        4.00        0.00                    4                   0              0.10             0.00 esporadica (1-15%)
+                    [VN30170] VINO ARBOLEDA SAUVIGNON BLANC 750 CC         10        4.00        0.00                    3                   0              0.30             0.00     lumpy (15-40%)
+                                  GIN DUENDE CINNAMON SPICE 700 CC         12        4.00        0.00                    4                   0              0.33             0.00     lumpy (15-40%)
+                      [10058130] VINO DOW´S FINE TAWNY PORT 750 CC         14        3.00        0.00                    2                   0              0.14             0.00 esporadica (1-15%)
+                            BEBIDA ISOTONICA SUEROX MANZANA 630 CC         77        3.00        0.00                    2                   0              0.03             0.00 esporadica (1-15%)
+          [10197498] VINO CONCHA Y TORO LATE HARVEST BLANCO 375 CC          8        3.00        0.00                    2                   0              0.25             0.00     lumpy (15-40%)
+                       [0-086] WHISKY OLE SMOKY BLENDED 40º 750 CC         34        3.00        0.00                    2                   0              0.06             0.00 esporadica (1-15%)
+                                      GIN GREENALL´S LONDON 700 CC         70        3.00        0.00                    1                   0              0.01             0.00 esporadica (1-15%)
+                           RON BARCELO IMPERIAL PREMIUN 38° 700 CC         63        3.00        0.00                    3                   0              0.05             0.00 esporadica (1-15%)
+
+================================================================================
+7. COLA — TOP 20 SKUs SOBRE-FORECAST (fcst >> real, indica caps debiles)
+================================================================================
+                                                product_id  n_semanas  real_total  fcst_total  n_semanas_con_venta  n_semanas_con_fcst  intensidad_venta  intensidad_fcst       bucket_venta  abs_err  fcst_minus_real
+   [447065] COCTEL KANTAL GIN & BERRIES LATA UNIDAD 473 CC         35       51.00      170.61                    9                  35              0.26             1.00     lumpy (15-40%)   119.61           119.61
+          [445847] COCTEL MISTRAL ICE SUPER FRUIT 4X275 CC         77       34.00      139.92                   14                  69              0.18             0.90     lumpy (15-40%)   105.92           105.92
+              [909] BEBIDA CANADA DRY GINGER ALE DES 1.5 L         77       53.00      133.32                   18                  57              0.23             0.74     lumpy (15-40%)    80.32            80.32
+      [871498] AGUA MINERAL CACHANTUN STRONG CON GAS 1.6 L         77      135.00      189.57                   53                  77              0.69             1.00   regular (40-70%)    54.57            54.57
+                [CO30006] COCTEL SECRETO PERUANO LIMON 1 L         57       40.00       76.11                   21                  57              0.37             1.00     lumpy (15-40%)    36.11            36.11
+                  [12076018] HELADO SAVORY CHOCOLITO 85 ML         77       36.00       71.23                   16                  49              0.21             0.64     lumpy (15-40%)    35.23            35.23
+                      [510408] COCTEL SPIRIT MOJITO 275 CC         48       52.00       85.69                   23                  47              0.48             0.98   regular (40-70%)    33.69            33.69
+                     HELADO KREEMS CHOCOLATE BROWNIE 125 G         77       51.00       81.09                   30                  71              0.39             0.92     lumpy (15-40%)    30.09            30.09
+                  [7230] NÉCTAR DEL VALLE PERA LATA 340 CC         77       52.00       81.83                   26                  76              0.34             0.99     lumpy (15-40%)    29.83            29.83
+        [VN18315] ESPUMANTE UNDURRAGA SWEET MOSCATO 750 CC         68       40.00       66.34                   22                  58              0.32             0.85     lumpy (15-40%)    26.34            26.34
+                 [0254] BEBIDA COCA COLA LIGHT LATA 220 CC         77       35.00       61.27                   23                  70              0.30             0.91     lumpy (15-40%)    26.27            26.27
+             BEBIDA CANADA DRY GINGER ALE ZERO LATA 350 CC         77       58.00       82.93                   30                  74              0.39             0.96     lumpy (15-40%)    24.93            24.93
+                    BEBIDA ISOTONICA SUEROX NARANJA 630 CC         77        0.00       24.64                    0                  49              0.00             0.64          sin_venta    24.64            24.64
+                      [I286-4000] PAÑUELO DESECHABLE ELITE         77       75.00       98.48                   26                  68              0.34             0.88     lumpy (15-40%)    23.48            23.48
+                           [BOLSAMEDIANA] BOLSA MEDIANA OH         33      436.00      459.03                   30                  33              0.91             1.00   constante (>70%)    23.03            23.03
+   [201200064] ENCURTIDO PICKLES DON JUAN EN VINAGRE 180 G         72       35.00       58.01                   23                  63              0.32             0.88     lumpy (15-40%)    23.01            23.01
+   [870253] BEBIDA CANADA DRY AGUA TONICA ZERO LATA 310 CC         38        7.00       30.00                    4                  14              0.11             0.37 esporadica (1-15%)    23.00            23.00
+                             BEBIDA COCA COLA LIGHT 591 CC         77       40.00       62.88                   25                  69              0.32             0.90     lumpy (15-40%)    22.88            22.88
+   [853] VINO TORO DE PIEDRA GRAN RESERVA CARMENERE 750 CC         77       25.00       47.35                   15                  64              0.19             0.83     lumpy (15-40%)    22.35            22.35
+[6J000] SALCHICHAS PREMIUN RECETA DEL ABUELO 500 G (10 UN)         63       11.00       32.74                    6                  29              0.10             0.46 esporadica (1-15%)    21.74            21.74
+
+================================================================================
+8. COLA — TOP 20 SKUs SUB-FORECAST (real >> fcst, indica caps muy estrictos)
+================================================================================
+                                                          product_id  n_semanas  real_total  fcst_total  n_semanas_con_venta  n_semanas_con_fcst  intensidad_venta  intensidad_fcst     bucket_venta  abs_err  fcst_minus_real  real_minus_fcst
+                                        [965265] BIZCOCHO ROLLO 32 G         51      457.00      153.34                   47                  47              0.92             0.92 constante (>70%)   303.66          -303.66           303.66
+                                         [965262] BIZCOCHO TKCH 34 G         63      378.00      150.36                   44                  55              0.70             0.87 regular (40-70%)   227.64          -227.64           227.64
+                               [447076] COCTEL 3R ICE BERRIES 275 CC         34      485.00      259.76                   31                  31              0.91             0.91 constante (>70%)   225.24          -225.24           225.24
+                      [798190253701] ENERGETICA SCORE GORILLA 473 CC         33      547.00      369.19                   33                  33              1.00             1.00 constante (>70%)   177.81          -177.81           177.81
+                                       [24956] BIZCOCHO GANSITO 50 G         31      286.00      134.41                   28                  31              0.90             1.00 constante (>70%)   151.59          -151.59           151.59
+                               [447077] COCTEL 3R ICE GUARANA 275 CC         34      352.00      208.77                   33                  34              0.97             1.00 constante (>70%)   143.23          -143.23           143.23
+[7802175001645] COCTEL MISTRAL ICE SUPER FRUIT BOTELLA UNIDAD 275 CC         38      169.00       41.15                   17                  28              0.45             0.74 regular (40-70%)   127.85          -127.85           127.85
+                               [447085] COCTEL 3R ICE MANZANA 275 CC         34      400.00      277.09                   34                  34              1.00             1.00 constante (>70%)   122.91          -122.91           122.91
+                                [447075] COCTEL 3R ICE CITRUS 275 CC         33      259.00      138.79                   33                  33              1.00             1.00 constante (>70%)   120.21          -120.21           120.21
+                                [870689] BEBIDA PEPSI ZERO DES 1.5 L         77      229.00      110.72                   34                  58              0.44             0.75 regular (40-70%)   118.28          -118.28           118.28
+                                      [964669] BIZCOCHO MANKEKE 90 G         21      183.00       78.82                   21                  21              1.00             1.00 constante (>70%)   104.18          -104.18           104.18
+                                        [23355] BIZCOCHO RAYITA 60 G         31      175.00       79.08                   28                  31              0.90             1.00 constante (>70%)    95.92           -95.92            95.92
+                               [9646] COCTEL CAPEL ICE SANDÍA 275 CC         33      414.00      320.29                   32                  33              0.97             1.00 constante (>70%)    93.71           -93.71            93.71
+                                       [5380] BIZCOCHO PINGUINO 80 G         28      253.00      166.46                   23                  28              0.82             1.00 constante (>70%)    86.54           -86.54            86.54
+                        [447082] COCTEL SIERRA MORENA MOJITO ICE 650         44      106.00       32.49                   33                  29              0.75             0.66 constante (>70%)    73.51           -73.51            73.51
+                                    [502659] BROWNIE NUTRA BIEN 62 G         22      127.00       56.72                   20                  22              0.91             1.00 constante (>70%)    70.28           -70.28            70.28
+                                 [0253] BEBIDA COCA COLA LATA 220 CC         33      204.00      139.33                   31                  32              0.94             0.97 constante (>70%)    64.67           -64.67            64.67
+                        [12370209] HELADO SAVORY COLA DE TIGRE 70 ML         46      119.00       56.87                   36                  46              0.78             1.00 constante (>70%)    62.13           -62.13            62.13
+                  [12292621] HELADO CRAZY SANGURUCHO VAINILLA 125 ML         54      112.00       56.00                   34                  50              0.63             0.93 regular (40-70%)    56.00           -56.00            56.00
+                    [442068] (925) WHISKY BALLANTINES FINEST 40º 1 L         48      151.00       96.85                   40                  48              0.83             1.00 constante (>70%)    54.15           -54.15            54.15
+
+================================================================================
+9. COLA — SIMULACION: efecto de podar SKUs sin venta
+================================================================================
+WAPE actual cola:      100.88%
+WAPE simulado (poda):  100.70%   (delta: -0.18 pp)
+BIAS simulado (poda):  13.98%
+Forecast core total recuperado por poda: 61 u
+
+================================================================================
+10. COLA — SIMULACION: aplicar uplift +15% al sub-forecast (CZ + lumpy)
+================================================================================
+Factor | WAPE % | BIAS %
+1.05x  | 101.57% | +11.33%
+1.10x  | 102.33% |  +8.85%
+1.15x  | 103.14% |  +6.38%
+1.20x  | 104.00% |  +3.91%
+1.30x  | 105.93% |  -1.03%
+
+================================================================================
+11. COLA — caracterizacion temporal (semana x bias_signo)
+================================================================================
+target_week_start bias_dir    n     real     fcst
+       2026-03-16   exacto 4490     0.00     0.00
+       2026-03-16    sobre 3656   292.00 2,289.67
+       2026-03-16      sub 1670 2,957.00 1,041.31
+       2026-03-23   exacto 4643     0.00     0.00
+       2026-03-23    sobre 3514   369.00 2,598.23
+       2026-03-23      sub 1381 2,508.00   945.94
+       2026-03-30   exacto 4629     0.00     0.00
+       2026-03-30    sobre 2796   274.00 1,711.86
+       2026-03-30      sub 2529 5,526.00 1,640.11
+       2026-04-06   exacto 4942     0.00     0.00
+       2026-04-06    sobre 3318   300.00 2,147.80
+       2026-04-06      sub 1721 3,152.00 1,064.23
+       2026-04-20   exacto 5446     0.00     0.00
+       2026-04-20    sobre 3372   699.00 3,062.23
+       2026-04-20      sub 2068 4,747.00 1,854.70
+       2026-04-27   exacto 5379     0.00     0.00
+       2026-04-27    sobre 2978   768.00 3,278.25
+       2026-04-27      sub 2485 6,544.00 2,540.23
+       2026-05-04   exacto 5514     0.00     0.00
+       2026-05-04    sobre 3295   670.00 3,123.63
+       2026-05-04      sub 1998 5,277.00 2,082.47
+
+================================================================================
+12. COLA — Cuantos SKUs unicos hay y cuantos generan 80% del error
+================================================================================
+Total SKUs unicos en cola: 1,258
+SKUs que acumulan 80% del error absoluto: 358 (28.5%)
+SKUs que acumulan 50% del error absoluto: 99
+Error absoluto total cola: 9,745 u
+
+DONE.

@@ -1,0 +1,78 @@
+==========================================================================================
+1. ESTRUCTURA
+==========================================================================================
+Filas: 39,907
+Columnas (22):
+  Created on
+  forecast_cutoff
+  forecast_zone
+  price_dynamics_segment
+  categ_id
+  importancia
+  abcxyz
+  series_type
+  ciclo_de_vida
+  cv2
+  mu_week_pre_bias
+  bias_pct
+  ape
+  abs_error_qty
+  error_qty
+  real_qty
+  forecast_qty
+  method
+  team_id
+  product_id
+  target_week_start
+  Descripción
+
+==========================================================================================
+2. CAMPOS DETECTADOS
+==========================================================================================
+  forecast_zone             -> forecast_zone    [OK]
+  regimen                   -> None    [MISSING]
+  forecast_model_code       -> None    [MISSING]
+  target_week_start         -> target_week_start    [OK]
+  forecast_cutoff           -> forecast_cutoff    [OK]
+  real_qty                  -> real_qty    [OK]
+  forecast_qty              -> forecast_qty    [OK]
+  abcxyz                    -> abcxyz    [OK]
+  series_type               -> series_type    [OK]
+
+==========================================================================================
+3. DISTRIBUCION FORECAST_ZONE
+==========================================================================================
+  'SIN_ZONA'                      39,907 (100.0%)
+
+  NULL: 0
+  Empieza con 'Z' (Z1-Z4 legacy): 0
+  Empieza con 'REG' (nuevo): 0
+  Vacio / False: 0
+
+==========================================================================================
+4. DISTRIBUCION REGIMEN
+==========================================================================================
+  Campo regimen no encontrado en el export
+
+==========================================================================================
+5. DISTRIBUCION FORECAST_MODEL_CODE
+==========================================================================================
+  Campo model_code no encontrado
+
+==========================================================================================
+7. COBERTURA TEMPORAL
+==========================================================================================
+  Semanas objetivo distintas: 2
+    2026-03-16 00:00:00
+    2026-03-23 00:00:00
+
+  Cutoffs distintos: 2
+    2026-03-15 00:00:00
+    2026-03-22 00:00:00
+
+==========================================================================================
+8. MUESTRA — 5 filas con forecast_zone vacio o anormal
+==========================================================================================
+  (no hay filas con forecast_zone vacio o Z*)
+
+DONE.

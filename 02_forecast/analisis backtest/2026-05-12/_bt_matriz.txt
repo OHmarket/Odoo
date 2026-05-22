@@ -1,0 +1,169 @@
+====================================================================================================
+1. MATRIZ TRIPLETE (abcxyz x series_type x ciclo_de_vida) — core
+   Combos con real>0: 52 de 68 totales
+====================================================================================================
+abcxyz  series_type ciclo_de_vida     n      real      fcst   abs_err      err  n_zonas_distintas  n_skus  wape_%  bias_%  %_vol_core
+    AX       smooth        mature 11987 66,224.00 66,450.74 30,304.24  -226.74                  2     204   45.76   -0.34       55.12
+    AY      erratic        mature  4909 11,876.00 10,612.77  8,829.38 1,263.23                  2     101   74.35   10.64        9.88
+    BY      erratic        mature  8472  8,173.00  7,391.41  7,765.31   781.59                  2     186   95.01    9.56        6.80
+    BX       smooth        mature  3437  5,508.00  5,771.30  4,131.76  -263.30                  2      70   75.01   -4.78        4.58
+    AY        lumpy        mature  2721  5,153.00  4,451.02  3,939.90   701.98                  2     100   76.46   13.62        4.29
+    AX      erratic        mature  1899  4,710.00  4,530.52  3,012.95   179.48                  2     170   63.97    3.81        3.92
+    BY        lumpy        mature  5510  4,424.00  3,586.71  4,304.02   837.29                  2     186   97.29   18.93        3.68
+    AX        lumpy        mature  1815  2,695.00  2,431.12  1,987.17   263.88                  2     129   73.74    9.79        2.24
+    CY      erratic        mature  4721  1,725.00  1,600.71  2,162.13   124.29                  1     109  125.34    7.21        1.44
+    CZ        lumpy      seasonal  6805  1,369.00  1,346.37  1,916.60    22.63                  1     191  140.00    1.65        1.14
+    BX        lumpy        mature  1328  1,199.00  1,074.95  1,127.50   124.05                  2      69   94.04   10.35        1.00
+    CZ        lumpy        mature 10671  1,048.00    752.56  1,535.77   295.44                  1     178  146.54   28.19        0.87
+    CY        lumpy        mature  3070  1,036.00    893.50  1,342.55   142.50                  1     109  129.59   13.76        0.86
+    BX      erratic        mature   623    994.00    959.98    762.90    34.02                  2      59   76.75    3.42        0.83
+    AY       smooth        mature   126    922.00    566.68    523.35   355.32                  2      24   56.76   38.54        0.77
+    BZ        lumpy        mature  3102    617.00    600.15    929.64    16.85                  2      44  150.67    2.73        0.51
+    CZ    no_signal      seasonal  3085    471.00    339.91    610.53   131.09                  1     181  129.62   27.83        0.39
+    AZ        lumpy        mature   595    385.00    414.52    569.87   -29.52                  2       9  148.02   -7.67        0.32
+    BZ        lumpy      seasonal   983    368.00    580.63    531.39  -212.63                  2      16  144.40  -57.78        0.31
+    CZ          NaN      seasonal   201    282.00      0.00    282.00   282.00                  1      80  100.00  100.00        0.23
+    CX       smooth        mature   252    165.00    139.89    131.29    25.11                  1       6   79.57   15.22        0.14
+    AZ        lumpy      seasonal   295    130.00    171.55    186.78   -41.55                  2       4  143.68  -31.96        0.11
+    BY       smooth        mature    37    128.00    108.40     68.20    19.60                  2      11   53.28   15.31        0.11
+    CY    no_signal        mature   405     83.00     33.61     86.17    49.39                  1      48  103.82   59.51        0.07
+    CX        lumpy        mature   148     78.00     82.06    109.42    -4.06                  1       6  140.28   -5.21        0.06
+    CZ        lumpy     declining  5113     68.00      0.00     68.00    68.00                  1     135  100.00  100.00        0.06
+    CZ    no_signal        mature  1906     66.00      6.15     72.15    59.85                  1     137  109.32   90.68        0.05
+    BY    no_signal        mature   221     55.00     30.43     63.33    24.57                  1      40  115.14   44.68        0.05
+    CX      erratic        mature    14     26.00     26.85     22.46    -0.85                  1       4   86.37   -3.25        0.02
+    AY intermittent        mature     3     25.00     13.45     11.55    11.55                  1       1   46.22   46.22        0.02
+    BZ    no_signal      seasonal   207     22.00      9.01     29.14    12.99                  1      10  132.44   59.06        0.02
+    CZ    no_signal  intermittent   260     19.00      3.79     19.73    15.21                  1      44  103.84   80.05        0.02
+    CZ          NaN  intermittent    15     18.00      0.00     18.00    18.00                  1       8  100.00  100.00        0.01
+    CY          NaN        mature     7     11.00      0.00     11.00    11.00                  1       3  100.00  100.00        0.01
+    CZ          NaN     declining    11     11.00      0.00     11.00    11.00                  1       9  100.00  100.00        0.01
+    AY    no_signal        mature    16     10.00      6.55      3.45     3.45                  2       3   34.49   34.49        0.01
+    CY       smooth        mature     3      6.00      3.98      3.94     2.02                  1       1   65.70   33.72        0.00
+    AZ    no_signal      seasonal    13      6.00      2.34      8.34     3.66                  1       2  138.93   61.07        0.00
+    CZ          NaN        mature     6      6.00      0.00      6.00     6.00                  1       6  100.00  100.00        0.00
+    BZ        lumpy     declining   328      6.00      0.00      6.00     6.00                  1       5  100.00  100.00        0.00
+
+====================================================================================================
+2. ¿Cuantos tripletes distintos hay dentro de cada zona? (alta variedad = zona esconde mix)
+====================================================================================================
+forecast_zone     n      real      err   abs_err  n_tripletes_distintos  n_skus  wape_%  bias_%
+     SIN_ZONA   247    337.00   337.00    337.00                      0     113  100.00  100.00
+           Z1 14520 75,020.00  -976.50 35,686.14                      7     269   47.57   -1.30
+           Z2  2334 13,246.00 1,644.51  8,611.31                      5      74   65.01   12.42
+           Z3  1481  5,458.00   322.87  4,313.26                      9     117   79.03    5.92
+           Z4 69524 26,086.00 3,712.45 28,683.60                     54    1238  109.96   14.23
+
+====================================================================================================
+3. DISPERSION DEL BIAS POR ZONA — tripletes top de cada zona (orden por |real|)
+====================================================================================================
+
+--- Z1 (real 75,020 u, 7 tripletes top, rango BIAS=102.9 pp) ---
+abcxyz  series_type ciclo_de_vida     n      real     err   abs_err  bias_%  wape_%
+    AX       smooth        mature 10667 65,161.00 -536.24 29,303.91   -0.82   44.97
+    AX      erratic        mature  1700  4,453.00   73.80  2,814.38    1.66   63.20
+    BX       smooth        mature  1058  2,978.00 -437.17  1,898.86  -14.68   63.76
+    AX        lumpy        mature   891  1,979.00   32.97  1,298.08    1.67   65.59
+    BX      erratic        mature   134    343.00  -40.34    262.58  -11.76   76.55
+    BX        lumpy        mature    66    103.00  -66.49    105.29  -64.55  102.23
+    AX intermittent        mature     4      3.00   -3.04      3.04 -101.25  101.25
+
+--- Z2 (real 13,246 u, 5 tripletes top, rango BIAS=36.2 pp) ---
+abcxyz  series_type ciclo_de_vida    n     real    err  abs_err  bias_%  wape_%
+    AY      erratic        mature 1655 8,929.00 891.77 5,952.88    9.99   66.67
+    AY        lumpy        mature  587 3,417.00 383.11 2,167.79   11.21   63.44
+    AY       smooth        mature   87   866.00 355.62   476.63   41.07   55.04
+    AY intermittent        mature    3    25.00  11.55    11.55   46.22   46.22
+    AY    no_signal        mature    2     9.00   2.45     2.45   27.21   27.21
+
+--- Z3 (real 5,458 u, 7 tripletes top, rango BIAS=377.2 pp) ---
+abcxyz series_type ciclo_de_vida   n     real     err  abs_err  bias_%  wape_%
+    BY     erratic        mature 956 3,217.00   -1.03 2,481.02   -0.03   77.12
+    BY       lumpy        mature 298 1,798.00  634.03 1,179.86   35.26   65.62
+    AZ       lumpy        mature  64   174.00  -29.55   245.03  -16.98  140.82
+    BZ       lumpy      seasonal  90   122.00 -170.66   200.07 -139.88  163.99
+    BY      smooth        mature  20   111.00   25.57    53.37   23.03   48.09
+    AZ       lumpy      seasonal  14    19.00  -17.16    27.49  -90.33  144.67
+    BZ       lumpy        mature  27    17.00  -58.12    66.20 -341.90  389.39
+
+--- Z4 (real 26,086 u, 8 tripletes top, rango BIAS=16.7 pp) ---
+abcxyz series_type ciclo_de_vida    n     real    err  abs_err  bias_%  wape_%
+    BY     erratic        mature 7516 4,956.00 782.61 5,284.29   15.79  106.62
+    AY     erratic        mature 3254 2,947.00 371.45 2,876.50   12.60   97.61
+    BY       lumpy        mature 5212 2,626.00 203.26 3,124.16    7.74  118.97
+    BX      smooth        mature 2379 2,530.00 173.87 2,232.90    6.87   88.26
+    AY       lumpy        mature 2134 1,736.00 318.87 1,772.10   18.37  102.08
+    CY     erratic        mature 4721 1,725.00 124.29 2,162.13    7.21  125.34
+    CZ       lumpy      seasonal 6805 1,369.00  22.63 1,916.60    1.65  140.00
+    BX       lumpy        mature 1262 1,096.00 190.54 1,022.20   17.39   93.27
+
+====================================================================================================
+4. PROPUESTA — agregar por regimen sugerido
+====================================================================================================
+                                                        regimen  combos  n_filas  n_skus      real      fcst   abs_err      err  wape_%  bias_%  %_vol_core
+                          REG-1  smooth_full (mu + SI completo)       2    12113     228 67,146.00 67,017.42 30,827.59   128.58   45.91    0.19       55.89
+                                         REG-4  erratic_cap_120       8    20730     635 27,507.00 25,151.35 22,585.66 2,355.65   82.11    8.56       22.89
+REG-5  lumpy_proteccion (mu sin cap inferior, cap superior 110)       8    16349     557 14,971.00 13,310.64 13,576.26 1,660.36   90.68   11.09       12.46
+                                         REG-2  smooth_moderado       2     3474      81  5,636.00  5,879.70  4,199.96  -243.70   74.52   -4.32        4.69
+                                  REG-6  lumpy_C (mu floor 0.5)       5    20842     487  3,532.00  3,074.85  4,905.69   457.15  138.89   12.94        2.94
+                              REG-0  no_forecast (no senal + C)       6     5710     416    642.00    384.12    792.23   257.88  123.40   40.17        0.53
+                                 REG-8  seasonal_SI_amplificado       2      203      82    285.00      0.00    285.00   285.00  100.00  100.00        0.24
+                                  REG-3  smooth_conservador (C)       2      255       7    171.00    143.86    135.23    27.14   79.08   15.87        0.14
+                           REG-7  intermittent_floor (mu * 0.5)       9      656      86    131.00     80.33    133.30    50.67  101.75   38.68        0.11
+                                  REG-0  no_forecast (terminal)       3     5452     149     85.00      0.00     85.00    85.00  100.00  100.00        0.07
+                                                 REG-?  revisar       5       33      22     41.00      0.00     41.00    41.00  100.00  100.00        0.03
+
+====================================================================================================
+5. CROSS — ¿como se distribuye cada zona en regimenes propuestos? (% del real de la zona)
+====================================================================================================
+regimen        REG-0  no_forecast (no senal + C)  REG-0  no_forecast (terminal)  REG-1  smooth_full (mu + SI completo)  REG-2  smooth_moderado  REG-3  smooth_conservador (C)  REG-4  erratic_cap_120  REG-5  lumpy_proteccion (mu sin cap inferior, cap superior 110)  REG-6  lumpy_C (mu floor 0.5)  REG-7  intermittent_floor (mu * 0.5)  REG-8  seasonal_SI_amplificado  REG-?  revisar  REG-? sin asignacion
+forecast_zone                                                                                                                                                                                                                                                                                                                                                                                                    
+SIN_ZONA                                     0.0                            3.3                                    0.0                     0.0                            0.0                     0.0                                                              0.0                            0.0                                   0.0                            84.6            12.2                   0.0
+Z1                                           0.0                            0.0                                   86.9                     4.0                            0.0                     6.4                                                              2.8                            0.0                                   0.0                             0.0             0.0                   0.0
+Z2                                           0.0                            0.0                                    6.5                     0.0                            0.0                    67.4                                                             25.8                            0.0                                   0.3                             0.0             0.0                   0.0
+Z3                                           0.0                            0.0                                    0.0                     2.0                            0.0                    58.9                                                             39.0                            0.0                                   0.0                             0.0             0.0                   0.0
+Z4                                           2.5                            0.3                                    4.3                     9.8                            0.7                    40.5                                                             28.1                           13.5                                   0.4                             0.0             0.0                   0.0
+
+====================================================================================================
+6. METRICAS POR REGIMEN — ¿son grupos coherentes?
+====================================================================================================
+(Si dispersion BIAS dentro de regimen es baja, el agrupamiento es bueno)
+                                                        regimen     n      real      fcst   abs_err      err  wape_%  bias_%
+                          REG-1  smooth_full (mu + SI completo) 12113 67,146.00 67,017.42 30,827.59   128.58   45.91    0.19
+                                         REG-4  erratic_cap_120 20730 27,507.00 25,151.35 22,585.66 2,355.65   82.11    8.56
+REG-5  lumpy_proteccion (mu sin cap inferior, cap superior 110) 16349 14,971.00 13,310.64 13,576.26 1,660.36   90.68   11.09
+                                         REG-2  smooth_moderado  3474  5,636.00  5,879.70  4,199.96  -243.70   74.52   -4.32
+                                  REG-6  lumpy_C (mu floor 0.5) 20842  3,532.00  3,074.85  4,905.69   457.15  138.89   12.94
+                              REG-0  no_forecast (no senal + C)  5710    642.00    384.12    792.23   257.88  123.40   40.17
+                                 REG-8  seasonal_SI_amplificado   203    285.00      0.00    285.00   285.00  100.00  100.00
+                                  REG-3  smooth_conservador (C)   255    171.00    143.86    135.23    27.14   79.08   15.87
+                           REG-7  intermittent_floor (mu * 0.5)   656    131.00     80.33    133.30    50.67  101.75   38.68
+                                  REG-0  no_forecast (terminal)  5452     85.00      0.00     85.00    85.00  100.00  100.00
+                                                 REG-?  revisar    33     41.00      0.00     41.00    41.00  100.00  100.00
+                                           REG-? sin asignacion  2289      0.00     64.39     64.39   -64.39     NaN     NaN
+
+====================================================================================================
+7. CALIDAD DE SEGMENTACION — std interna del BIAS (menor = grupo mas homogeneo)
+====================================================================================================
+                                                              agrupador      real  std_bias_pp
+                                                       forecast_zone=Z1 75,020.00         3.80
+                          regimen=REG-1  smooth_full (mu + SI completo) 67,146.00         4.52
+                                         regimen=REG-4  erratic_cap_120 27,507.00         9.65
+                                                       forecast_zone=Z4 26,086.00        14.98
+regimen=REG-5  lumpy_proteccion (mu sin cap inferior, cap superior 110) 14,971.00        12.86
+                                                       forecast_zone=Z2 13,246.00         7.77
+                                         regimen=REG-2  smooth_moderado  5,636.00         2.99
+                                                       forecast_zone=Z3  5,458.00        34.79
+                                  regimen=REG-6  lumpy_C (mu floor 0.5)  3,532.00        11.25
+                              regimen=REG-0  no_forecast (no senal + C)    642.00        21.92
+                                                 forecast_zone=SIN_ZONA    337.00          NaN
+                                 regimen=REG-8  seasonal_SI_amplificado    285.00          NaN
+                                  regimen=REG-3  smooth_conservador (C)    171.00         3.41
+                           regimen=REG-7  intermittent_floor (mu * 0.5)    131.00        34.65
+                                  regimen=REG-0  no_forecast (terminal)     85.00         0.00
+                                                 regimen=REG-?  revisar     41.00          NaN
+                                           regimen=REG-? sin asignacion      0.00          NaN
+
+Exportado: c:\Users\sanhu\Mi unidad\Proyectos\Desarrollo\Odoo Produccion\_bt_matriz_tripletes.csv
+
+DONE.
