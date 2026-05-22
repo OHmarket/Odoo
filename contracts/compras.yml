@@ -1,0 +1,124 @@
+models:
+  - x_supply_generation
+  - purchase.order      # Odoo nativo — generado por OH Generacion de Documentos
+  - stock.picking       # Odoo nativo — generado por OH Generacion de Documentos
+
+description: >
+  Cadena de generación de documentos de suministro. x_supply_generation es el
+  formulario de solicitud; OH Generacion de Documentos lo lee y crea los documentos
+  de compra/traslado correspondientes en BORRADOR.
+
+---
+
+# x_supply_generation (formulario de solicitud)
+
+written_by: 03_stock/OH Generacion de Documentos.py
+  # (actualiza campos de resultado; el registro lo crea el usuario manualmente)
+read_by:
+  - 03_stock/OH Generacion de Documentos.py
+
+granularity: 1 registro por solicitud de generación (creado manualmente por el usuario)
+
+critical_fields:
+
+  # Campos de entrada (usuario)
+  x_name:
+    type: char
+    description: Nombre descriptivo de la solicitud (lote_name).
+  x_studio_generation_type:
+    type: selection
+    values:
+      - compra_sala
+      - compra_bodega
+      - envio_a_sala
+      - transferencia_interna_retiro
+  x_studio_supplier_id:
+    type: many2one
+    comodel: res.partner
+    description: Obligatorio para tipos compra_sala y compra_bodega.
+  x_studio_team_id:
+    type: many2one
+    comodel: crm.team
+    description: Sucursal destino. Obligatorio excepto compra_bodega.
+  x_studio_inc_top:
+    type: boolean
+    description: Incluir productos ABC-XYZ de alta rotación (A*).
+  x_studio_inc_medium:
+    type: boolean
+    description: Incluir productos de rotación media (B*).
+  x_studio_inc_low:
+    type: boolean
+    description: Incluir productos de baja rotación (C*).
+  x_studio_use_budget:
+    type: boolean
+    description: Activar límite de presupuesto.
+  x_studio_budget_amount:
+    type: float
+    description: Presupuesto máximo en CLP (solo aplica para tipos compra_*).
+
+  # Campos de resultado (escritos por el script)
+  x_studio_prereq_ok:
+    type: boolean
+    description: True si el análisis de stock previo completó correctamente.
+  x_studio_snapshot_date:
+    type: date
+    description: Fecha del snapshot de x_analisis_de_stock usado.
+  x_studio_generated_docs_count:
+    type: integer
+    description: Cantidad de documentos creados (RFQ + pickings).
+  x_studio_generated_on:
+    type: datetime
+    description: Timestamp de la generación.
+
+refresh_policy:
+  trigger: manual (el usuario ejecuta desde el formulario)
+  full_rebuild: false
+  advisory_lock: 99123041
+  notes: >
+    El script usa idempotencia por origin_key para evitar documentos duplicados.
+    Si se ejecuta dos veces con el mismo formulario, detecta los documentos existentes
+    y no los duplica.
+
+---
+
+# Documentos generados: purchase.order y stock.picking
+
+written_by: 03_stock/OH Generacion de Documentos.py
+read_by: []  # confirmación y aprobación manual en Odoo
+
+key_field_generado:
+  origin:
+    pattern: "SUPPLY|{gen_id}|{gen_type}|{supplier_id}|{team_id}|{snapshot_date}"
+    description: >
+      Clave de idempotencia. Si ya existe un documento con este origin, el script
+      no lo vuelve a crear. Permite reejecutar sin duplicar.
+
+estado_al_crear: draft
+  # Los documentos se crean en BORRADOR. Requieren confirmación manual.
+  # Versión v1.5 adopta este comportamiento intencionalmente (modo adopción).
+
+tipos_de_documento:
+  compra_sala:
+    genera: purchase.order (RFQ para sucursal)
+    proveedor: x_studio_supplier_id del formulario
+    destino: almacén del equipo seleccionado
+  compra_bodega:
+    genera: purchase.order (RFQ para bodega central)
+    proveedor: x_studio_supplier_id del formulario
+    destino: almacén central (CENTRAL_WAREHOUSE_ID = 15)
+  envio_a_sala:
+    genera: stock.picking (tipo internal, bodega → sala)
+    origen: almacén central
+    destino: almacén del equipo seleccionado
+  transferencia_interna_retiro:
+    genera: stock.picking (tipo internal, entre salas)
+    origen: equipo origen
+    destino: equipo destino
+
+notes:
+  - >
+    Las cantidades en purchase.order.line están expresadas en cajas (UoM compra).
+    El precio unitario de la línea = unit_price × MOQ (precio por caja).
+  - >
+    Si STRICT_PURCHASE_UOM_BOX=True (default), productos sin UoM caja configurada
+    se omiten silenciosamente. Revisar logs si faltan SKUs esperados.
