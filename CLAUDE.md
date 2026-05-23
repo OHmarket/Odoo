@@ -122,3 +122,24 @@ Antes de tocar codigo:
   desvio, dejo PROXY documentado.
 
 Si alguna respuesta es "no", detenerse y resolver eso primero.
+
+## Sincronizacion con GitHub
+
+El repo local `C:\Users\sanhu\Odoo` esta vinculado a `OHmarket/Odoo` en GitHub.
+Cada cambio promovido a productivo debe quedar reflejado en el repo remoto para
+que el historial sea auditable.
+
+Flujo:
+
+1. Claude propone un cambio de codigo.
+2. Usuario lo acepta.
+3. Usuario lo copia a Odoo (servidor o instancia) y lo ejecuta.
+4. Usuario confirma explicitamente que corrio bien (ej: "corrio", "ok",
+   "funciono", "subir"). Sin confirmacion explicita, no se sugiere subir.
+5. Claude entrega los comandos git listos para pegar en la terminal:
+   `git add <archivo>`, `git commit -m "<mensaje>"`, `git push`.
+6. Usuario los ejecuta. Claude no corre estos comandos por su cuenta.
+
+Mensaje de commit: una linea corta describiendo el cambio funcional (no el
+nombre del archivo). Ej: "forecast: corrige factor de precio en HM-SI" en lugar
+de "modifica HM_SI_v3_39_productivo.py".

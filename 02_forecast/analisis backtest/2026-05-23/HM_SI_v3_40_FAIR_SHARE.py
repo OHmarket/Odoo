@@ -1,45 +1,3 @@
-# VERSION_ID = "FWD_v3_41_FAIR_SHARE_V2"
-# v3.41 (2026-05-23): fair share v2 con share NORMALIZADO por categoria.
-#   Reemplaza la formula de v3.40 (mu_global × share_categoria) que estaba
-#   sesgada por el tamano de las salas activas. v3.41 calcula el "peso del
-#   SKU en su categoria" promediado SIN ponderar por volumen, capturando
-#   un invariante de share independiente del tamano de cada sala.
-#
-#   FORMULA v3.41:
-#     # Para cada sala activa i (con mu_sku>0 y mu_categ>0):
-#     share_sku_categ_i = mu_sku_en_sala_i / mu_categoria_en_sala_i
-#
-#     factor_normalizado = mean(share_sku_categ_i)   # invariante a tamano
-#
-#     # Sala objetivo:
-#     if historia_categ_target >= 12 semanas:
-#         mu_categ_target = mu_categoria_real_target
-#     else:
-#         # Sala nueva: promedio del bottom-N% de salas (default 50%) por
-#         # mu_categoria, EXCLUYENDO la sala objetivo. Refleja crecimiento
-#         # de sala nueva: no parte en el peak, parte en el bottom.
-#         mu_categ_target = mean(mu_categ for bottom-N salas)
-#
-#     mu_raw = factor_normalizado × mu_categ_target × bias
-#     mu_fs = max(mu_raw, FAIR_SHARE_MIN_UNITS)   # min ahora 1.0 (no 2.0)
-#
-#   POR QUE EL CAMBIO: el backtest 2026-05-23 (v3.40) mostro que 57 de 61
-#   pares hit el floor=2 flat. El share_categoria pesaba demasiado a las
-#   salas grandes -> SKUs con presencia desigual quedaban subestimados, y
-#   el floor fijo no compensaba la heterogeneidad. La sugerencia del
-#   usuario: promediar shares normalizados captura "este SKU representa
-#   X% de su categoria en cualquier sala" -> aplicar X% a la sala objetivo.
-#
-#   PARAMETROS NUEVOS:
-#     - FAIR_SHARE_BOTTOM_PCT (default 0.5): % de salas a usar como bottom
-#       para sala objetivo nueva. 12 salas × 0.5 = 6 salas (bottom-6).
-#     - FAIR_SHARE_MIN_UNITS reducido de 2.0 a 1.0 (el factor normalizado
-#       ya escala con velocidad real; floor solo evita rounding-to-0).
-#
-#   CONDICION DE TRIGGER (heredada de v3.40 FIX):
-#     mu_week==0 AND ABC global=='A' AND lifecycle in ('mature','ramp_up')
-#     AND len(shares_activas) >= 3
-#
 # VERSION_ID = "FWD_v3_40_FAIR_SHARE"
 # v3.40 (2026-05-23): fair share allocation para SKUs clase A sin historia local.
 #   Cierra el gap medido en Fase 1 (2026-05-23): 728 pares (sala, clase-A) caian
@@ -383,12 +341,10 @@ SERVICE_CORR_VALIDATION_THRESHOLD_DEFAULT  = 0.15
 # ponderada por share de categoria. Ver header v3.40 para fundamento.
 FAIR_SHARE_ENABLED_DEFAULT          = True
 FAIR_SHARE_MIN_SALAS_ACTIVAS_DEFAULT = 3     # SKU debe estar activo en >=N salas
-FAIR_SHARE_MIN_HISTORIA_CATEG_DEFAULT = 12   # semanas en categoria => mu_categ_target real
-FAIR_SHARE_BIAS_DEFAULT             = 1.00   # neutro
-FAIR_SHARE_MIN_UNITS_DEFAULT        = 1.0    # v3.41: bajo de 2.0 -> 1.0 (factor ya escala)
+FAIR_SHARE_MIN_HISTORIA_CATEG_DEFAULT = 12   # semanas en categoria => share_real
+FAIR_SHARE_BIAS_DEFAULT             = 1.00   # neutro: asimetria invertida vs forecast normal
+FAIR_SHARE_MIN_UNITS_DEFAULT        = 2.0    # piso u/sem para garantizar orden (Oracle MFQ)
 FAIR_SHARE_SIGMA_CV_DEFAULT         = 0.5    # sigma_fs = mu_fs * CV (sin historia local)
-FAIR_SHARE_BOTTOM_PCT_DEFAULT       = 0.5    # v3.41: 50% de salas con menor mu_categoria
-                                              # para estimar sala objetivo nueva
 
 
 # ----------------------
@@ -1254,38 +1210,34 @@ def _load_correccion_context(product_ids, target_date):
 def _compute_fair_share(product_id, team_id, categ_id_local,
                         router_ctx, fs_ctx,
                         bias, sigma_cv, min_units,
-                        min_salas, min_historia, bottom_pct):
-    """v3.41: fair share por share normalizado del SKU en categoria.
+                        min_salas, min_historia, n_salas_total):
+    """v3.40: calcula fair share para par (sala, SKU) clase A sin historia local.
 
     Devuelve dict con keys: mu_week, sigma_week, method, reason. O None si no
     procede (faltan datos o no cumple las reglas).
 
-    FORMULA:
-        # Por cada sala activa con mu_sku > 0 y mu_categ > 0:
-        share_sku_categ_i = mu_sku_en_sala_i / mu_categoria_en_sala_i
-        factor_normalizado = mean(share_sku_categ_i)
+    Modelo canonico: Oracle RDF / Blue Yonder "fair share by category share".
+        mu_raw = demanda_global × share_categoria(sala) × bias
+        mu_fs  = max(mu_raw, min_units)   # Oracle "minimum forecast quantity"
 
-        # Sala objetivo:
-        if historia_categ_target >= min_historia:
-            mu_categ_target = mu_categoria_real_target
-        else:
-            # Sala nueva: bottom-N% salas por mu_categoria (excluye target)
-            mu_categ_target = mean(mu_categ in bottom-N salas)
+    Si la sala tiene <min_historia semanas en la categoria, share = 1/n_salas
+    (caso San Jose). Si SKU activo en <min_salas, retorna None (sin propuesta).
 
-        mu_raw = factor_normalizado × mu_categ_target × bias
-        mu_fs  = max(mu_raw, min_units)
+    Bias asimetrico: para fair share el riesgo dominante es under-forecast (el
+    producto no llega y la ausencia se autoperpetua), no over-forecast (los
+    SKUs nicho ya fueron filtrados por <3 salas). Por eso bias=1.0 y se aplica
+    floor min_units para garantizar que el modulo de stock genere orden.
 
-    El share normalizado por categoria es INVARIANTE al tamano de la sala:
-    captura "este SKU representa X% de su categoria donde vive". Se asume que
-    X% es el invariante predictivo (el SKU mantiene su lugar relativo en la
-    categoria en cualquier sala).
-
-    El bottom-N% para sala nueva refleja crecimiento natural: una sala recien
-    abierta no parte en el peak. Es el promedio de las salas con menor venta
-    de la categoria (excluyendo la sala objetivo).
+    PROXY documentado: share_categoria se calcula desde mu_week sumado por
+    (team, categ_id) en lugar de ventas crudas, porque units_sold_adjusted
+    no esta persistido. Es la mejor aproximacion disponible via XML-RPC y
+    via los buffers del propio motor (buf_lc/buf_cat).
     """
     rctx = router_ctx.get(product_id) if router_ctx else None
     if not rctx:
+        return None
+    mu_global = _safe_float(rctx.get('mu_week_global'), 0.0)
+    if mu_global <= 0.0:
         return None
 
     # Categoria efectiva: la local si existe, sino la global del ABCXYZ.
@@ -1293,62 +1245,28 @@ def _compute_fair_share(product_id, team_id, categ_id_local,
     if not categ_efectiva:
         return None
 
-    sku_qty_per_sala = fs_ctx.get('sku_qty_per_sala', {})
-    categ_qty_per_sala = fs_ctx.get('categ_qty_per_sala', {})
-    n_weeks_window = _safe_float(fs_ctx.get('n_weeks_window', 26.0), 26.0) or 26.0
-
-    # 1) Shares normalizados por sala activa
-    shares = []
-    for (team_i, pid), qty_sku in sku_qty_per_sala.items():
-        if pid != product_id or qty_sku <= 0.0:
-            continue
-        qty_categ = _safe_float(categ_qty_per_sala.get((team_i, categ_efectiva), 0.0), 0.0)
-        if qty_categ <= 0.0:
-            continue
-        shares.append(qty_sku / qty_categ)
-    n_active = len(shares)
-
-    # Regla min_salas: skip si el SKU no tiene suficiente distribucion.
-    if n_active < min_salas:
+    # Regla <min_salas activas: skip si SKU sin distribucion suficiente.
+    n_salas_activas = _safe_int(fs_ctx.get('n_salas_activas', {}).get(product_id, 0), 0)
+    if n_salas_activas < min_salas:
         return None
 
-    factor_normalizado = sum(shares) / float(n_active)
-    if factor_normalizado <= 0.0:
-        return None
-
-    # 2) mu_categ_target: real si hay historia, bottom-N% si es sala nueva.
+    # Decidir share: real o fallback uniforme (San Jose).
     historia = _safe_int(fs_ctx.get('historia_categ', {}).get((team_id, categ_efectiva), 0), 0)
     if historia >= min_historia:
-        qty_categ_target = _safe_float(categ_qty_per_sala.get((team_id, categ_efectiva), 0.0), 0.0)
-        mu_categ_target = qty_categ_target / n_weeks_window
-        method = 'normalized_real'
+        share = fs_ctx.get('share_categ', {}).get((team_id, categ_efectiva))
+        method = 'share_real'
     else:
-        # Bottom-N%: salas con menor mu_categoria, EXCLUYENDO la sala objetivo.
-        otras_salas_categ = []
-        for (team_i, c), qty in categ_qty_per_sala.items():
-            if c == categ_efectiva and team_i != team_id and qty > 0.0:
-                otras_salas_categ.append(qty)
-        if not otras_salas_categ:
-            return None
-        otras_salas_categ.sort()  # ascending
-        n_total = len(otras_salas_categ)
-        # n_bottom = ceil(n_total × bottom_pct), minimo 1
-        n_bottom_raw = float(n_total) * float(bottom_pct)
-        n_bottom = max(1, int(n_bottom_raw + 0.5))
-        if n_bottom > n_total:
-            n_bottom = n_total
-        bottom_qtys = otras_salas_categ[:n_bottom]
-        mu_categ_target = (sum(bottom_qtys) / float(len(bottom_qtys))) / n_weeks_window
-        method = 'normalized_bottom%d' % n_bottom
+        share = 1.0 / float(n_salas_total) if n_salas_total else None
+        method = 'fallback_sala_nueva'
 
-    if mu_categ_target <= 0.0:
+    if share is None or share <= 0.0:
         return None
 
-    mu_raw = factor_normalizado * mu_categ_target * float(bias)
+    mu_raw = mu_global * float(share) * float(bias)
     if mu_raw <= 0.0:
         return None
 
-    # Floor minimo (defeat rounding-to-0): garantiza orden cuando hay propuesta.
+    # Floor Oracle MFQ: garantiza que stock genere orden.
     if min_units > 0.0 and mu_raw < min_units:
         mu_fs = float(min_units)
         floor_applied = True
@@ -1358,8 +1276,8 @@ def _compute_fair_share(product_id, team_id, categ_id_local,
 
     sigma_fs = mu_fs * float(sigma_cv)
 
-    reason = ('FS2_%s|n_active=%d|factor=%.4f|mu_categ=%.2f|raw=%.2f|floor=%s'
-              % (method, n_active, factor_normalizado, mu_categ_target,
+    reason = ('FS_%s|n_salas=%d|hist=%dw|share=%.3f|mu_g=%.2f|bias=%.2f|raw=%.2f|floor=%s'
+              % (method, n_salas_activas, historia, share, mu_global, bias,
                  mu_raw, 'Y' if floor_applied else 'N'))[:240]
     return {
         'mu_week': mu_fs,
@@ -1454,7 +1372,6 @@ FAIR_SHARE_MIN_HISTORIA_CATEG = int(CTX.get('fair_share_min_historia_categ', FAI
 FAIR_SHARE_BIAS               = float(CTX.get('fair_share_bias', FAIR_SHARE_BIAS_DEFAULT))
 FAIR_SHARE_MIN_UNITS          = float(CTX.get('fair_share_min_units', FAIR_SHARE_MIN_UNITS_DEFAULT))
 FAIR_SHARE_SIGMA_CV           = float(CTX.get('fair_share_sigma_cv', FAIR_SHARE_SIGMA_CV_DEFAULT))
-FAIR_SHARE_BOTTOM_PCT         = float(CTX.get('fair_share_bottom_pct', FAIR_SHARE_BOTTOM_PCT_DEFAULT))
 
 XYZ_LOCAL_MIN_WEEKS = int(CTX.get('xyz_local_min_weeks', XYZ_LOCAL_MIN_WEEKS_DEFAULT))
 XYZ_LOCAL_T1 = float(CTX.get('xyz_local_t1', XYZ_LOCAL_T1_DEFAULT))
@@ -1816,38 +1733,39 @@ else:
                     buf_glo[wk] = buf_glo.get(wk, 0.0) + q
 
                 # ============================================================
-                # v3.41 — Construir fair_share_ctx (insumos para _compute_fair_share)
+                # v3.40 — Construir fair_share_ctx (insumos para _compute_fair_share)
                 # ============================================================
-                # categ_qty_per_sala[(team, categ_id)] = total qty (suma sobre ventana)
-                # sku_qty_per_sala[(team, pid)]        = total qty (suma sobre ventana)
-                # historia_categ[(team, categ_id)]    = n semanas con venta > 0
-                # n_weeks_window                        = total semanas evaluadas
-                fs_categ_qty_per_sala = {}
-                fs_weeks_team_categ = {}
+                fs_qty_team_categ = {}   # (team_i, categ_id) -> sum qty
+                fs_weeks_team_categ = {}  # (team_i, categ_id) -> set(wk) con qty>0
+                fs_qty_categ = {}        # categ_id -> sum qty
                 for (team_i, categ_id, wk), qv in buf_lc.items():
                     if qv > 0.0:
-                        key_tc = (team_i, categ_id)
-                        fs_categ_qty_per_sala[key_tc] = fs_categ_qty_per_sala.get(key_tc, 0.0) + qv
-                        fs_weeks_team_categ.setdefault(key_tc, set()).add(wk)
+                        fs_qty_team_categ[(team_i, categ_id)] = fs_qty_team_categ.get((team_i, categ_id), 0.0) + qv
+                        fs_weeks_team_categ.setdefault((team_i, categ_id), set()).add(wk)
+                for (categ_id, wk), qv in buf_cat.items():
+                    if qv > 0.0:
+                        fs_qty_categ[categ_id] = fs_qty_categ.get(categ_id, 0.0) + qv
 
-                fs_sku_qty_per_sala = {}
-                for (team_i, pid), wkmap in data_si.items():
-                    total_qty = 0.0
-                    for row in wkmap.values():
-                        q = _safe_float((row and row[1]) or 0.0, 0.0)
-                        if q > 0.0:
-                            total_qty += q
-                    if total_qty > 0.0:
-                        fs_sku_qty_per_sala[(team_i, pid)] = total_qty
+                fs_share_categ = {}
+                for key, q_team in fs_qty_team_categ.items():
+                    _, categ_id = key
+                    q_red = fs_qty_categ.get(categ_id, 0.0)
+                    if q_red > 0.0:
+                        fs_share_categ[key] = q_team / q_red
 
                 fs_historia_categ = {k: len(v) for k, v in fs_weeks_team_categ.items()}
 
+                fs_n_salas_activas = {}
+                for (team_i, pid), wkmap in data_si.items():
+                    if any((row[1] or 0.0) > 0.0 for row in wkmap.values()):
+                        fs_n_salas_activas[pid] = fs_n_salas_activas.get(pid, 0) + 1
+
                 fair_share_ctx = {
-                    'sku_qty_per_sala':   fs_sku_qty_per_sala,
-                    'categ_qty_per_sala': fs_categ_qty_per_sala,
-                    'historia_categ':     fs_historia_categ,
-                    'n_weeks_window':     float(len(demand_weeks_list) or 26),
+                    'share_categ': fs_share_categ,
+                    'historia_categ': fs_historia_categ,
+                    'n_salas_activas': fs_n_salas_activas,
                 }
+                fs_n_salas_total = max(len(team_ids_found), 1)
                 # ============================================================
 
                 si_weekly_local_categ = {}
@@ -2224,7 +2142,7 @@ else:
                             min_units=FAIR_SHARE_MIN_UNITS,
                             min_salas=FAIR_SHARE_MIN_SALAS_ACTIVAS,
                             min_historia=FAIR_SHARE_MIN_HISTORIA_CATEG,
-                            bottom_pct=FAIR_SHARE_BOTTOM_PCT,
+                            n_salas_total=fs_n_salas_total,
                         )
                         if fs_res is not None:
                             mu_week = fs_res['mu_week']
