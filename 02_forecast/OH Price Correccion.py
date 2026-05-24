@@ -1,66 +1,42 @@
+# ============================================================
+# OH Price Correccion - Detector de cambios de precio y promos
+# ============================================================
+#
+# Version activa: v5.8 (ver CHANGELOG.md para historial completo)
+#
+# Objetivo:
+#   - Detecta cambios de precio y promos en x_price_change_event /
+#     x_loyalty_promo_event y emite un factor de correccion por SKU
+#     al modelo x_price_coreccion (typo de Studio: una 'r').
+#   - El motor HM SI Forecast consume el factor via
+#     _load_correccion_context y lo aplica al mu_week despues de los
+#     caps P1/P3/P6.
+#
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Lookback diferenciado:
+#       - Precios: 52 sem (1 ano). Subidas decaen a 1.0 en 12 sem;
+#         bajadas siguen vigentes hasta nuevo cambio.
+#       - Promos: 4 sem (cortas, mas atras es ruido).
+#   - Decay por tipo:
+#       - BAJADA = promo sostenida -> sin decay.
+#       - SUBIDA = decay 12 sem.
+#   - Elasticidad ABC (solo "sin promo"):
+#       - A x1.3 (commodities con alternativas).
+#       - B x1.0 (sin cambio).
+#       - C x0.7 (cola cautiva).
+#     Aplicado como 1 + (factor - 1) * mult. Promos NO se ponderan.
+#   - Promo clasificada por minimum_qty:
+#       - <=2: pareo, no alertar salvo lift extremo.
+#       - 3-4: mixto.
+#       - >=6: stock-up (DISPARO_W1, SATURACION_W3+).
+#   - target_week_start = period_start del evento (no proxima semana).
+#   - Filtro SKU: product.product.active=True AND sale_ok=True.
+#   - Modelo destino: x_price_coreccion (typo intencional Studio).
+#
+# Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
+# ============================================================
+
 VERSION_ID = "PRICE_CORRECCION_v5_8"
-# v5.9 (2026-05-12, REVERTIDO): canibalizacion pasiva con lista blanca de
-#   categ L2. Resultado: WAPE +0.04pp neutro, no agarro los outliers reales
-#   (Royal Guard quedo igual). Probable causa: CPI por sub-cat L3 separa
-#   "Cervezas Tradicionales" de "Cervezas Promocion".
-#   Revertido por decision: evitar acoplar el motor a casuisticas
-#   especificas del negocio al inicio. Se puede retomar mas adelante
-#   subiendo CPI a nivel L2 + listando intercambios manuales.
-# v5.8 cambios:
-#   - LOOKBACK_PRICE_WEEKS = 52 (era 12). Captura cambios sostenidos
-#     viejos. Caso real detectado: cervezas Royal Guard / Cristal Ultra
-#     con bajada de hace ~20 sem que sigue vigente, generaba canibal
-#     activa pero el detector la ignoraba por estar fuera de ventana.
-#   - Subidas con weeks_since >= 12 quedan con factor=1.0 por decay
-#     (no generan ruido). Bajadas son sostenidas - factor sigue activo.
-# v5.7 cambios:
-#   - Ponderacion ELASTICIDAD_ABC sobre el factor base para cambios de
-#     precio (solo en la rama "sin promo"):
-#       A: x1.3 (commodities con alternativas, mas elastico)
-#       B: x1.0 (sin cambio)
-#       C: x0.7 (cola cautiva, menos elastico)
-#   - Se aplica como 1 + (factor - 1) * mult, asi es coherente para
-#     subidas (factor<1) y bajadas (factor>1).
-#   - Promos y BAJADA_DISCONTINUACION NO se ponderan (el lift de promo
-#     ya viene medido del SKU; discontinuacion siempre factor=1.0).
-#   - _put_field selection ahora es case-insensitive (fallback).
-#   - Diagnostico en notificacion: abcxyz_field / con_valor / vacio.
-# v5.6 cambios:
-#   - target_week_start ahora = period_start del evento (no proxima semana).
-#     Permite auditar contra backtest historico y reutilizar la fila por
-#     varias semanas mientras el efecto siga activo.
-#   - Filtro: solo SKUs con product.product.active=True AND sale_ok=True
-#     (excluye archivados, no-vendibles, liquidaciones cerradas).
-#   - Persiste x_studio_abcxyz (string completo AX/AY/AZ/BX...) en cada fila.
-#   - Purge inicial: ya no por target_week (ahora varia por SKU); purga
-#     todos los activos y recrea el snapshot.
-# v5.5 cambios:
-#   - Bug fix: el detector no leia cambios de precio porque el campo
-#     fecha real en x_price_change_event es x_studio_period_start
-#     (no x_studio_fecha como suponiamos). Sin date_field detectado,
-#     _first_field devolvia False y todo el bloque se salteaba en
-#     silencio -> 0 alertas de cambio de precio.
-#   - Agregado filtro is_real_change=True opcional para descartar
-#     fluctuaciones espurias.
-# v5.4 cambios:
-#   - Lookback diferenciado por fuente:
-#       precios: 12 sem (cubre decay 12s de subidas + bajadas sostenidas
-#                        que pueden tener varios meses)
-#       promos:   4 sem (las promos son cortas; mas atras es ruido)
-#   - Sin regex en _extract_mecanica (Odoo safe_eval rechaza IMPORT_NAME).
-# v5.3 cambios:
-#   - Nombre modelo destino corregido al typo real de Studio:
-#       'x_price_coreccion' (una sola 'r').
-#   - Quitado write a x_studio_company_id (campo no existe en Studio).
-#   - Selection x_studio_tipo_alerta extendida en Studio con todos los
-#     tipos granulares; el runner los persiste tal cual (sin mapeo).
-# v5.2 cambios:
-#   - BAJADA de precio = promo sostenida -> sin decay (factor vive hasta nuevo cambio)
-#   - SUBIDA de precio = decay 12 sem (era 8, adaptacion mas gradual)
-#   - Promo clasificada por minimum_qty (no solo por nombre):
-#       min_qty <= 2: pareo, no alertar salvo lift extremo
-#       min_qty 3-4: mixto
-#       min_qty >= 6: stock-up (DISPARO_W1, SATURACION_W3+)
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009612

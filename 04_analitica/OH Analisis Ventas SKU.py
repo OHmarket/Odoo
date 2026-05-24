@@ -1,79 +1,39 @@
 # ============================================================
-# OH POS Venta Semanal por SKU — MODELO FINAL SIMPLE + BANDAS
-# ------------------------------------------------------------
-# Modelo destino: x_pos_week_sku_sale
-# Grano:
-#   company + team(local) + week_start + categ_id + product_id
+# OH Analisis Ventas SKU - Venta semanal por SKU con prorating combos
+# ============================================================
 #
-# Campos base:
-#   - x_studio_qty_sold     = SUM(pos_order_line.qty)
-#   - x_studio_sales_gross  = SUM(pos_order_line.price_subtotal_incl)
-#   - x_studio_week_start   = lunes de la semana local America/Santiago
-#   - x_studio_week_end     = domingo de la semana local America/Santiago
+# Version activa: v12_COMBO_EXPLODE (ver CHANGELOG.md para historial completo)
 #
-# Campo principal nuevo, independiente de feriados:
-#   REQUERIDO:
-#   - x_studio_response_vs_category_pct  Float
-#     = crecimiento SKU vs LY - crecimiento categoría vs LY
-#   - x_studio_seasonal_band             Char o Selection
-#     = banda estacional calculada desde ISO week
+# Objetivo:
+#   - Persiste venta semanal por (sala, SKU, categoria) en el modelo
+#     x_pos_week_sku_sale con prorating de combos.
+#   - Calcula response_vs_category (crecimiento SKU vs LY - crecimiento
+#     categoria vs LY) y bandas estacionales por ISO week.
 #
-#   CAMPOS ACTUALES CONFIRMADOS EN MODELO:
-#   - x_studio_iso_week                Integer
-#   - x_studio_is_base_week            Boolean
-#   - x_studio_seasonal_context        Char
-#   - x_studio_holiday_in_band_key     Char
-#   - x_studio_has_holiday             Boolean
-#   - x_studio_holiday_days            Integer
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Grano: company + team (local) + week_start + categ_id + product_id.
+#   - Calendario OH: semana lunes-domingo en hora local Chile.
+#     week_start = lunes; week_end = domingo. LY = -364 dias (mismo dia
+#     de semana, 52 sem exactas).
+#   - Prorating combos: cada componente recibe qty/revenue prorrateado
+#     segun priced_child_count -> child_rev; weight_sum -> peso por valor;
+#     sino reparto uniforme.
+#   - Bandas estacionales: verano alto / bajo, otono, invierno, primavera,
+#     fiestas (calculadas desde ISO week).
+#   - Feriados: contexto holiday_dates, o lectura desde
+#     x_holiday_occurrence -> x_holiday_master (tipo, irrenunciable, codigo).
+#   - SAFE_EVAL friendly: sin lambdas, sin closures, sin nested functions.
+#     Requiere datetime disponible en Server Action.
 #
-#   CAMPOS OPCIONALES FUTUROS, si decides auditar más detalle:
-#   - x_studio_sku_growth_qty_pct      Float
-#   - x_studio_categ_growth_qty_pct    Float
-#   - x_studio_qty_sold_ly             Float
-#   - x_studio_categ_qty_sold          Float
-#   - x_studio_categ_qty_sold_ly       Float
-#   - x_studio_has_valid_ly_base       Boolean
+# Campos persistidos clave: x_studio_qty_sold, x_studio_sales_gross,
+# x_studio_response_vs_category_pct, x_studio_seasonal_band,
+# x_studio_iso_week, x_studio_has_holiday.
 #
-#   OPCIONALES para respuesta en monto bruto:
-#   - x_studio_response_gross_vs_category_pct Float
-#   - x_studio_sku_growth_gross_pct           Float
-#   - x_studio_categ_growth_gross_pct         Float
-#   - x_studio_sales_gross_ly                 Float
-#   - x_studio_categ_sales_gross              Float
-#   - x_studio_categ_sales_gross_ly           Float
-#
-#   OPCIONAL compatibilidad versión anterior:
-#   - x_studio_holiday_response_pct     Float
-#
-# Definición:
-#   sku_growth_qty   = qty_sku_semana / qty_sku_semana_LY_364 - 1
-#   categ_growth_qty = qty_categoria_semana / qty_categoria_semana_LY_364 - 1
-#   response_vs_category = sku_growth_qty - categ_growth_qty
-#
-# Interpretación:
-#   +0.20 = el SKU creció 20 puntos porcentuales más que su categoría.
-#   -0.15 = el SKU creció 15 puntos porcentuales menos que su categoría.
-#
-# Este cálculo se hace para TODAS las semanas con base LY válida.
-# Las bandas estacionales y feriados quedan como atributos de contexto
-# para filtrar/explicar la respuesta del SKU.
-# LY se compara con -364 días para conservar el mismo día de semana.
-#
-# Fuente feriados:
-#   1) Contexto opcional: {'holiday_dates': ['2025-01-01', ...]}
-#   2) Modelo por defecto: x_holiday_occurrence.x_studio_holiday_date
-#   3) Relación esperada: x_holiday_occurrence.x_studio_holiday_id -> x_holiday_master
-#   4) Desde x_holiday_master toma, si existen:
-#      código, tipo de feriado e irrenunciable.
-#   5) Contexto opcional: {'holiday_model': 'x_nombre_modelo'}
-#
-# SAFE_EVAL friendly — Odoo Server Action / Acción Planificada
-# v11 incorpora estándar calendario OH para que todos los scripts semanales sean comparables.
-# Mantiene compatibilidad safe_eval: sin lambdas, sin closures y sin nested functions.
-# Requiere que datetime esté disponible en el contexto de Server Action.
+# Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
 VERSION_ID = 'OH_POS_WEEK_SKU_SIMPLE_v12_COMBO_EXPLODE'
+
 MODEL      = 'x_pos_week_sku_sale'
 TZ_NAME    = 'America/Santiago'
 LOCK_KEY   = 99022032

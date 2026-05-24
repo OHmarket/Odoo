@@ -1,18 +1,27 @@
 # ============================================================
-# OH POS Week Category Fact — TY + LY + FACTOR ANUAL CATEGORIA
-# v10 CATEGORY ANNUAL FACTOR:
-#   - Mantiene la lógica original a nivel semana x sucursal x categoría
-#   - NO baja a SKU
-#   - Agrega/corrige factor categoría vs promedio semanal anual
-#   - annual_avg_sales / annual_avg_units = promedio semanal del mismo año
-#     ISO comercial, por sucursal x categoría
-#   - season_factor_sales / season_factor_units = semana / promedio anual
-#   - LY = semana - 364 días
-#   - Soporta run_mode/date_from/date_to y también pos_week_start/pos_week_end
-#   - x_name compatible con jsonb
+# OH Analisis Ventas Categoria - POS week TY + LY + factor anual
+# ============================================================
+#
+# Version activa: v10 (ver CHANGELOG.md para historial completo)
+#
+# Objetivo:
+#   - POS week category fact: TY + LY + factor anual por categoria.
+#   - Grano: semana x sucursal x categoria (no baja a SKU).
+#   - Persiste en x_x_pos_week_sku_fact.
+#
+# Reglas vivas (resumen operativo, no cronologia):
+#   - annual_avg_sales / annual_avg_units = promedio semanal del mismo
+#     ano ISO comercial, por sucursal x categoria.
+#   - season_factor_sales / season_factor_units = semana / promedio anual.
+#   - LY = semana - 364 dias (mismo dia de semana).
+#   - Soporta run_mode / date_from / date_to y pos_week_start / pos_week_end.
+#   - x_name compatible con jsonb.
+#
+# Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
 VERSION_ID = "POS_WEEK_CATEG_TYLY_v10_ANNUAL_FACTOR_CATEGORY"
+
 TZ_NAME    = "America/Santiago"
 LOCK_KEY   = 99013012
 

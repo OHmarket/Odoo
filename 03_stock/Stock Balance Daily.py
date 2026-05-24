@@ -1,54 +1,36 @@
-# VERSION_ID = "STOCKOUT_v2_0"
-# MODEL_NAME = "STOCK_BALANCE_DAILY"
-#
-# Reconstruye balance diario de stock por (team, warehouse, producto, dia)
-# para detectar quiebres reales. Permite separar "error del modelo" de
-# "no habia stock" en el analisis del backtest.
-#
-# Estrategia: snapshot actual (stock.quant) + roll backward sobre stock.move
-# completados en la ventana efectiva.
-#   balance[D] = balance[D+1] - qty_in_(D+1) + qty_out_(D+1)
-#
-# v2.0 - MODO DUAL:
-#   mode='backfill'    : reconstruye rango explicito [date_from, date_to].
-#                        Default range = [BACKFILL_FLOOR_DEFAULT, hoy].
-#   mode='incremental' : detecta ultima fecha procesada y recalcula
-#                        tail_window_days (default 7) + hoy. NO toca dias
-#                        anteriores. Es lo que corre el cron diario.
-#
-# El roll backward SIEMPRE ancla en stock.quant de HOY. La aceptacion
-# explicita del usuario: el balance reconstruido para enero 2026 es una
-# inferencia matematica desde el quant actual, no un snapshot real de ese
-# momento. Suficiente para detectar quiebres operativos.
-#
-# Backdating > tail_window_days NO se captura en incremental. Mitigacion:
-# correr backfill manual u opcional cron semanal con tail_window_days=30.
-#
 # ============================================================
-# MODELO DESTINO (crear en Studio antes de correr): x_stock_balance_daily
-# Campos requeridos:
-#   x_team_id          Many2one  -> crm.team
-#   x_warehouse_id     Many2one  -> stock.warehouse
-#   x_product_id       Many2one  -> product.product
-#   x_categ_id         Many2one  -> product.category   (categoria del producto)
-#   x_supplier_id      Many2one  -> res.partner        (proveedor principal del producto)
-#   x_abcxyz           Char                            (clasificacion ABCXYZ desde x_calculo_abc_xyz)
-#   x_date             Date
-#   x_qty_balance      Float     (balance fin de dia)
-#   x_qty_start        Float     (balance inicio de dia)
-#   x_qty_in           Float     (entradas del dia)
-#   x_qty_out          Float     (salidas del dia)
-#   x_stockout         Boolean   (balance fin de dia <= 0)
-#   x_stockout_partial Boolean   (start > 0 pero end <= 0; quebro durante el dia)
-#   x_run_version      Char
-#   x_run_at           Datetime
-# Campos opcionales (v2.0, escritos solo si existen):
-#   x_run_id           Char (indexed)   UUID corto del run
-#   x_mode             Selection [backfill|incremental]
-# Indice recomendado: (x_team_id, x_warehouse_id, x_product_id, x_date)
+# Stock Balance Daily - Reconstruccion diaria de stock por SKU/sala
+# ============================================================
+#
+# Version activa: v2.0 (ver CHANGELOG.md para historial completo)
+#
+# Objetivo:
+#   - Reconstruir balance diario de stock por (team, warehouse, producto)
+#     para detectar quiebres reales (stockouts) y separar "error de modelo"
+#     de "no habia stock" en el backtest.
+#
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Estrategia: snapshot actual (stock.quant) + roll backward sobre
+#     stock.move completados:
+#       balance[D] = balance[D+1] - qty_in_(D+1) + qty_out_(D+1)
+#   - Modo dual:
+#       - mode="backfill"    -> rango [date_from, date_to] explicito.
+#       - mode="incremental" -> tail_window_days (default 7) + hoy.
+#         No toca dias anteriores. Lo corre el cron diario.
+#   - Anchor: stock.quant de HOY. Aceptacion explicita: balance
+#     reconstruido es inferencia matematica desde quant actual, NO un
+#     snapshot real de ese momento.
+#   - Backdating > tail_window_days NO se captura en incremental.
+#     Mitigacion: backfill manual o cron semanal con tail=30.
+#   - Modelo destino: x_stock_balance_daily (Studio).
+#     Indice recomendado: (team_id, warehouse_id, product_id, date).
+#   - Stockout: balance <= 0. Stockout partial: start > 0 AND end <= 0.
+#
+# Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
 VERSION_ID = "STOCKOUT_v2_0"
+
 TARGET_MODEL = "x_stock_balance_daily"
 
 TZ_NAME  = 'America/Santiago'
@@ -60,9 +42,47 @@ TAIL_WINDOW_DAYS_DEFAULT  = 7                 # cola de re-calculo en modo incre
 BACKFILL_FLOOR_DEFAULT    = (2026, 1, 1)      # piso historico, no retrocede mas atras
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 
+# Toggle: borrado total de x_stock_balance_daily al inicio de cada corrida.
+# Mantenerlo en False en operacion normal -> el delete-range del rango efectivo
+# (ultimos 7 dias en incremental) es suficiente. Activar a True solo si hay
+# que rehacer el historico completo despues de un cambio de diseno.
+WIPE_ALL_AT_START = False
 
-import datetime as _dt
-import uuid as _uuid
+# Mapeo team -> warehouse. Hardcoded igual que en OH Analisis de Stock
+# (TEAM_WAREHOUSE_MAP_FALLBACK). Razon: pos.config.warehouse_id en este Odoo
+# esta mal poblado (los 28 POS apuntan al mismo WH=1 central). El warehouse
+# real vive en pos.config.picking_type_id.warehouse_id, pero usar este MAP
+# hardcoded es mas robusto que depender de la configuracion de Odoo.
+TEAM_WAREHOUSE_MAP_DEFAULT = {
+    5:  1,    # Panguipulli 790  -> PA790
+    6:  4,    # Los Lagos        -> LL200
+    7:  2,    # Futrono          -> FU120
+    8:  3,    # Panguipulli 645  -> PA645
+    9:  16,   # Panguipulli 763  -> PA763
+    10: 8,    # Lautaro          -> LA812
+    11: 5,    # San Jose         -> SJ121
+    12: 9,    # Paillaco         -> PA706
+    13: 10,   # Mehuin Express   -> MEHEX
+    16: 12,   # Conaripe         -> CO899
+    17: 14,   # Nueva Imperial   -> IM495
+    18: 13,   # Malalhue         -> ML402
+}
+
+
+# Nota: safe_eval de Odoo Server Actions prohibe `import`, declarar `class`,
+# y otros opcodes. `datetime` ya viene disponible como modulo en el scope.
+# `uuid` NO esta disponible: el run_id se genera via SQL (md5 + clock_timestamp).
+#
+# En Odoo 17, `log` es una funcion (no un logger): log(msg, level='info').
+# Wrappers con %s-format para mantener llamadas legibles tipo log.info/warning.
+
+
+def _log_info(msg, *args):
+    log((msg % args) if args else msg, level='info')
+
+
+def _log_warn(msg, *args):
+    log((msg % args) if args else msg, level='warn')
 
 
 CTX = (env.context or {})
@@ -89,12 +109,12 @@ def _parse_iso_date(v):
     """Acepta date, datetime, 'YYYY-MM-DD' (o vacio). Retorna date|None."""
     if v is None or v is False or v == '':
         return None
-    if isinstance(v, _dt.datetime):
+    if isinstance(v, datetime.datetime):
         return v.date()
-    if isinstance(v, _dt.date):
+    if isinstance(v, datetime.date):
         return v
     try:
-        return _dt.datetime.strptime(str(v)[:10], '%Y-%m-%d').date()
+        return datetime.datetime.strptime(str(v)[:10], '%Y-%m-%d').date()
     except Exception:
         return None
 
@@ -104,8 +124,8 @@ def _detect_last_processed_date(team_ids):
     if not team_ids:
         return None
     env.cr.execute("""
-        SELECT MAX(x_date) FROM x_stock_balance_daily
-        WHERE x_team_id = ANY(%s)
+        SELECT MAX(x_studio_date) FROM x_stock_balance_daily
+        WHERE x_studio_team_id = ANY(%s)
     """, (list(team_ids),))
     row = env.cr.fetchone()
     return row[0] if row and row[0] else None
@@ -120,7 +140,7 @@ def _resolve_mode(ctx, today, team_ids):
 
     Aplica clamp con BACKFILL_FLOOR_DEFAULT como piso historico.
     """
-    floor = _dt.date(*BACKFILL_FLOOR_DEFAULT)
+    floor = datetime.date(*BACKFILL_FLOOR_DEFAULT)
     mode = (ctx.get('mode') or 'incremental').lower()
 
     if mode == 'backfill':
@@ -130,7 +150,7 @@ def _resolve_mode(ctx, today, team_ids):
         # lo ignoramos con warning (no rompemos por compat, pero alertamos).
         ctx_d_to = _parse_iso_date(ctx.get('date_to'))
         if ctx_d_to is not None and ctx_d_to != today:
-            log.warning(
+            _log_warn(
                 'STOCKOUT %s: date_to=%s ignorado (forzado a today=%s). '
                 'El ancla del roll backward es stock.quant actual, no historico.',
                 VERSION_ID, ctx_d_to, today)
@@ -144,7 +164,7 @@ def _resolve_mode(ctx, today, team_ids):
     # incremental
     last = _detect_last_processed_date(team_ids)
     if last is None:
-        log.warning(
+        _log_warn(
             'STOCKOUT %s: incremental sin datos previos; degradando a backfill desde %s',
             VERSION_ID, floor)
         return ('backfill', floor, today, None)
@@ -152,13 +172,13 @@ def _resolve_mode(ctx, today, team_ids):
     tail = int(ctx.get('tail_window_days', TAIL_WINDOW_DAYS_DEFAULT))
     if tail < 1:
         tail = 1
-    d_from = last - _dt.timedelta(days=tail - 1)
+    d_from = last - datetime.timedelta(days=tail - 1)
     if d_from < floor:
         d_from = floor
     # Warning si el gap entre last y today es muy grande (cron parado, set de teams cambio, etc.)
     gap_days = (today - last).days
     if gap_days > tail * 2:
-        log.warning(
+        _log_warn(
             'STOCKOUT %s: last_processed=%s lleva %s dias sin actualizar (tail=%s). '
             'Posible cron caido o cambio de FILTERED_TEAM_IDS. Considera correr backfill manual.',
             VERSION_ID, last, gap_days, tail)
@@ -169,11 +189,11 @@ TEAM_IDS = _to_int_list(CTX.get('team_ids')) or list(FILTERED_TEAM_IDS_DEFAULT)
 
 # Legacy: aceptados por compat con cron antiguo pero NO usados en v2.0
 if 'hard_reset' in CTX:
-    log.warning(
+    _log_warn(
         'STOCKOUT %s: hard_reset es legacy en v2.0; el delete-range ahora opera '
         'solo sobre el rango efectivo. Parametro ignorado.', VERSION_ID)
 if 'history_weeks' in CTX:
-    log.warning(
+    _log_warn(
         'STOCKOUT %s: history_weeks es legacy en v2.0; usa mode=backfill con '
         'date_from/date_to, o mode=incremental con tail_window_days.', VERSION_ID)
 
@@ -181,10 +201,16 @@ if 'history_weeks' in CTX:
 # Lock para evitar corridas concurrentes
 env.cr.execute('SELECT pg_try_advisory_xact_lock(%s)', (LOCK_KEY,))
 if not env.cr.fetchone()[0]:
-    log.warning('STOCKOUT %s: lock %s ocupado, abortando', VERSION_ID, LOCK_KEY)
+    _log_warn('STOCKOUT %s: lock %s ocupado, abortando', VERSION_ID, LOCK_KEY)
     result = {'aborted': True, 'reason': 'lock_busy'}
 else:
-    import datetime
+    # Wipe TEMPORAL: borrado total de la tabla. Ver WIPE_ALL_AT_START arriba.
+    if WIPE_ALL_AT_START:
+        env.cr.execute('DELETE FROM x_stock_balance_daily')
+        _wiped = env.cr.rowcount
+        _log_warn(
+            'STOCKOUT %s: WIPE_ALL_AT_START=True -> borradas %s filas (toggle temporal)',
+            VERSION_ID, _wiped)
 
     # Rango temporal en la zona horaria del negocio
     env.cr.execute('SELECT (timezone(%s, now())::date)', (TZ_NAME,))
@@ -193,17 +219,16 @@ else:
     # tenemos team_to_warehouses (necesario para _detect_last_processed_date).
 
     # =========================================================
-    # 1) Mapear teams -> warehouses via pos.config
+    # 1) Mapear teams -> warehouses via TEAM_WAREHOUSE_MAP_DEFAULT
+    #
+    # Hardcoded a proposito (ver constante arriba). No leemos de
+    # pos.config porque ese dato esta mal poblado en este Odoo.
     # =========================================================
-    PosConfig = env['pos.config'].sudo()
-    configs = PosConfig.search([('crm_team_id', 'in', TEAM_IDS)])
-
     team_to_warehouses = {}    # team_id -> set(warehouse_id)
     warehouse_to_team  = {}    # warehouse_id -> team_id (primer match)
-    for c in configs:
-        tid = c.crm_team_id.id if c.crm_team_id else False
-        wid = c.warehouse_id.id if c.warehouse_id else False
-        if not tid or not wid:
+    for tid in TEAM_IDS:
+        wid = TEAM_WAREHOUSE_MAP_DEFAULT.get(tid)
+        if not wid:
             continue
         team_to_warehouses.setdefault(tid, set()).add(wid)
         warehouse_to_team.setdefault(wid, tid)
@@ -218,8 +243,11 @@ else:
         # =========================================================
         mode, date_from, date_to, tail_window = _resolve_mode(
             CTX, date_today, list(team_to_warehouses.keys()))
-        run_id = _uuid.uuid4().hex[:12]
-        log.info(
+        # safe_eval no permite `import uuid`; generamos run_id en PostgreSQL.
+        env.cr.execute(
+            "SELECT substr(md5(clock_timestamp()::text || random()::text), 1, 12)")
+        run_id = env.cr.fetchone()[0]
+        _log_info(
             'STOCKOUT %s: mode=%s rango=[%s..%s] tail=%s run_id=%s teams=%s',
             VERSION_ID, mode, date_from, date_to, tail_window, run_id,
             sorted(team_to_warehouses.keys()))
@@ -346,19 +374,36 @@ else:
                         rec['in'] += qty
 
             if orphan_moves_count:
-                log.warning(
+                _log_warn(
                     'STOCKOUT %s: %s movimientos huerfanos detectados en ventana '
                     '(origen y destino ambos fuera del mapeo). Muestra: %s',
                     VERSION_ID, orphan_moves_count, orphan_sample[:5])
 
             # =========================================================
             # 5) Productos relevantes: con stock actual o movimiento en ventana
+            #    Pre-filtro: solo productos vendibles (active, sale_ok, type=product).
+            #    Excluye archivados, insumos internos, consumibles, servicios.
+            #    Razon: un quiebre de un insumo no genera decision comercial,
+            #    es ruido en los reportes.
             # =========================================================
+            env.cr.execute("""
+                SELECT pp.id
+                FROM product_product pp
+                JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                WHERE pp.active = TRUE
+                  AND pt.active = TRUE
+                  AND pt.sale_ok = TRUE
+                  AND pt.type = 'product'
+            """)
+            sellable_pids = {row[0] for row in env.cr.fetchall()}
+
             relevant = set()
             for (wh, pid) in current_qty.keys():
-                relevant.add((wh, pid))
+                if pid in sellable_pids:
+                    relevant.add((wh, pid))
             for (wh, pid, _) in movements.keys():
-                relevant.add((wh, pid))
+                if pid in sellable_pids:
+                    relevant.add((wh, pid))
 
             # =========================================================
             # 5b) Lookup batch de categoria + proveedor + ABCXYZ por producto
@@ -434,8 +479,8 @@ else:
             # para evitar OOM con muchos productos y dias.
             target = env[TARGET_MODEL].sudo()
             target_fields = target._fields or {}
-            has_run_id = 'x_run_id' in target_fields
-            has_mode   = 'x_mode'   in target_fields
+            has_run_id = 'x_studio_run_id' in target_fields
+            has_mode   = 'x_studio_mode'   in target_fields
 
             # Delete-range del rango efectivo via SQL directo. Evita cargar
             # 100k+ filas al cache del ORM en backfills grandes (vs unlink()).
@@ -443,8 +488,8 @@ else:
             # quedan intactos.
             env.cr.execute("""
                 DELETE FROM x_stock_balance_daily
-                WHERE x_team_id = ANY(%(teams)s)
-                  AND x_date BETWEEN %(d_from)s AND %(d_to)s
+                WHERE x_studio_team_id = ANY(%(teams)s)
+                  AND x_studio_date BETWEEN %(d_from)s AND %(d_to)s
             """, {
                 'teams':  list(team_to_warehouses.keys()),
                 'd_from': date_from,
@@ -517,28 +562,38 @@ else:
                         if _sup:
                             stockout_by_supplier[_sup] = stockout_by_supplier.get(_sup, 0) + 1
 
+                    # Solo persistimos dias con quiebre (full o partial). Los
+                    # contadores agregados ya quedaron actualizados arriba; el
+                    # balance fuera de quiebre puede reconstruirse desde
+                    # stock.move si se necesita.
+                    if not is_stockout and not is_partial_stockout:
+                        continue
+
+                    # x_name es required por Studio (display name); lo generamos
+                    # sintetico para que sea unico e identificable en vistas lista.
                     vals = {
-                        'x_team_id':          team_id,
-                        'x_warehouse_id':     wh_id,
-                        'x_product_id':       pid,
-                        'x_categ_id':         product_categ.get(pid) or False,
-                        'x_supplier_id':      product_supplier.get(pid) or False,
-                        'x_abcxyz':           product_abcxyz.get(pid) or '',
-                        'x_date':             d_i,
-                        'x_qty_balance':      bal_end,
-                        'x_qty_start':        bal_start,
-                        'x_qty_in':           qty_in_i,
-                        'x_qty_out':          qty_out_i,
-                        'x_stockout':         is_stockout,
-                        'x_stockout_partial': is_partial_stockout,
-                        'x_run_version':      VERSION_ID,
-                        'x_run_at':           now_dt,
+                        'x_name':                    'T%s/W%s/P%s/%s' % (team_id, wh_id, pid, d_i),
+                        'x_studio_team_id':          team_id,
+                        'x_studio_warehouse_id':     wh_id,
+                        'x_studio_product_id':       pid,
+                        'x_studio_categ_id':         product_categ.get(pid) or False,
+                        'x_studio_supplier_id':      product_supplier.get(pid) or False,
+                        'x_studio_abcxyz':           product_abcxyz.get(pid) or '',
+                        'x_studio_date':             d_i,
+                        'x_studio_qty_balance':      bal_end,
+                        'x_studio_qty_start':        bal_start,
+                        'x_studio_qty_in':           qty_in_i,
+                        'x_studio_qty_out':          qty_out_i,
+                        'x_studio_stockout':         is_stockout,
+                        'x_studio_stockout_partial': is_partial_stockout,
+                        'x_studio_run_version':      VERSION_ID,
+                        'x_studio_run_at':           now_dt,
                     }
                     # Campos opcionales v2.0: solo escribir si existen en Studio.
                     if has_run_id:
-                        vals['x_run_id'] = run_id
+                        vals['x_studio_run_id'] = run_id
                     if has_mode:
-                        vals['x_mode'] = mode
+                        vals['x_studio_mode'] = mode
                     batch.append(vals)
 
                     if len(batch) >= BATCH_SIZE:
@@ -576,4 +631,4 @@ else:
                 'orphan_sample':          orphan_sample[:5],
             }
 
-            log.info('STOCKOUT %s OK: %s', VERSION_ID, result)
+            _log_info('STOCKOUT %s OK: %s', VERSION_ID, result)

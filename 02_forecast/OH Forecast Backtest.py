@@ -1,56 +1,28 @@
 # ============================================================
-# OH_FORECAST_BACKTEST_RUNNER_v11_0_PERF
+# OH Forecast Backtest - HM-SI vs Old Forecast vs Venta Real POS
+# ============================================================
+#
+# Version activa: v11.1 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
-#   Comparar forecast HM-SI vs forecast anterior contra venta real POS.
+#   - Comparar forecast HM-SI vs forecast anterior contra venta real POS.
+#   - Reporta por semana, sucursal, product.product y metodo.
+#   - Persiste WAPE, BIAS, MAE, sub/over-forecast por dimension.
 #
-# Cambio v11.0 (PERF):
-#   - Elimina _load_computed_segment_rows_from_pos por semana: lee series_type
-#     y lifecycle directamente desde x_hm_si_forecast (ya calculado por HM-SI).
-#   - Batch de _load_real_sales: una sola query cubre todas las semanas.
-#   - _load_abcxyz_map se llama una vez por semana en vez de una vez por metodo.
-#   - BT_CV2 queda en 0.0 (CV2 no persiste en x_hm_si_forecast).
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Llave operativa unificada: product.product (no product_template).
+#   - Venta real POS se agrupa por pp.id; ABCXYZ se carga directo desde
+#     x_calculo_abc_xyz por product.product.
+#   - _zone_code() acepta Z1-Z4 (HM-SI v3.x) y REG-0..REG-8 (HM-SI v4.x+).
+#   - Lectura batch de x_hm_si_forecast: series_type, lifecycle, regimen,
+#     forecast_model_code, mu_week_pre_bias.
+#   - Modo multi-semana via BACKTEST_WEEKS + WEEK_OFFSET.
+#   - No toca stock, compras, transferencias ni ordenes de compra.
 #
-# Cambio v10.4:
-#   - Lee x_studio_mu_week_pre_bias desde x_hm_si_forecast.
-#   - Lo persiste en x_forecast_backtest para medir efecto real del bias.
-#   - Forecast final sigue en x_studio_mu_week / x_studio_forecast_qty.
-#
-# Cambio clave v9:
-#   - Unifica la llave operativa en product.product.
-#   - Venta real POS se agrupa por pp.id, no por product_template.
-#   - Segmentación calculada desde POS se agrupa por pp.id.
-#   - ABCXYZ se carga directo desde x_calculo_abc_xyz por product.product.
-#   - No usa default_code, nombre ni template para cruzar ABCXYZ.
-#
-# No toca:
-#   - stock
-#   - compras
-#   - transferencias
-#   - órdenes de compra
-#
-# Resultado:
-#   Backtest por semana + local + product.product + método.
+# Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ============================================================
 
 VERSION_ID = 'OH_FORECAST_BACKTEST_RUNNER_v11_1_REGIMEN'
-
-# Cambio v11.0_PERF -> v11.1_REGIMEN:
-#   1) _zone_code() ahora acepta REG-0..REG-8 como valores validos. Antes
-#      cualquier valor que no fuera Z1-Z4 caia silenciosamente a SIN_ZONA.
-#      Esto rompia el backtest contra HM-SI v4.3+ que escribe REG-X en
-#      x_studio_forecast_zone (nueva semantica).
-#   2) Lectura de x_studio_regimen y x_studio_forecast_model_code desde
-#      x_hm_si_forecast. Se persisten en columnas paralelas del modelo
-#      x_forecast_backtest (best-effort: si no existen, se omiten).
-#   3) Mantiene compatibilidad backward: si HM-SI no escribe regimen,
-#      x_studio_forecast_zone sigue siendo la fuente de la dimension de
-#      segmentacion para reportes.
-#
-# Alcance B pendiente (Etapa 2.4 profunda del roadmap):
-#   - Reemplazar zone_metrics por regimen_metrics como dimension primaria.
-#   - Adaptar mensajes de log y reportes para usar regimen.
-#   - Migrar analisis posteriores (pandas) a regimen.
 
 TZ_NAME = 'America/Santiago'
 LOCK_KEY = 99009490

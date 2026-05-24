@@ -1,31 +1,30 @@
-# OH Supply Generation - Generar Documentos
-# Modelo: x_supply_generation
-# Acción servidor: botón en formulario supply_generation
+# ============================================================
+# OH Generacion de Documentos - Crea OCs y traslados desde Analisis Stock
+# ============================================================
 #
-# VERSION_ID = 'OH_SUPPLY_GENERATION_v1_5_DRAFT_MODE_ADOPTION'
+# Version activa: v1.5 (ver CHANGELOG.md para historial completo)
 #
-# Cambios v1.5:
-# - Modo adopción: NO confirma automáticamente Órdenes de Compra.
-# - Modo adopción: NO confirma automáticamente Traslados Internos.
-# - Las OC quedan como RFQ/Borrador para revisión de Compras.
-# - Los pickings quedan en Borrador para revisión de Bodega/Operaciones.
-# - Mantiene idempotencia por origin_key contra documentos no cancelados.
-# - Advertencia operativa: documentos borrador no deberían entrar a stock_pedido hasta ser confirmados.
+# Objetivo:
+#   - Lee x_analisis_de_stock y crea documentos en Odoo:
+#       - purchase.order (compra a proveedor) en estado Borrador/RFQ.
+#       - stock.picking (traslados internos CD <-> sala) en Borrador.
+#   - Filtros por gen_type: compra_sala / compra_bodega / envio_a_sala /
+#     transferencia_interna_retiro.
 #
-# Cambios v1.4:
-# - Retorno a CD / transferencia_interna_retiro usa x_studio_qty_transferir.
-# - Elimina dependencia del campo separado de retorno, que no existe en x_analisis_de_stock.
-# - Filtra retorno por x_studio_buy_action = retorno_a_cd.
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Modo adopcion: NO auto-confirma. Todo queda en Borrador para revision
+#     humana (Compras + Bodega/Operaciones).
+#   - Idempotencia por origin_key contra documentos no cancelados.
+#   - Ejecuta el analisis de stock (action 1502) al inicio y exige snapshot
+#     fresco posterior al inicio de la ejecucion.
+#   - Compras en cajas (qty_a_pedir_cajas * MOQ). Traslados en unidades.
+#   - Retorno a CD usa x_studio_qty_transferir + buy_action='retorno_a_cd'.
+#   - Documentos borrador no entran a stock_pedido hasta ser confirmados.
 #
-# Cambios v1.3:
-# - Corrige _now_dt(): Odoo espera datetime naive UTC, no timestamp timezone-aware.
-# - Mantiene eliminación de getattr().
-# - Mantiene validación de Nombre del Lote.
-# - Ejecuta Análisis de Stock 1502 al inicio.
-# - Exige snapshot fresco posterior al inicio de la ejecución.
-# - Idempotencia ignora documentos cancelados.
-# - Compras en cajas.
-# - Traslados en unidades.
+# Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
+# ============================================================
+
+VERSION_ID = 'OH_SUPPLY_GENERATION_v1_5_DRAFT_MODE_ADOPTION'
 
 ACTION_STOCK_ANALYSIS_ID = 1502
 CENTRAL_WAREHOUSE_ID     = 15

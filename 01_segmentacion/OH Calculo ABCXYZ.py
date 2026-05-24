@@ -1,85 +1,41 @@
 # ============================================================
-# ABCXYZ OH Market — PRODUCT.PRODUCT + ABCXYZ + REGIMEN + GMROI + ADI/CV2
+# OH Calculo ABCXYZ - Segmentacion ABCXYZ + Regimen + GMROI por SKU
 # ============================================================
-# VERSION_ID = "ABCXYZ_OH_MARGIN_v19_4_SERIES_SHORT"
-# v19.4 (2026-05-12): vista corta de series_type (Syntetos-Boylan sobre
-#   ultimas 12 semanas) ademas de la larga (52 sem).
-#   - x_studio_series_type:        largo (52 sem), comportamiento existente.
-#   - x_studio_series_type_short:  corto (12 sem), nuevo.
-#   - x_studio_series_type_active: el corto si difiere del largo (y no es
-#     no_signal); si no, el largo. Es el que consume el motor HM-SI.
-#   - regimen ahora se calcula con series_type_active.
-#   - Motivo: SKUs en ramp-up tienen comportamiento corto distinto al largo.
-#     Caso real: Cerveza Coors 620 BX smooth (largo) pero en ult. 12 sem
-#     vende 121/sem (era 29 promedio anual) -> es smooth con mu alto.
-# v19.3 (anterior):
-# Cambios respecto a v19.2:
-#   - GMROI ahora lee inventario directamente de stock.quant (primario Odoo)
-#     en lugar de x_analisis_de_stock (modelo derivado).
-#     · Filtro: location_id.usage='internal', quantity>0, company_id.
-#     · Costo: usa el cost_unit que ABCXYZ ya calcula por producto
-#       (COST_MODEL con fallback a standard_price).
-#     · Cobertura: incluye TODO el catálogo con stock real, sin depender de
-#       que x_analisis_de_stock haya corrido o filtre por team activo.
-#   - Sigue siendo SNAPSHOT (al momento de correr ABCXYZ).
-#   - Fase 2 TODO: convertir a PROMEDIO histórico sobre 26w leyendo
-#     x_stock_balance_daily.
 #
-# Cambios respecto a v19.1:
-#   - Eliminada la separación de semanas BASE vs ALL (bandas estacionales).
-#   - HM-SI descuenta estacionalidad con SI → ABCXYZ no necesita pre-filtrar.
+# Version activa: v19.4 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
-#   Refactor del ABCXYZ para que sea la única fuente de verdad de la
-#   segmentación de productos. Añade tres dimensiones nuevas:
+#   - Unica fuente de verdad de la segmentacion de productos.
+#   - ABC por margen acumulado 26 sem. XYZ por CV sobre todos los periodos.
+#   - Ranking por margen acumulado (x_studio_rank_abcxyz).
+#   - Ciclo de vida (mature / ramp_up / intermittent / seasonal /
+#     declining / dead / new).
+#   - Regimen REG-0 a REG-8 sobre triplete
+#     (abc_letter, series_type, lifecycle).
+#   - GMROI anualizado + GMROI_CLASS (cuartiles) como dimension financiera.
+#   - Series type Syntetos-Boylan (ADI x CV2): smooth, erratic,
+#     intermittent, lumpy.
 #
-#   A) ADI + CV² (Syntetos-Boylan)
-#      ADI = total_weeks / weeks_with_demand (intervalo promedio de demanda).
-#      CV² = (sigma/mu)² sobre periodos POSITIVOS únicamente.
-#      Reemplazan la inferencia de series_type vía letra XYZ (que mezclaba
-#      intermittent con lumpy). La matriz ADI×CV² distingue 4 patrones:
-#        smooth | erratic | intermittent | lumpy.
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Solo ventas POS para ABC/XYZ. Filtro: SKUs activos, vendibles,
+#     no service/combo.
+#   - ABC thresholds: 0.80 / 0.95 sobre margen acumulado.
+#     XYZ thresholds: 0.45 / 0.90 sobre CV.
+#   - Series type matriz:
+#       ADI < 1.32 AND CV2 < 0.49  -> smooth
+#       ADI < 1.32 AND CV2 >= 0.49 -> erratic
+#       ADI >= 1.32 AND CV2 < 0.49 -> intermittent
+#       ADI >= 1.32 AND CV2 >= 0.49 -> lumpy
+#   - x_studio_series_type_active = corto (12 sem) si difiere del
+#     largo (52 sem); si no, largo. El motor HM-SI consume el active.
+#   - GMROI lee stock.quant directamente (snapshot Odoo primario).
+#     Si no es accesible, GMROI = 0 -> G_D.
+#   - Eliminacion: score >= 3.2 + edad >= 8 sem -> marcar para eliminar.
+#     Penalizaciones: ABC=C +1.5, XYZ=Z +1.2, mu<=0.15 +1.0,
+#     trimestres activos<=2 +1.0, ult_trimestre=0 +1.0, sin venta +1.4.
+#   - x_studio_product_id es Many2one a product.product (requerido).
 #
-#   B) REGIMEN de forecast (REG-0..REG-8)
-#      Reemplaza las zonas Z1-Z4 (calculadas hoy en HM-SI con caps P6).
-#      Triplete: (abcxyz_letter_volumen, series_type, ciclo_de_vida).
-#      HM-SI lee x_studio_regimen y aplica la regla directamente.
-#
-#   C) GMROI + GMROI_CLASS (G_A/G_B/G_C/G_D)
-#      Dimensión financiera paralela. Mide retorno sobre inversión en stock.
-#      Cuartiles empíricos sobre el catálogo activo.
-#      Decide CUÁNTO invertir en stock (no afecta la regla de forecast).
-#
-# Cambios respecto a v18.3:
-#   + _classify_series_type(): matriz Syntetos-Boylan (ADI x CV2)
-#   + _assign_regimen():  asigna REG-0..8 sobre el triplete
-#   + _load_inv_valor_by_product(): lee stock.quant (primario Odoo) best-effort
-#   + _compute_gmroi():   GMROI anualizado por producto
-#   + _classify_gmroi_by_quartiles(): asigna G_A/G_B/G_C/G_D
-#   + sum_qty_pos, sum_sq_pos: acumuladores nuevos en el loop XYZ
-#   + Nuevas columnas escritas:
-#       x_studio_adi           (float, intervalo promedio de demanda)
-#       x_studio_cv2           (float, CV² sobre periodos con qty>0)
-#       x_studio_series_type   (smooth/erratic/intermittent/lumpy/no_signal)
-#       x_studio_regimen       (REG-0..REG-8)
-#       x_studio_gmroi         (float, margen anual / inv promedio)
-#       x_studio_gmroi_class   (G_A/G_B/G_C/G_D)
-#       x_studio_inv_valor_avg (float, $ inventario agregado sobre locales)
-#
-# Mantiene de v18.3:
-#   1) Usar x_studio_product_id como product.product.
-#   2) ABC, XYZ, ranking, ciclo de vida y eliminación.
-#   3) Letra XYZ y x_studio_cv (CV sobre todos los periodos) intactos.
-#   4) NO escribe campos de forecast / cobertura / safety / compra.
-#   5) Compatibilidad con _filter_vals: si el campo nuevo no existe
-#      en Odoo Studio, se omite del write sin error.
-#
-# Alcance:
-#   - Solo ventas POS para ABC/XYZ.
-#   - GMROI lee inventario SNAPSHOT desde stock.quant.
-#     Si stock.quant no es accesible, GMROI=0 → G_D.
-#
-# Requiere que x_studio_product_id sea Many2one a product.product.
+# Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ============================================================
 
 VERSION_ID = "ABCXYZ_OH_MARGIN_v19_4_SERIES_SHORT"

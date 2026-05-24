@@ -1,37 +1,29 @@
 # -*- coding: utf-8 -*-
-# ------------------------------------------------------------
-# OH! Market - Generador de Flujo de Caja
-# Modelo destino: x_cash_flow
-# VERSION_ID = 'OH_CASH_FLOW_v1_3_FACTURAS_VENTA_IVA_SII_2026_04_30'
+# ============================================================
+# OH Flujo de Caja - Matriz diaria de cashflow
+# ============================================================
+#
+# Version activa: v1.3 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
-#   Generar una matriz diaria de flujo de caja desde Odoo:
-#   1) Ventas POS reales: venta D entra a caja D+1
-#   2) Presupuesto de venta futuro: presupuesto D entra a caja D+1
-#   3) Facturas de compra pendientes: fecha flujo = vencimiento
-#   4) Facturas de compra vencidas: fecha flujo = hoy - 1
-#   5) IVA estimado: IVA ventas - IVA compras, pago día 20
+#   - Genera matriz diaria de flujo de caja en x_cash_flow combinando:
+#       1. Ventas POS reales (venta D -> caja D+1).
+#       2. Presupuesto de venta futuro (x_presupuesto_de_venta).
+#       3. Facturas de compra pendientes (fecha flujo = vencimiento).
+#       4. Facturas de compra vencidas (fecha flujo = hoy - 1).
+#       5. IVA estimado (IVA ventas - IVA compras, pago dia 20).
 #
-# Base Odoo Studio validada:
-#   x_cash_flow
-#   x_presupuesto_de_venta
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Modelo destino: x_cash_flow.
+#   - Lectura de presupuesto: x_presupuesto_de_venta.
+#   - Ejecucion recomendada: diaria 06:00 via cron.
+#   - NO incluye aun (deuda visible): bancos, arriendos, remuneraciones,
+#     TGR, BAT.
 #
-# No incluye todavía:
-#   - Bancos
-#   - Arriendos
-#   - Remuneraciones
-#   - TGR
-#   - BAT
-#
-# Recomendado:
-#   Ejecutar diariamente 06:00.
-# ------------------------------------------------------------
+# Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
+# ============================================================
 
 VERSION_ID = 'OH_CASH_FLOW_v1_3_FACTURAS_VENTA_IVA_SII_2026_04_30'
-
-# =========================
-# CONFIGURACIÓN
-# =========================
 
 CASH_FLOW_MODEL = 'x_cash_flow'
 

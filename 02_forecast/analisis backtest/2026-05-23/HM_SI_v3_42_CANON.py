@@ -1,44 +1,373 @@
-# HM SI Forecast - Motor de demanda semanal con estacionalidad por nivel
-# ============================================================
+# VERSION_ID = "FWD_v3_42_CANON"
+# v3.42 (2026-05-23): fair share canon SAP IBP / Blue Yonder.
 #
-# Version activa: v3.42 (ver CHANGELOG.md para historial completo)
+#   PROBLEMA QUE RESUELVE v3.42:
+#     v3.41 rescato 72 pares (60 San Jose + 12 otras salas) con criterio
+#     mu_week==0 AND abc=='A' AND lifecycle in (mature, ramp_up). El analisis
+#     canon de cobertura (04_analitica/Cobertura ABCXYZ por Sala.py) identifico
+#     265 pares totales con priority_score canon alto:
+#       - 87 EXPANSION MASIVA (abc=A AND gap_total>=7)
+#       - 178 TERMINAR COBERTURA (abc IN (A,B) AND 1<=gap_total<=2)
 #
-# Objetivo:
-#   - Calcular mu_week y sigma_week por (sala, SKU) usando heuristica de
-#     SMA blend (short/long con ratio_up/hold/collapse), deflactando por
-#     estacionalidad SI multi-nivel (local_categ -> categ_global -> global)
-#     y aplicando ajuste SKU si hay >=1 ano de historia.
-#   - Routing por zona (Z1-Z4) y scope (core_hm_si, no_forecast, secondary,
-#     core_canon_v42) segun ABCXYZ local, series_type, lifecycle, mu_week.
-#   - Fair share canon SAP IBP / Blue Yonder para rescate de SKUs A/B sin
-#     historia local (categoria share x growth_cap x conf_n).
+#     v3.41 sub-cubria estos casos porque:
+#       a) No rescataba clase B con gap pequeno (quick wins).
+#       b) Aplicaba factor_normalizado sin penalizar baja confianza (n_active=1).
+#       c) Inflaba mu_fs en SKUs nicho con mu_global bajo (sin cap por techo).
 #
-# Reglas vivas (resumen operativo, no cronologia):
-#   - ABC global (criterio economico). XYZ, series_type, lifecycle, regimen
-#     LOCALES por team con fallback al global cuando hay senal insuficiente
-#     (< MIN_ACTIVE_WEEKS = 4 sem).
-#   - SI multi-nivel: local_categ (>= SI_MIN_OBS_LOCAL_CATEG=12 sem),
-#     categ_global, global. Ajuste SKU con alpha 0.15 (low) / 0.30 (high)
-#     cuando n_years_sku >= SI_MIN_YEARS_FOR_SKU (3). SI_FLOOR=0.05, CEIL=5.0.
-#   - Caps anti-spike: BZ * 0.8 max, AZ/CZ/BY-Z3/Z4/AY-smooth-Z2/CY-Z4 * 1.2 max.
-#   - Zero-gate Z4 si nz_recent==0 en ultimas 8 sem, excluyendo REG-8 seasonal
-#     y ramp_up.
-#   - P1: declining/dead -> forecast=0.
-#   - Auto-model selection (v3.39): heuristico, SBA(0.15), Croston(0.10),
-#     seasonal_naive_52 compiten sobre holdout 4 sem. Heur-bias 0.90 (gana
-#     el heuristico salvo que otro sea >=10% mejor en MAE).
-#   - Fair share canon (v3.42): conf_n por N salas activas (1->0.30 ... 5+->1.00),
-#     growth_cap por XYZ (X=3.0, Y=2.0, Z=1.5), tried_penalty 0.15 sin floor
-#     cuando active_weeks_target>0. Trigger: ABC=A siempre, B con gap<=2.
-#   - Correccion de precio externa via x_price_coreccion (detector v5.8 en
-#     02_forecast/OH Price Correccion.py). Se aplica DESPUES de caps P1/P3/P6.
-#     Validacion empirica si factor<0.90 y >=3 sem post-cambio.
-#   - Redondeo mu_week final medio-arriba (>=0.5 sube). sigma_week continuo.
+#   ENFOQUE CANON (SAP IBP / Blue Yonder / Oracle RDF):
+#     Priority_Score = Opportunity x Confidence x Tried_Penalty
 #
-# Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
-# ------------------------------------------------------------
+#     1. Confianza por N salas activas (canon SAP IBP):
+#          n_active = 1  -> conf_n = 0.30
+#          n_active = 2  -> conf_n = 0.50
+#          n_active = 3-4 -> conf_n = 0.75
+#          n_active >= 5 -> conf_n = 1.00
+#
+#     2. Growth cap por mu_global y XYZ (canon Blue Yonder):
+#          mu_cap_total = mu_global x growth_cap(xyz)
+#          growth_cap = {X: 3.0, Y: 2.0, Z: 1.5}
+#          Por par: mu_cap = mu_cap_total / max(1, gap_count)
+#
+#     3. Penalty "probo y fallo" en sala target (canon Blue Yonder):
+#          if active_weeks_local_target > 0: mu_fs *= 0.15
+#
+#     4. Trigger expandido:
+#          abc_global == 'A'                          -> EXPANSION MASIVA
+#          abc_global == 'B' AND gap_count <= 2       -> TERMINAR COBERTURA
+#          abc_global == 'C'                          -> NO rescatar
+#
+#   NUEVO SCOPE: 'core_canon_v42' (distinguible de 'core_fair_share' v3.41).
+#
+# ============================================================================
+# VERSION_ID = "FWD_v3_41_FAIR_SHARE_V2"
+# v3.41 (2026-05-23): fair share v2 con share NORMALIZADO por categoria.
+#   Reemplaza la formula de v3.40 (mu_global × share_categoria) que estaba
+#   sesgada por el tamano de las salas activas. v3.41 calcula el "peso del
+#   SKU en su categoria" promediado SIN ponderar por volumen, capturando
+#   un invariante de share independiente del tamano de cada sala.
+#
+#   FORMULA v3.41:
+#     # Para cada sala activa i (con mu_sku>0 y mu_categ>0):
+#     share_sku_categ_i = mu_sku_en_sala_i / mu_categoria_en_sala_i
+#
+#     factor_normalizado = mean(share_sku_categ_i)   # invariante a tamano
+#
+#     # Sala objetivo:
+#     if historia_categ_target >= 12 semanas:
+#         mu_categ_target = mu_categoria_real_target
+#     else:
+#         # Sala nueva: promedio del bottom-N% de salas (default 50%) por
+#         # mu_categoria, EXCLUYENDO la sala objetivo. Refleja crecimiento
+#         # de sala nueva: no parte en el peak, parte en el bottom.
+#         mu_categ_target = mean(mu_categ for bottom-N salas)
+#
+#     mu_raw = factor_normalizado × mu_categ_target × bias
+#     mu_fs = max(mu_raw, FAIR_SHARE_MIN_UNITS)   # min ahora 1.0 (no 2.0)
+#
+#   POR QUE EL CAMBIO: el backtest 2026-05-23 (v3.40) mostro que 57 de 61
+#   pares hit el floor=2 flat. El share_categoria pesaba demasiado a las
+#   salas grandes -> SKUs con presencia desigual quedaban subestimados, y
+#   el floor fijo no compensaba la heterogeneidad. La sugerencia del
+#   usuario: promediar shares normalizados captura "este SKU representa
+#   X% de su categoria en cualquier sala" -> aplicar X% a la sala objetivo.
+#
+#   PARAMETROS NUEVOS:
+#     - FAIR_SHARE_BOTTOM_PCT (default 0.5): % de salas a usar como bottom
+#       para sala objetivo nueva. 12 salas × 0.5 = 6 salas (bottom-6).
+#     - FAIR_SHARE_MIN_UNITS reducido de 2.0 a 1.0 (el factor normalizado
+#       ya escala con velocidad real; floor solo evita rounding-to-0).
+#
+#   CONDICION DE TRIGGER (heredada de v3.40 FIX):
+#     mu_week==0 AND ABC global=='A' AND lifecycle in ('mature','ramp_up')
+#     AND len(shares_activas) >= 3
+#
+# VERSION_ID = "FWD_v3_40_FAIR_SHARE"
+# v3.40 (2026-05-23): fair share allocation para SKUs clase A sin historia local.
+#   Cierra el gap medido en Fase 1 (2026-05-23): 728 pares (sala, clase-A) caian
+#   en no_forecast => stock no compraba => ausencia se autoperpetuaba.
+#
+#   ENFOQUE (Oracle Retail Demand Forecasting / Blue Yonder "fair share by
+#   category share"): cuando una sala no tiene historia local de un SKU clase A
+#   global, el forecast = demanda_global × share_categoria_sala × bias_conservador.
+#
+#   REGLAS (Fase 0 cerrada con usuario, FIX 2026-05-23):
+#     - Aplica solo si: mu_week==0 AND letra_global_ABC=='A' AND lifecycle_local
+#       in ('mature','ramp_up') AND n_salas_activas>=3.
+#     - El trigger es mu_week==0 (NO forecast_scope=='no_forecast'). Motivo:
+#       el motor v3.39 tiene rescue rules v3.28/v3.30 que envian clase A con
+#       poca demanda a 'core_hm_si' (no a 'no_forecast') ANTES del catch-all.
+#       La condicion original nunca disparaba porque los rescatados ya tenian
+#       scope='core_hm_si' aunque mu_week fuera 0.
+#     - Lifecycle whitelist (no blacklist): solo mature/ramp_up reciben fair
+#       share. Excluido seasonal (487 pares mu=0 son baja temporada esperada),
+#       intermittent (65 son demanda real esporadica), declining/dead (saliendo).
+#     - n_salas_activas = numero de salas con qty>0 en data_si para ese SKU.
+#       Si <3, NO se aplica (validado empiricamente: 97% de SKUs flacos son
+#       "probo y fallo", no oportunidades de expansion).
+#     - Si historia_categ(sala) < 12 sem (max active_weeks_local entre SKUs de
+#       esa sala/categoria), se usa share_uniforme=1/N_SALAS en lugar del real.
+#       Caso San Jose (team_id=11, sala nueva, 0 categorias con 12 sem).
+#     - Bias 1.00 + floor 2.0 u/sem (Oracle "minimum forecast quantity"). La
+#       asimetria de error se INVIERTE para fair share: el riesgo dominante NO
+#       es over-forecast (filtrado por <3 salas que descarta 97% de SKUs nicho),
+#       sino el under-forecast que impide a stock comprar -> el SKU nunca llega
+#       a la sala -> la ausencia se autoperpetua. El objetivo es FORZAR que
+#       stock genere orden de compra/traslado, no minimizar WAPE.
+#
+#   FORMULA:
+#     mu_raw      = mu_week_global × share_used × FAIR_SHARE_BIAS
+#     mu_week_fs  = max(mu_raw, FAIR_SHARE_MIN_UNITS)
+#     sigma_week_fs = mu_week_fs × FAIR_SHARE_SIGMA_CV  (CV sin historia local)
+#
+#   IMPACTO ESPERADO (FIX 2026-05-23 — target re-medido):
+#     - 146 pares clase A en lifecycle mature con mu_week=0 + ~65 en ramp_up.
+#     - Las 728 pares originales del gap eran 100% declining/dead (no target).
+#     - El standalone original calculo propuestas para los declining/dead, lo
+#       cual era incorrecto. Ese script ya no refleja el target real.
+#     - Categorias esperadas: misma mezcla (cervezas, despensa, snacks).
+#     - Forecast tipico: floor 2 u/sem en la mayoria de casos por bias=1.0 +
+#       share chico de SKU clase A con baja velocidad.
+#
+#   CAMBIOS DE CODIGO (todos aislados, no tocan motor v3.39):
+#     1. Constantes nuevas FAIR_SHARE_* en seccion CTX.
+#     2. _load_forecast_router_context: agrega x_studio_mu_week a la lectura
+#        para tener demanda_global por pid en el router context.
+#     3. Helper nuevo _compute_fair_share() ANTES de _route_forecast_scope.
+#     4. Build de fair_share_ctx DESPUES del loop que llena buf_lc/buf_cat.
+#     5. Override DESPUES de _route_forecast_scope: si aplica fair share,
+#        reescribe (mu_week, sigma_week, forecast_zone='Z1', scope=
+#        'core_fair_share', model_code='fair_share_category', reason=detalle).
+#     6. P3 zero-gate solo cuando NO se aplico fair share (no anular el rescate).
+#
+#   NO SE HACE (deuda visible):
+#     - Lista de exclusion comercial para "nicho intencional" (2 SKUs flacos
+#       expandibles deben gestionarse manualmente, fuera del flujo automatico).
+#     - Like-store proxy (Opcion C de Fase 0): requiere clustering previo.
+#     - Hierarchical reconciliation (Hyndman): overkill para 12 salas.
+#
+# VERSION_ID = "FWD_v3_39_AUTO_MODEL"
+# v3.39 (2026-05-20): SAP-style auto-model selection per SKU.
+#   - Nuevo wrapper _select_best_model. Reemplaza al dispatcher por regimen.
+#   - Para cada SKU corre 4 modelos en paralelo: heuristico, SBA(0.15),
+#     Croston(0.10), seasonal_naive_52. Holdout de 4 sem cerradas para
+#     evaluar. MAE como metrica. Gana el modelo con menor MAE.
+#   - Heuristic-bias 0.90: el heuristico solo pierde si otro modelo es
+#     >=10% mejor en MAE. Protege REG-1 (gold standard) y SKUs estables.
+#   - Sin Holt-Winters (memoria v4: HW destruyo WAPE 90% en REG-1).
+#   - Seasonal naive lag-52 solo participa si len(base_vals)>=56. Con
+#     DEMAND_WINDOW_WEEKS=26 actual, no entra; queda hook para v3.40
+#     cuando se amplie la ventana.
+#   - El ganador per-SKU se persiste en x_studio_demand_method (campo
+#     nuevo en Studio; si no existe, _put_field lo omite).
+#   - Sigma reutiliza el del heuristico aun cuando gana otro modelo, para
+#     no degradar el calculo de safety stock.
+#   - Fallback al heuristico cuando: len(base_vals)<12, modelo ganador
+#     devuelve <=0, o ningun candidato produce forecast valido.
+# VERSION_ID = "FWD_v3_38_REG7_SBA" (DESCARTADO 2026-05-20)
+# v3.38 (2026-05-20): primer dispatcher por regimen, SBA en REG-7. REVERTIDO.
+#   - Backtest 3 sem (W18-W20):
+#     * REG-7 WAPE 90.02% -> 91.58% (+1.6pp PEOR)
+#     * REG-7 BIAS -15.48% -> -20.00% (-4.5pp PEOR, sub-forecast)
+#     * WAPE global 67.36% -> 67.79% (+0.4pp)
+#     * BIAS global -3.27% -> -4.29% (-1pp)
+#     * Otros regimenes intactos (control OK).
+#   - Razon: SBA con alpha=0.05 sobre base_vals SI-deflated produce forecast
+#     mas conservador que SMA dilution para intermitentes. Ejemplo serie
+#     {0,5,0,0,0,5}: SMA(6)=1.67, SBA(0.05)=1.22. La correccion (1-alpha/2)
+#     y el divisor p (intervalo) sub-pronostican.
+#   - Helpers _croston/_sba quedan en el codigo (no-op) por si se retoma
+#     con alpha distinto (0.15-0.20) o input raw_vals.
+#   - Memoria feedback_objetivo_declarado: sub-forecast cuesta mas. Revertido.
+#   - Dispatcher cambia a pass-through (no afecta nada). Callsite intacto.
+#   - Vuelta a VERSION_ID FWD_v3_37_CORR_VALIDATION.
+# VERSION_ID = "FWD_v3_38_SMA8" (DESCARTADO 2026-05-20)
+# v3.38 (2026-05-20): SERVICE_BASE_SHORT_WEEKS_DEFAULT 6 -> 8. REVERTIDO.
+#   - Backtest 3 sem (W18-W20): WAPE neutro (67.33 vs 67.36) pero BIAS
+#     global -6.47% vs -3.27% (3pp peor sub-forecast). Colas devastadas:
+#     AZ -48.9% (vs -39.9% baseline), CZ -47.8% (vs -35.5%), BY -24%
+#     (vs -19%). SMA(8) suaviza demasiado SKUs erraticos/lumpy y reduce
+#     reactividad en colas Z donde la senal es esparsa.
+#   - Memoria feedback_objetivo_declarado: sub-forecast cuesta mas que
+#     over-forecast. Cambio descartado.
+#   - Vuelta a SERVICE_BASE_SHORT_WEEKS_DEFAULT = 6 en v3.37.
+# VERSION_ID = "FWD_v3_37_CORR_VALIDATION"
+# v3.37 (2026-05-20): validacion empirica del factor de correccion externo.
+#   - Cuando correccion_factor < 0.90 y hay >=3 semanas post-cambio cerradas,
+#     se calcula empirical_factor = avg(base_vals post) / avg(base_vals pre)
+#     usando ventanas de min(weeks_since_real, 8) post y 8 pre.
+#   - Si empirical_factor > correccion_factor + 0.15 (la realidad muestra
+#     menos impacto del predicho), el factor se atenua a (factor + emp)/2,
+#     clampeado a 1.0. La razon se anota con "[emp X.XX adj Y.YYY]".
+#   - Asimetrica: solo atenua over-correcciones, NO aumenta cuts. Aplica la
+#     memoria: sub-forecast cuesta mas que over-forecast.
+#   - Caso testigo: SKU 0154 Paillaco BEBIDA COCA COLA DES 3L. Factor teorico
+#     0.814 (predice -18.6%) vs realidad post-cambio +16%. Con validacion,
+#     empirical ~1.36 -> factor ajustado a 1.0 -> mu_week 13 -> 17.
+#   - Cambios:
+#     * _load_correccion_context retorna ahora 'weeks_since' y
+#       'target_week_start' ademas de factor/tipo/razon.
+#     * Nuevos parametros CTX: service_corr_validation_min_weeks (3),
+#       service_corr_validation_baseline (8), service_corr_validation_threshold (0.15).
+#     * weeks_since_real se recomputa en runtime sumando weeks_since_emit +
+#       (target_date - target_week_start_emit) / 7. El decay del detector
+#       quedo congelado al emit, pero la validacion empirica usa la fecha
+#       real de la corrida.
+# VERSION_ID = "FWD_v3_36_COLLAPSE"
+# v3.36 (2026-05-20): detector de colapso de demanda en _calc_base_demand.
+#   - Tercer umbral en el branch de bajada: ratio < SERVICE_RATIO_COLLAPSE (0.30)
+#     devuelve sma_short puro (en lugar del blend 0.7/0.3 que arrastraba ~30%
+#     de SMA(16) como inercia fantasma).
+#   - Caso testigo: SKU 451500 Futrono, caida 330 u/sem -> 6 u/sem en 6 semanas.
+#     Con el blend antiguo el forecast salia 43 u (real 8); con collapse branch
+#     mu_base = SMA(6) directo, forecast esperado ~3 u.
+#   - Nueva firma de _calc_base_demand: retorna 4-tupla agregando
+#     collapse_detected (bool) para trazabilidad.
+#   - Nuevo campo de auditoria x_studio_collapse_detected (Boolean) en
+#     x_hm_si_forecast. Si el campo no existe en Studio, _put_field lo omite.
+#   - El detector NO cruza con quiebre de stock (x_stockout de archivo 8); la
+#     bandera permite hacer ese cruce manual en analisis posteriores.
+#   - v3.36 ajuste (2026-05-20): el ratio que dispara collapse_detected se
+#     evalua sobre raw_vals (ventas crudas), NO sobre base_vals (SI-deflated).
+#     La SI deflation enmascara caidas reales cuando coinciden con baja
+#     estacionalidad (cerveza en mayo). El ratio raw refleja lo que se ve a
+#     ojo en la serie de ventas. mu_base sigue calculandose sobre base_vals
+#     (sma_short SI-deflated) para que si_next no double-counte estacionalidad.
+#     Up/hold siguen disparandose sobre el ratio SI (sin cambio).
+# VERSION_ID = "FWD_v3_35_PRICE_CLEANUP"
+# v3.35 (2026-05-13): ELIMINADO sistema legacy de ajuste de precio.
+#   - Removidos: PRICE_FACTOR_TABLE_L2, _lookup_calibrated_factor, _apply_decay,
+#     _load_price_context, _price_segment, _price_at_week, _categ_l2_from_complete_name,
+#     _norm_categ, _classify_price_range.
+#   - Removidas variables del bucle: price_factor, q_adj, base_vals_no_adj,
+#     mu_base_no_adj, mu_week_no_adj, mu_week_price_delta, price_adj_factor_*,
+#     price_elasticity_acc_*, price_adjust_weeks, total_adj_*, price_segment_counts,
+#     total_units_adjusted.
+#   - Removidos campos del write: x_studio_units_sold_adjusted (legacy).
+#   - El ajuste por cambio de precio se delega 100% al detector externo
+#     (Detector v5.8 en `7- OH Price Correccion.py`) via modelo x_price_coreccion.
+#     Archivo 5 solo consume el factor pre-calculado via _load_correccion_context
+#     y lo aplica al mu_week despues de los caps P1/P3/P6.
+# VERSION_ID = "FWD_v3_34_REGIMEN_LOCAL"
+# v3.34 (2026-05-13): bajada COMPLETA del regimen por team. El motor ahora
+#   consume xyz_local, series_type_local, lifecycle_local y regimen_local
+#   calculados sobre la serie local del team. Cada variable contiene el
+#   valor a usar: si el calculo local tiene senal suficiente, es el local;
+#   si no, se hereda el global del router (escrito por archivo 1).
+#   - series_type_local: matriz Syntetos-Boylan (ADI + CV2) sobre serie local.
+#   - lifecycle_local: presencia trimestral local sobre 8 trimestres.
+#   - regimen_local: combinacion (ABC_global, series_type_local, lifecycle_local).
+#   - El motor (caps P1/P3/P6, forecast_zone routing) consume las variables
+#     locales. mu_week y sigma_week resultan distintos por team con respecto
+#     al motor anterior que usaba el regimen global del producto.
+#   - Persiste source de cada clasificacion ('local' | 'global') para auditoria.
+#   - ABC sigue global (criterio economico).
+# VERSION_ID = "FWD_v3_33_XYZ_LOCAL"
+# v3.33 (2026-05-13): persiste XYZ local por team derivado de la serie local
+#   del producto (base_vals). Mismo metodo que el XYZ global (archivo 1):
+#   una sola pasada CV simple = sigma/mu sobre la ventana completa, umbrales
+#   0.45 / 0.90, min_active_weeks alineado al global (4 sem).
+#   - Si active_weeks_local < MIN o el calculo local queda vacio, se hereda
+#     el XYZ global del producto desde router_ctx (ya disponible vor el
+#     router) y se marca source='global' para trazabilidad.
+#   - Si el global tampoco esta poblado, xyz_local queda vacio y archivo 3
+#     fuerza CZ via regla anti-blanco.
+#   - Escribe en x_hm_si_forecast: x_studio_xyz_local, x_studio_xyz_local_source,
+#     x_studio_active_weeks_local.
+#   - Consumidor (archivo 3) compone abcxyz_efectivo = ABC_global + XYZ_local
+#     y elige Z del safety segun esa combinacion. Toggle ENABLE_XYZ_LOCAL en
+#     archivo 3 controla el rollout. ABC sigue global.
+# VERSION_ID = "FWD_v3_32_SERIES_ACTIVE"
+# v3.32 (2026-05-12): consume x_studio_series_type_active (ABCXYZ v19.4)
+#   con fallback a x_studio_series_type largo si el field nuevo no existe.
+#   Permite que el router actue sobre el comportamiento RECIENTE (12 sem)
+#   en lugar del historico largo (52 sem). Resuelve casos como Cerveza
+#   Coors 620 que vendia 30/sem historico pero ahora vende 120+/sem y
+#   caia en Z4 por mu<2 por team.
+# VERSION_ID = "FWD_v3_31_ROUNDING"
+# v3.31 (2026-05-12): redondeo medio-arriba del mu_week final.
+#   - mu_week < 0.5 -> 0 (drop demanda muy debil).
+#   - mu_week >= 0.5 con fraccion >= 0.5 sube al siguiente entero (ej 1.5->2).
+#   - mu_week >= 0.5 con fraccion < 0.5 baja al entero actual (ej 1.3->1).
+#   - sigma_week y mu_week_pre_corr quedan continuos para trazabilidad.
+#   - Formula: float(int(mu_week + 0.5)). Sin import math.
+# VERSION_ID = "FWD_v3_30_AXY_RESCUE"
+# v3.30 (2026-05-12): 2 cambios contra forecast=0 con ventas reales.
+#   a) Rescate AX/AY no terminales con mu_week < 2.0 (patron v3.28 AZ rescue).
+#      256 filas, 511 unid. P6 cap activo. Cambio limpio sin daño en WAPE.
+#   b) Suavizar P3 zero-gate de 'nz_recent <= 1' a 'nz_recent == 0'.
+#      SKUs con 1 venta en 8 sem son intermitentes vivos.
+#      Forecast=0+ventas reales: 1,940 -> 821 (-58%).
+#      Real perdido sub-forecast: 3,200 -> 1,300 unid.
+#   Trade-off WAPE: +0.74pp global (BZ/CZ over-forecast en colas con
+#   volumen bajo). Costo aceptado: el objetivo es cobertura, no WAPE.
+#   Si Croston/SBA aparece, se podra mejorar el motor base para
+#   intermitentes y reducir el over-forecast en colas.
+# VERSION_ID = "FWD_v3_29_PRICE_CORRECCION"
+# v3.29 (2026-05-12): integra detector x_price_coreccion (typo de Studio).
+#   - _load_correccion_context: 1 query batch antes del loop, filtra
+#     target_week_start <= target_date AND active=True, toma mas reciente.
+#   - Aplica factor_corr DESPUES de caps P1/P3/P6 (declining/dead siguen
+#     en 0; los caps protegen contra over-forecast del motor base, pero
+#     el factor es senal externa intencional que puede superarlos).
+#   - Persiste x_studio_correccion_factor / tipo / razon / mu_week_pre_corr
+#     para auditoria. Si los campos no existen en Studio, _put_field skip.
+# v3.28 (2026-05-12): AZ rescue rule (no terminales activan motor Z1).
+# MODEL_NAME = "HM_SI_WEEKLY"
+# v3.28 (2026-05-12): Rescatar AZ del catch-all Z4 (whisky/vino premium).
+#   - Diagnostico: backtest 2026-05-04 mostro 40 SKUs AZ (ABC=A, XYZ=Z) con
+#     BIAS +48.31% sub-forecast severo. Estos SKUs son alto margen + demanda
+#     esporadica (whisky, vinos premium tipicos). El router v3.24 los
+#     mandaba a Z4 por la regla `mu_week < 2.0` -> forecast=0 mayoritariamente.
+#   - Fix: agregar regla en _route_forecast_scope ANTES del catch-all Z4:
+#       if (abc == 'AZ') and (lc not in ('declining', 'dead')):
+#           return 'Z1', ...
+#   - Resultado esperado: los AZ no terminales reciben motor activo (SMA + SI
+#     + ajuste precio) y P6 cap por max_obs * 1.2 los protege contra
+#     over-forecast extremo.
+#   - Impacto medido: 40 SKUs, 3,494 unid reales en 3 sem, 3.2% volumen A.
+#   - Cero cambios al resto del router. Cero cambios al motor de calculo.
+#   - v3.27 (Holt doble en REG-1/2/3) fue REVERTIDO antes de medir: no se
+#     justifico tocar REG-1 que ya funcionaba (BIAS -1.2% en AX). v3.28 parte
+#     desde v3.26 (motor v3.24 base) + la regla AZ unicamente.
+# v3.26 (2026-05-12): consolidacion cosmetica del fallback XYZ->series_type.
+#   - El fallback (X->smooth, Y->erratic, Z->lumpy cuando series_type no viene
+#     poblado desde ABCXYZ) aparecia duplicado en dos lugares: antes del router
+#     (loop principal) y dentro de _route_forecast_scope.
+#   - Consolidado en helper unico _infer_series_type_from_xyz.
+#   - Cero cambio funcional. El router asume que series_type ya viene inferido
+#     desde el caller (loop principal), garantizado por el helper.
+#   - El fallback NO replica la matriz Syntetos-Boylan ADI*CV2 de ABCXYZ;
+#     es solo una red por si ABCXYZ vieja no escribio series_type.
+# v3.25 (2026-05-12): excluir REG-8 (seasonal) del P3 zero-gate de Z4.
+#   - Diagnostico: backtest 2026-05-04 mostro BIAS +49.54% en REG-8 (5,291 SKUs).
+#     Causa: los SKUs estacionales tienen ventanas de cero entre temporadas que
+#     NO indican declive, pero P3 (forecast_zone=Z4 + nz_recent<=1 -> mu_week=0)
+#     los anulaba. Cuando llega la temporada, el motor esta en cero.
+#   - Fix: 1 linea — agregar `and router_regimen != 'REG-8'` al guard de P3.
+#   - El regimen se lee de x_calculo_abc_xyz.x_studio_regimen (matriz canonica
+#     de ABCXYZ v19.3). Inyeccion inerte hasta esta version, ahora activa para P3.
+#   - v3.24 inyectaba el regimen pero NO lo usaba en el calculo. v3.25 es la
+#     primera version donde el regimen modula la logica del motor.
+#   - Cero cambios al resto: P1, P6, SI multi-nivel, ajuste por precio,
+#     _calc_base_demand, _route_forecast_scope.
+# v3.24 + regimen (2026-05-12, productivo previo): rollback desde v4.3-revert
+#   tras backtest pareado mostrar que v4.3 era 65pp peor (WAPE 140 vs 75).
+#   Unica modificacion vs v3.24 original: inyeccion de x_studio_regimen desde
+#   ABCXYZ (5 lineas), sin alterar la logica de calculo.
+# v3.24: Cambios activos (todos validados o reverted):
+#   - Mantenido: corrección de nivel mixto en ajuste SKU — usa local_categ
+#     como referencia cuando si_main proviene de local_categ (antes mezclaba niveles)
+#   - Mantenido: PRICE_FACTOR_TABLE_L2 limpia (sin duplicados, sin None, normalizado)
+#   - Revertido v3.22: _calc_si_from_weekly vuelve a divisor len(clean) y len(avg_by_week)
+#     porque /expected_n y /52 inflaban SI en semanas presentes → deflactaban mu_base
+#     via q_base = q_adj/si_w → underforecast crónico en Z-class (AZ +19.7pp wMAPE)
+#   - Revertido v3.22: semanas faltantes SI=1.0 (neutro) en vez de 0.0
+# v3.21: PRICE_FACTOR_TABLE_L2 limpiada:
+#   - Eliminados 4 duplicados sin tilde (Cocteles, Snack, Isotonicas, Electronicos)
+#   - Todos los None reemplazados por valor DEFAULT correspondiente (tabla autoexplicativa)
+#   - Lookup normalizado via _norm_categ() — resiste variaciones de tilde/mayúscula
 
-VERSION_ID = "FWD_v3_42_CANON"
+VERSION_ID = "FWD_v3_39_AUTO_MODEL"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438

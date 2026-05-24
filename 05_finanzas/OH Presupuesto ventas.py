@@ -1,17 +1,28 @@
 # ============================================================
-# OH Presupuesto de Ventas — RECALC AYER + FUTURO (HASTA 31-12-2026)
-# SAFE_EVAL friendly: SIN imports, SIN global, SIN getattr
+# OH Presupuesto Ventas - Recalc ayer + futuro hasta 31-12-2026
+# ============================================================
 #
-# VERSION_ID = "PRESU_WD_TAG_v13_HOLIDAYS_FROM_MODEL__OFFSET_POLICY_IN_CODE"
+# Version activa: v13 (ver CHANGELOG.md para historial completo)
 #
-# CAMBIOS vs v12.4:
-#  1) La fecha base del feriado YA NO está hardcodeada en HOLIDAY_SPECS.
-#  2) Se lee desde x_holiday_occurrence + x_holiday_master.
-#  3) Se mantiene en código solo la política de offsets P/H por código.
-#  4) Se mantiene lógica especial de Año Nuevo cross-year.
+# Objetivo:
+#   - Recalcula presupuesto de ayer (D-1) y proyecta hacia el futuro
+#     usando blend de ventana corta (45 dias) y ventana larga (365 dias).
+#   - Modelo destino: x_presupuesto_de_venta (consumido por OH Flujo de Caja).
+#
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Feriados leidos desde x_holiday_occurrence + x_holiday_master.
+#     La politica de offsets P/H por codigo queda en este archivo.
+#   - Logica especial Ano Nuevo cross-year.
+#   - SAFE_EVAL friendly: sin imports, sin global, sin getattr.
+#   - Parametros: ALPHA_BLEND=0.25, ROLL_WINDOW_DAYS=45, LONG_WINDOW_DAYS=365,
+#     WEEKS_FOR_WD_AVG=4, MIN_BASE_IN_WINDOW=30M.
+#
+# Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
-# ================== Parámetros ==================
+VERSION_ID = "PRESU_WD_TAG_v13_HOLIDAYS_FROM_MODEL__OFFSET_POLICY_IN_CODE"
+
+# ================== Parametros ==================
 TZ_NAME = 'America/Santiago'
 ALPHA_BLEND = 0.25
 INCLUDE_POS = True

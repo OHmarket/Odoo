@@ -1,23 +1,33 @@
 # ============================================================
-# OH KPI Mensual por Sucursal — POS ONLY — MONTHLY
-# Ajustado para explotar combos/sets en UNIDADES usando combo_parent_id
-# - Excluye service y combo/set standalone del conteo de unidades
-# - Baja unidades del SET al SKU hijo real
-# - Ventas brutas y tickets siguen a nivel pedido (no cambian)
-# - Permite backfill por rango de meses
+# OH Analisis Ventas Team - KPI mensual por sucursal (POS only)
+# ============================================================
 #
-# SAFE_EVAL friendly
-# Requiere datetime disponible en contexto del server action
+# Version activa: v13 (ver CHANGELOG.md para historial completo)
+#
+# Objetivo:
+#   - KPI mensual por sucursal con combo-explode en unidades.
+#   - Persiste en x_sales_month_team_kpi: ventas brutas, tickets,
+#     unidades vendidas, ticket promedio, etc.
+#
+# Reglas vivas (resumen operativo, no cronologia):
+#   - Combos/sets explotan via combo_parent_id:
+#       - Excluye service y combo/set standalone del conteo de unidades.
+#       - Baja unidades del SET al SKU hijo real.
+#       - Ventas brutas y tickets a nivel pedido (no cambian).
+#   - SAFE_EVAL friendly. Requiere datetime en contexto Server Action.
 #
 # Contexto opcional:
-#   run_mode: 'last_closed' | 'range'     (default: 'last_closed')
-#   date_from: 'YYYY-MM-DD'               (default: '2025-01-01')
-#   date_to:   'YYYY-MM-DD'               (default: último día del mes cerrado)
-#   team_ids:  [18,16,...]                (default: FILTERED_TEAM_IDS)
-#   dry_run:   True/False                 (default: False)
+#   run_mode:  "last_closed" | "range"   (default: "last_closed")
+#   date_from: "YYYY-MM-DD"              (default: "2025-01-01")
+#   date_to:   "YYYY-MM-DD"              (default: ultimo dia del mes cerrado)
+#   team_ids:  [18,16,...]               (default: FILTERED_TEAM_IDS)
+#   dry_run:   True/False                (default: False)
+#
+# Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
 VERSION_ID = "KPI_MONTH_TEAM_POSONLY_v13_COMBOEXPLODE_BACKFILL"
+
 TZ_NAME    = "America/Santiago"
 LOCK_KEY   = 99012026
 

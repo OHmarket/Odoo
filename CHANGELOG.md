@@ -1,16 +1,484 @@
-# CHANGELOG — OH Análisis de Stock
+# CHANGELOG — OH Market Pipeline
 
-Histórico detallado de versiones del script `3- OH Analisis de Stock.py`.
+Histórico detallado de versiones de todos los scripts del pipeline.
 La versión activa y el resumen operativo (reglas vivas) están en el header
 del propio script. Aquí queda el detalle de cada fix, snapshot de impacto y
 métrica histórica para auditoría.
 
-Convención: `vMAJOR.MINOR.PATCH`. La versión activa al momento de esta
-limpieza es **v9.1.86**.
+Convención de versionado por script: cada script lleva su propio contador
+(`vMAJOR.MINOR.PATCH` o `vN`). El orden dentro de cada sección es
+descendente (versión más reciente arriba).
 
 ---
 
-## v9.1.86 — Trazabilidad de OC pendientes
+## 01_segmentacion / OH Calculo ABCXYZ.py
+
+### v19.4 — Vista corta de series_type (2026-05-12)
+
+Vista corta de series_type (Syntetos-Boylan sobre ultimas 12 semanas) ademas de la larga (52 sem).
+
+- `x_studio_series_type`: largo (52 sem), comportamiento existente.
+- `x_studio_series_type_short`: corto (12 sem), nuevo.
+- `x_studio_series_type_active`: el corto si difiere del largo (y no es no_signal); si no, el largo. Es el que consume el motor HM-SI.
+- Regimen ahora se calcula con `series_type_active`.
+
+**Motivo**: SKUs en ramp-up tienen comportamiento corto distinto al largo. Caso real: Cerveza Coors 620 BX smooth (largo) pero en ult. 12 sem vende 121/sem (era 29 promedio anual) -> es smooth con mu alto. Cae en Z4 por `mu<2` global y el motor lo pronostica en 0.
+
+---
+
+### v19.3 — GMROI desde stock.quant (anterior)
+
+GMROI ahora lee inventario directamente de `stock.quant` (primario Odoo) en lugar de `x_analisis_de_stock` (modelo derivado).
+
+- Filtro: `location_id.usage='internal'`, `quantity>0`, `company_id`.
+- Costo: usa el `cost_unit` que ABCXYZ ya calcula por producto (COST_MODEL con fallback a `standard_price`).
+- Cobertura: incluye TODO el catalogo con stock real, sin depender de que `x_analisis_de_stock` haya corrido o filtre por team activo.
+- Sigue siendo SNAPSHOT (al momento de correr ABCXYZ).
+- Fase 2 TODO: convertir a PROMEDIO historico sobre 26w leyendo `x_stock_balance_daily`.
+
+---
+
+### v19.2 — Bandas estacionales eliminadas (anterior)
+
+- Eliminada la separacion de semanas BASE vs ALL (bandas estacionales).
+- HM-SI descuenta estacionalidad con SI -> ABCXYZ no necesita pre-filtrar.
+
+---
+
+### v19.1 — Refactor multi-dimensional sobre v18.3
+
+Refactor del ABCXYZ para que sea la unica fuente de verdad de la segmentacion de productos. Anade tres dimensiones nuevas:
+
+**A) ADI + CV² (Syntetos-Boylan)**
+
+- ADI = `total_weeks / weeks_with_demand` (intervalo promedio de demanda).
+- CV² = `(sigma/mu)²` sobre periodos POSITIVOS unicamente.
+- Reemplazan la inferencia de `series_type` via letra XYZ (que mezclaba intermittent con lumpy). La matriz ADI×CV² distingue 4 patrones: `smooth | erratic | intermittent | lumpy`.
+
+**B) REGIMEN de forecast (REG-0..REG-8)**
+
+- Reemplaza las zonas Z1-Z4 (calculadas hoy en HM-SI con caps P6).
+- Triplete: `(abcxyz_letter_volumen, series_type, ciclo_de_vida)`.
+- HM-SI lee `x_studio_regimen` y aplica la regla directamente.
+
+**C) GMROI + GMROI_CLASS (G_A/G_B/G_C/G_D)**
+
+- Dimension financiera paralela. Mide retorno sobre inversion en stock.
+- Cuartiles empiricos sobre el catalogo activo.
+- Decide CUANTO invertir en stock (no afecta la regla de forecast).
+
+**Nuevas columnas escritas**:
+
+- `x_studio_adi` (float, intervalo promedio de demanda)
+- `x_studio_cv2` (float, CV² sobre periodos con qty>0)
+- `x_studio_series_type` (smooth/erratic/intermittent/lumpy/no_signal)
+- `x_studio_regimen` (REG-0..REG-8)
+- `x_studio_gmroi` (float, margen anual / inv promedio)
+- `x_studio_gmroi_class` (G_A/G_B/G_C/G_D)
+- `x_studio_inv_valor_avg` (float, $ inventario agregado sobre locales)
+
+**Helpers nuevos**: `_classify_series_type`, `_assign_regimen`, `_load_inv_valor_by_product`, `_compute_gmroi`, `_classify_gmroi_by_quartiles`. Acumuladores `sum_qty_pos`, `sum_sq_pos` en el loop XYZ.
+
+**Mantiene de v18.3**: usar `x_studio_product_id` como `product.product`; ABC, XYZ, ranking, ciclo de vida y eliminacion; letra XYZ y `x_studio_cv` (CV sobre todos los periodos) intactos; NO escribe campos de forecast / cobertura / safety / compra; compatibilidad con `_filter_vals` (si el campo nuevo no existe en Studio, se omite sin error).
+
+**Alcance**:
+
+- Solo ventas POS para ABC/XYZ.
+- GMROI lee inventario SNAPSHOT desde `stock.quant`. Si no es accesible, GMROI=0 -> G_D.
+
+Requiere que `x_studio_product_id` sea Many2one a `product.product`.
+
+---
+
+## 02_forecast / HM SI Forecast.py
+
+### v3.42 — Fair share canon SAP IBP / Blue Yonder (2026-05-23)
+
+**Problema que resuelve**: v3.41 rescato 72 pares (60 San Jose + 12 otras salas) con criterio `mu_week==0 AND abc=='A' AND lifecycle in (mature, ramp_up)`. El analisis canon de cobertura ([04_analitica/Cobertura ABCXYZ por Sala.py](04_analitica/Cobertura%20ABCXYZ%20por%20Sala.py)) identifico 265 pares totales con priority_score canon alto: 87 EXPANSION MASIVA (abc=A AND gap_total>=7) + 178 TERMINAR COBERTURA (abc IN (A,B) AND 1<=gap_total<=2).
+
+v3.41 sub-cubria estos casos porque:
+- No rescataba clase B con gap pequeno (quick wins).
+- Aplicaba factor_normalizado sin penalizar baja confianza (n_active=1).
+- Inflaba mu_fs en SKUs nicho con mu_global bajo (sin cap por techo).
+
+**Enfoque canon (SAP IBP / Blue Yonder / Oracle RDF)**: `Priority_Score = Opportunity x Confidence x Tried_Penalty`.
+
+1. Confianza por N salas activas (canon SAP IBP):
+   - `n_active = 1` -> conf_n = 0.30
+   - `n_active = 2` -> conf_n = 0.50
+   - `n_active = 3-4` -> conf_n = 0.75
+   - `n_active >= 5` -> conf_n = 1.00
+
+2. Growth cap por mu_global y XYZ (canon Blue Yonder):
+   - `mu_cap_total = mu_global x growth_cap(xyz)`
+   - `growth_cap = {X: 3.0, Y: 2.0, Z: 1.5}`
+   - Por par: `mu_cap = mu_cap_total / max(1, gap_count)`
+
+3. Penalty "probo y fallo" en sala target (canon Blue Yonder):
+   - `if active_weeks_local_target > 0: mu_fs *= 0.15`
+   - SIN floor cuando se aplico tried_penalty (insight empirico OH: 97% flacos son "probo y fallo").
+
+4. Trigger expandido:
+   - `abc_global == 'A'` -> EXPANSION MASIVA (cualquier gap)
+   - `abc_global == 'B' AND gap_count <= 2` -> TERMINAR COBERTURA
+   - `abc_global == 'C'` -> NO rescatar
+
+Nuevo scope: `core_canon_v42` (distinguible de `core_fair_share` v3.41).
+
+**Resultado en produccion**: 256 pares con mu_week>0 (vs 72 v3.41). 0 pares en `core_fair_share` antiguo. Top: Royal Guard Lata Conaripe (mu=92), Turron Galleta San Jose (31), Bon o Bon (29).
+
+---
+
+### v3.41 — Fair share v2 con share NORMALIZADO por categoria (2026-05-23)
+
+Reemplaza la formula de v3.40 (`mu_global × share_categoria`) que estaba sesgada por el tamano de las salas activas. v3.41 calcula el "peso del SKU en su categoria" promediado SIN ponderar por volumen, capturando un invariante de share independiente del tamano de cada sala.
+
+**Formula**:
+
+```
+# Para cada sala activa i (con mu_sku>0 y mu_categ>0):
+share_sku_categ_i = mu_sku_en_sala_i / mu_categoria_en_sala_i
+factor_normalizado = mean(share_sku_categ_i)   # invariante a tamano
+
+# Sala objetivo:
+if historia_categ_target >= 12 semanas:
+    mu_categ_target = mu_categoria_real_target
+else:
+    # Sala nueva: promedio del bottom-N% de salas (default 50%) por
+    # mu_categoria, EXCLUYENDO la sala objetivo.
+    mu_categ_target = mean(mu_categ for bottom-N salas)
+
+mu_raw = factor_normalizado × mu_categ_target × bias
+mu_fs = max(mu_raw, FAIR_SHARE_MIN_UNITS)   # min ahora 1.0 (no 2.0)
+```
+
+**Por que el cambio**: el backtest 2026-05-23 (v3.40) mostro que 57 de 61 pares hit el floor=2 flat. El share_categoria pesaba demasiado a las salas grandes -> SKUs con presencia desigual quedaban subestimados, y el floor fijo no compensaba la heterogeneidad.
+
+**Parametros nuevos**:
+- `FAIR_SHARE_BOTTOM_PCT` (default 0.5): % de salas a usar como bottom para sala objetivo nueva.
+- `FAIR_SHARE_MIN_UNITS` reducido de 2.0 a 1.0 (el factor normalizado ya escala con velocidad real).
+
+Condicion de trigger (heredada de v3.40 FIX): `mu_week==0 AND ABC global=='A' AND lifecycle in ('mature','ramp_up') AND len(shares_activas) >= 3`.
+
+---
+
+### v3.40 — Fair share allocation inicial (2026-05-23)
+
+Cierra el gap medido en Fase 1: 728 pares (sala, clase-A) caian en `no_forecast` => stock no compraba => ausencia se autoperpetuaba.
+
+**Enfoque** (Oracle Retail Demand Forecasting / Blue Yonder "fair share by category share"): cuando una sala no tiene historia local de un SKU clase A global, `forecast = demanda_global × share_categoria_sala × bias_conservador`.
+
+**Reglas (Fase 0 cerrada con usuario, FIX 2026-05-23)**:
+- Aplica solo si: `mu_week==0 AND letra_global_ABC=='A' AND lifecycle_local in ('mature','ramp_up') AND n_salas_activas>=3`.
+- El trigger es `mu_week==0` (NO `forecast_scope=='no_forecast'`). Motivo: el motor v3.39 tiene rescue rules v3.28/v3.30 que envian clase A con poca demanda a `core_hm_si` (no a `no_forecast`) ANTES del catch-all. La condicion original nunca disparaba.
+- Lifecycle whitelist (no blacklist): solo mature/ramp_up reciben fair share. Excluido seasonal (487 pares mu=0 son baja temporada esperada), intermittent (65 son demanda real esporadica), declining/dead (saliendo).
+- `n_salas_activas` = numero de salas con qty>0 en data_si para ese SKU. Si <3, NO se aplica (validado empiricamente: 97% de SKUs flacos son "probo y fallo", no oportunidades de expansion).
+- Si `historia_categ(sala) < 12 sem`, se usa share_uniforme=1/N_SALAS. Caso San Jose (team_id=11, sala nueva).
+- Bias 1.00 + floor 2.0 u/sem (Oracle "minimum forecast quantity"). La asimetria de error se INVIERTE para fair share: el riesgo dominante NO es over-forecast sino el under-forecast que impide a stock comprar -> el SKU nunca llega a la sala -> la ausencia se autoperpetua.
+
+**Formula**:
+
+```
+mu_raw      = mu_week_global × share_used × FAIR_SHARE_BIAS
+mu_week_fs  = max(mu_raw, FAIR_SHARE_MIN_UNITS)
+sigma_week_fs = mu_week_fs × FAIR_SHARE_SIGMA_CV  # CV sin historia local
+```
+
+**Impacto esperado**: 146 pares clase A en lifecycle mature con mu_week=0 + ~65 en ramp_up.
+
+---
+
+### v3.39 — Auto-model selection per SKU SAP-style (2026-05-20)
+
+Nuevo wrapper `_select_best_model`. Reemplaza al dispatcher por regimen.
+
+- Para cada SKU corre 4 modelos en paralelo: heuristico, SBA(0.15), Croston(0.10), seasonal_naive_52. Holdout de 4 sem cerradas para evaluar. MAE como metrica. Gana el modelo con menor MAE.
+- Heuristic-bias 0.90: el heuristico solo pierde si otro modelo es >=10% mejor en MAE. Protege REG-1 (gold standard) y SKUs estables.
+- Sin Holt-Winters (memoria v4: HW destruyo WAPE 90% en REG-1).
+- Seasonal naive lag-52 solo participa si `len(base_vals)>=56`. Con `DEMAND_WINDOW_WEEKS=26` actual, no entra; queda hook para v3.40 cuando se amplie la ventana.
+- El ganador per-SKU se persiste en `x_studio_demand_method`.
+- Sigma reutiliza el del heuristico aun cuando gana otro modelo, para no degradar el calculo de safety stock.
+- Fallback al heuristico cuando: `len(base_vals)<12`, modelo ganador devuelve <=0, o ningun candidato produce forecast valido.
+
+---
+
+### v3.38 — DESCARTADO: SBA REG-7 / SMA8 (2026-05-20)
+
+**v3.38 REG-7 SBA** (revertido):
+Backtest 3 sem (W18-W20):
+- REG-7 WAPE 90.02% -> 91.58% (+1.6pp PEOR)
+- REG-7 BIAS -15.48% -> -20.00% (-4.5pp PEOR, sub-forecast)
+- WAPE global 67.36% -> 67.79% (+0.4pp)
+- BIAS global -3.27% -> -4.29% (-1pp)
+
+Razon: SBA con alpha=0.05 sobre base_vals SI-deflated produce forecast mas conservador que SMA dilution para intermitentes. Helpers `_croston/_sba` quedan en el codigo (no-op) por si se retoma con alpha distinto.
+
+**v3.38 SMA8** (revertido):
+`SERVICE_BASE_SHORT_WEEKS_DEFAULT 6 -> 8`. Backtest 3 sem: WAPE neutro pero BIAS global -6.47% vs -3.27% (3pp peor sub-forecast). Colas devastadas: AZ -48.9%, CZ -47.8%, BY -24%. SMA(8) suaviza demasiado SKUs erraticos/lumpy. Vuelta a `SERVICE_BASE_SHORT_WEEKS_DEFAULT = 6`.
+
+---
+
+### v3.37 — Validacion empirica del factor de correccion externo (2026-05-20)
+
+- Cuando `correccion_factor < 0.90` y hay >=3 semanas post-cambio cerradas, se calcula `empirical_factor = avg(base_vals post) / avg(base_vals pre)` usando ventanas de `min(weeks_since_real, 8)` post y 8 pre.
+- Si `empirical_factor > correccion_factor + 0.15` (la realidad muestra menos impacto del predicho), el factor se atenua a `(factor + emp)/2`, clampeado a 1.0. La razon se anota con `[emp X.XX adj Y.YYY]`.
+- **Asimetrica**: solo atenua over-correcciones, NO aumenta cuts. Aplica la memoria: sub-forecast cuesta mas que over-forecast.
+- Caso testigo: SKU 0154 Paillaco BEBIDA COCA COLA DES 3L. Factor teorico 0.814 (predice -18.6%) vs realidad post-cambio +16%. Con validacion, empirical ~1.36 -> factor ajustado a 1.0 -> mu_week 13 -> 17.
+
+---
+
+### v3.36 — Detector de colapso de demanda (2026-05-20)
+
+- Tercer umbral en el branch de bajada: `ratio < SERVICE_RATIO_COLLAPSE (0.30)` devuelve sma_short puro (en lugar del blend 0.7/0.3 que arrastraba ~30% de SMA(16) como inercia fantasma).
+- Caso testigo: SKU 451500 Futrono, caida 330 u/sem -> 6 u/sem en 6 semanas. Con el blend antiguo el forecast salia 43 u (real 8); con collapse branch `mu_base = SMA(6)` directo, forecast esperado ~3 u.
+- Nueva firma de `_calc_base_demand`: retorna 4-tupla agregando `collapse_detected` (bool) para trazabilidad.
+- Nuevo campo de auditoria `x_studio_collapse_detected` (Boolean) en `x_hm_si_forecast`.
+- Ajuste (2026-05-20): el ratio que dispara collapse_detected se evalua sobre `raw_vals` (ventas crudas), NO sobre `base_vals` (SI-deflated). La SI deflation enmascara caidas reales cuando coinciden con baja estacionalidad. `mu_base` sigue calculandose sobre `base_vals` para que `si_next` no double-counte estacionalidad.
+
+---
+
+### v3.35 — Limpieza sistema legacy de ajuste de precio (2026-05-13)
+
+ELIMINADO sistema legacy de ajuste de precio inline.
+- Removidos: `PRICE_FACTOR_TABLE_L2`, `_lookup_calibrated_factor`, `_apply_decay`, `_load_price_context`, `_price_segment`, `_price_at_week`, `_categ_l2_from_complete_name`, `_norm_categ`, `_classify_price_range`.
+- Removidas variables del bucle: `price_factor`, `q_adj`, `base_vals_no_adj`, etc.
+- Removidos campos del write: `x_studio_units_sold_adjusted` (legacy).
+- El ajuste por cambio de precio se delega 100% al detector externo (Detector v5.8 en `02_forecast/OH Price Correccion.py`) via modelo `x_price_coreccion`. El motor solo consume el factor pre-calculado via `_load_correccion_context` y lo aplica al `mu_week` despues de los caps P1/P3/P6.
+
+---
+
+### v3.34 — Regimen local por team (2026-05-13)
+
+Bajada COMPLETA del regimen por team. El motor ahora consume `xyz_local`, `series_type_local`, `lifecycle_local` y `regimen_local` calculados sobre la serie local del team. Cada variable contiene el valor a usar: si el calculo local tiene senal suficiente, es el local; si no, se hereda el global del router (escrito por archivo 1).
+
+- `series_type_local`: matriz Syntetos-Boylan (ADI + CV2) sobre serie local.
+- `lifecycle_local`: presencia trimestral local sobre 8 trimestres.
+- `regimen_local`: combinacion (ABC_global, series_type_local, lifecycle_local).
+- El motor (caps P1/P3/P6, forecast_zone routing) consume las variables locales. `mu_week` y `sigma_week` resultan distintos por team con respecto al motor anterior que usaba el regimen global del producto.
+- Persiste source de cada clasificacion (`local` | `global`) para auditoria.
+- ABC sigue global (criterio economico).
+
+---
+
+### v3.33 — XYZ local por team (2026-05-13)
+
+Persiste XYZ local por team derivado de la serie local del producto (`base_vals`). Mismo metodo que el XYZ global (archivo 1): una sola pasada CV simple = `sigma/mu` sobre la ventana completa, umbrales 0.45 / 0.90, `min_active_weeks` alineado al global (4 sem).
+
+- Si `active_weeks_local < MIN` o el calculo local queda vacio, se hereda el XYZ global del producto desde `router_ctx` y se marca `source='global'` para trazabilidad.
+- Si el global tampoco esta poblado, `xyz_local` queda vacio y archivo 3 fuerza CZ via regla anti-blanco.
+- Escribe en `x_hm_si_forecast`: `x_studio_xyz_local`, `x_studio_xyz_local_source`, `x_studio_active_weeks_local`.
+- Consumidor (archivo 3) compone `abcxyz_efectivo = ABC_global + XYZ_local` y elige Z del safety segun esa combinacion. Toggle `ENABLE_XYZ_LOCAL` en archivo 3 controla el rollout. ABC sigue global.
+
+---
+
+### v3.32 — series_type_active de ABCXYZ v19.4 (2026-05-12)
+
+Consume `x_studio_series_type_active` (ABCXYZ v19.4) con fallback a `x_studio_series_type` largo si el field nuevo no existe. Permite que el router actue sobre el comportamiento RECIENTE (12 sem) en lugar del historico largo (52 sem). Resuelve casos como Cerveza Coors 620 que vendia 30/sem historico pero ahora vende 120+/sem y caia en Z4 por mu<2 por team.
+
+---
+
+### v3.31 — Redondeo medio-arriba del mu_week final (2026-05-12)
+
+- `mu_week < 0.5` -> 0 (drop demanda muy debil).
+- `mu_week >= 0.5` con fraccion >= 0.5 sube al siguiente entero (ej 1.5->2).
+- `mu_week >= 0.5` con fraccion < 0.5 baja al entero actual (ej 1.3->1).
+- `sigma_week` y `mu_week_pre_corr` quedan continuos para trazabilidad.
+- Formula: `float(int(mu_week + 0.5))`. Sin import math.
+
+---
+
+### v3.30 — AX/AY rescue + suavizar P3 (2026-05-12)
+
+2 cambios contra forecast=0 con ventas reales.
+
+a) Rescate AX/AY no terminales con `mu_week < 2.0` (patron v3.28 AZ rescue). 256 filas, 511 unid. P6 cap activo. Cambio limpio sin dano en WAPE.
+
+b) Suavizar P3 zero-gate de `nz_recent <= 1` a `nz_recent == 0`. SKUs con 1 venta en 8 sem son intermitentes vivos. Forecast=0+ventas reales: 1,940 -> 821 (-58%). Real perdido sub-forecast: 3,200 -> 1,300 unid.
+
+Trade-off WAPE: +0.74pp global (BZ/CZ over-forecast en colas con volumen bajo). Costo aceptado: el objetivo es cobertura, no WAPE.
+
+---
+
+### v3.29 — Integracion detector x_price_coreccion (2026-05-12)
+
+Integra detector `x_price_coreccion` (typo intencional de Studio).
+
+- `_load_correccion_context`: 1 query batch antes del loop, filtra `target_week_start <= target_date AND active=True`, toma mas reciente.
+- Aplica `factor_corr` DESPUES de caps P1/P3/P6 (declining/dead siguen en 0; los caps protegen contra over-forecast del motor base, pero el factor es senal externa intencional que puede superarlos).
+- Persiste `x_studio_correccion_factor` / `tipo` / `razon` / `mu_week_pre_corr` para auditoria.
+
+---
+
+### v3.28 — AZ rescue del catch-all Z4 (2026-05-12)
+
+Rescatar AZ del catch-all Z4 (whisky/vino premium).
+
+- Diagnostico: backtest 2026-05-04 mostro 40 SKUs AZ (ABC=A, XYZ=Z) con BIAS +48.31% sub-forecast severo. El router v3.24 los mandaba a Z4 por la regla `mu_week < 2.0` -> forecast=0 mayoritariamente.
+- Fix: agregar regla en `_route_forecast_scope` ANTES del catch-all Z4: `if (abc == 'AZ') and (lc not in ('declining', 'dead')): return 'Z1', ...`
+- Resultado: los AZ no terminales reciben motor activo (SMA + SI + ajuste precio) y P6 cap por `max_obs * 1.2` los protege contra over-forecast extremo.
+- Impacto medido: 40 SKUs, 3,494 unid reales en 3 sem, 3.2% volumen A.
+- v3.27 (Holt doble en REG-1/2/3) fue REVERTIDO antes de medir: no se justifico tocar REG-1 que ya funcionaba (BIAS -1.2% en AX).
+
+---
+
+### v3.26 — Consolidacion fallback XYZ->series_type (2026-05-12)
+
+Cosmetica. El fallback (X->smooth, Y->erratic, Z->lumpy cuando series_type no viene poblado desde ABCXYZ) aparecia duplicado en dos lugares (antes del router y dentro de `_route_forecast_scope`). Consolidado en helper unico `_infer_series_type_from_xyz`. Cero cambio funcional.
+
+---
+
+### v3.25 — Excluir REG-8 seasonal del P3 zero-gate (2026-05-12)
+
+Diagnostico: backtest 2026-05-04 mostro BIAS +49.54% en REG-8 (5,291 SKUs). Causa: los SKUs estacionales tienen ventanas de cero entre temporadas que NO indican declive, pero P3 (forecast_zone=Z4 + nz_recent<=1 -> mu_week=0) los anulaba. Cuando llega la temporada, el motor esta en cero.
+
+Fix: 1 linea — agregar `and router_regimen != 'REG-8'` al guard de P3. El regimen se lee de `x_calculo_abc_xyz.x_studio_regimen` (matriz canonica de ABCXYZ v19.3). v3.24 inyectaba el regimen pero NO lo usaba en el calculo. v3.25 es la primera version donde el regimen modula la logica del motor.
+
+---
+
+### v3.24 + regimen — Rollback desde v4.3 + injection x_studio_regimen (2026-05-12)
+
+Rollback desde v4.3-revert tras backtest pareado mostrar que v4.3 era 65pp peor (WAPE 140 vs 75). Unica modificacion vs v3.24 original: inyeccion de `x_studio_regimen` desde ABCXYZ (5 lineas), sin alterar la logica de calculo.
+
+Cambios activos:
+- Mantenido: correccion de nivel mixto en ajuste SKU — usa `local_categ` como referencia cuando `si_main` proviene de `local_categ` (antes mezclaba niveles).
+- Mantenido: `PRICE_FACTOR_TABLE_L2` limpia (sin duplicados, sin None, normalizado).
+- Revertido v3.22: `_calc_si_from_weekly` vuelve a divisor `len(clean)` y `len(avg_by_week)` porque `/expected_n` y `/52` inflaban SI en semanas presentes -> deflactaban `mu_base` via `q_base = q_adj/si_w` -> underforecast cronico en Z-class (AZ +19.7pp wMAPE).
+- Revertido v3.22: semanas faltantes SI=1.0 (neutro) en vez de 0.0.
+
+---
+
+### v3.21 — Limpieza PRICE_FACTOR_TABLE_L2 (2026-05-12)
+
+- Eliminados 4 duplicados sin tilde (Cocteles, Snack, Isotonicas, Electronicos).
+- Todos los None reemplazados por valor DEFAULT correspondiente (tabla autoexplicativa).
+- Lookup normalizado via `_norm_categ()` — resiste variaciones de tilde/mayuscula.
+
+---
+
+## 02_forecast / OH Forecast Backtest.py
+
+### v11.1 — Soporte REG-0..REG-8 en _zone_code
+
+- `_zone_code()` ahora acepta REG-0..REG-8 como valores validos. Antes cualquier valor que no fuera Z1-Z4 caia silenciosamente a SIN_ZONA. Esto rompia el backtest contra HM-SI v4.3+ que escribe REG-X en `x_studio_forecast_zone` (nueva semantica).
+- Lectura de `x_studio_regimen` y `x_studio_forecast_model_code` desde `x_hm_si_forecast`. Se persisten en columnas paralelas del modelo `x_forecast_backtest` (best-effort: si no existen, se omiten).
+- Mantiene compatibilidad backward: si HM-SI no escribe regimen, `x_studio_forecast_zone` sigue siendo la fuente de la dimension de segmentacion para reportes.
+
+Alcance B pendiente (Etapa 2.4 profunda del roadmap):
+
+- Reemplazar `zone_metrics` por `regimen_metrics` como dimension primaria.
+- Adaptar mensajes de log y reportes para usar regimen.
+- Migrar analisis posteriores (pandas) a regimen.
+
+---
+
+### v11.0 — PERF: lecturas batch + cache
+
+- Elimina `_load_computed_segment_rows_from_pos` por semana: lee `series_type` y `lifecycle` directamente desde `x_hm_si_forecast` (ya calculado por HM-SI).
+- Batch de `_load_real_sales`: una sola query cubre todas las semanas.
+- `_load_abcxyz_map` se llama una vez por semana en vez de una vez por metodo.
+- `BT_CV2` queda en 0.0 (CV2 no persiste en `x_hm_si_forecast`).
+
+---
+
+### v10.4 — Persiste mu_week_pre_bias
+
+- Lee `x_studio_mu_week_pre_bias` desde `x_hm_si_forecast`.
+- Lo persiste en `x_forecast_backtest` para medir efecto real del bias.
+- Forecast final sigue en `x_studio_mu_week` / `x_studio_forecast_qty`.
+
+---
+
+### v9 — Unifica llave operativa en product.product
+
+- Unifica la llave operativa en `product.product`.
+- Venta real POS se agrupa por `pp.id`, no por `product_template`.
+- Segmentacion calculada desde POS se agrupa por `pp.id`.
+- ABCXYZ se carga directo desde `x_calculo_abc_xyz` por `product.product`.
+- No usa `default_code`, nombre ni template para cruzar ABCXYZ.
+
+No toca: stock, compras, transferencias, ordenes de compra.
+
+Resultado: backtest por semana + local + product.product + metodo.
+
+---
+
+## 02_forecast / OH Price Correccion.py
+
+### v5.9 — REVERTIDO: canibalizacion pasiva con lista blanca L2 (2026-05-12)
+
+Probada: canibalizacion pasiva con lista blanca de categ L2. Resultado: WAPE +0.04pp neutro, no agarro los outliers reales (Royal Guard quedo igual). Probable causa: CPI por sub-cat L3 separa "Cervezas Tradicionales" de "Cervezas Promocion".
+
+Revertido por decision: evitar acoplar el motor a casuisticas especificas del negocio al inicio. Se puede retomar mas adelante subiendo CPI a nivel L2 + listando intercambios manuales.
+
+---
+
+### v5.8 — Lookback de precios extendido a 52 sem (2026-05-12)
+
+- `LOOKBACK_PRICE_WEEKS = 52` (era 12). Captura cambios sostenidos viejos. Caso real detectado: cervezas Royal Guard / Cristal Ultra con bajada de hace ~20 sem que sigue vigente, generaba canibal activa pero el detector la ignoraba por estar fuera de ventana.
+- Subidas con `weeks_since >= 12` quedan con factor=1.0 por decay (no generan ruido). Bajadas son sostenidas - factor sigue activo.
+
+---
+
+### v5.7 — Ponderacion ELASTICIDAD_ABC
+
+- Ponderacion `ELASTICIDAD_ABC` sobre el factor base para cambios de precio (solo en la rama "sin promo"):
+  - A: x1.3 (commodities con alternativas, mas elastico)
+  - B: x1.0 (sin cambio)
+  - C: x0.7 (cola cautiva, menos elastico)
+- Se aplica como `1 + (factor - 1) * mult`, asi es coherente para subidas (factor<1) y bajadas (factor>1).
+- Promos y BAJADA_DISCONTINUACION NO se ponderan (el lift de promo ya viene medido del SKU; discontinuacion siempre factor=1.0).
+- `_put_field` selection ahora es case-insensitive (fallback).
+- Diagnostico en notificacion: `abcxyz_field` / `con_valor` / `vacio`.
+
+---
+
+### v5.6 — target_week_start = period_start del evento
+
+- `target_week_start` ahora = `period_start` del evento (no proxima semana). Permite auditar contra backtest historico y reutilizar la fila por varias semanas mientras el efecto siga activo.
+- Filtro: solo SKUs con `product.product.active=True AND sale_ok=True` (excluye archivados, no-vendibles, liquidaciones cerradas).
+- Persiste `x_studio_abcxyz` (string completo AX/AY/AZ/BX...) en cada fila.
+- Purge inicial: ya no por target_week (ahora varia por SKU); purga todos los activos y recrea el snapshot.
+
+---
+
+### v5.5 — Bug fix: detector no leia cambios de precio
+
+- Bug fix: el detector no leia cambios de precio porque el campo fecha real en `x_price_change_event` es `x_studio_period_start` (no `x_studio_fecha` como suponiamos). Sin `date_field` detectado, `_first_field` devolvia False y todo el bloque se salteaba en silencio -> 0 alertas de cambio de precio.
+- Agregado filtro `is_real_change=True` opcional para descartar fluctuaciones espurias.
+
+---
+
+### v5.4 — Lookback diferenciado por fuente
+
+- Lookback diferenciado:
+  - Precios: 12 sem (cubre decay 12s de subidas + bajadas sostenidas que pueden tener varios meses).
+  - Promos: 4 sem (las promos son cortas; mas atras es ruido).
+- Sin regex en `_extract_mecanica` (Odoo safe_eval rechaza `IMPORT_NAME`).
+
+---
+
+### v5.3 — Nombre modelo destino corregido al typo de Studio
+
+- Nombre modelo destino corregido al typo real de Studio: `x_price_coreccion` (una sola 'r').
+- Quitado write a `x_studio_company_id` (campo no existe en Studio).
+- Selection `x_studio_tipo_alerta` extendida en Studio con todos los tipos granulares; el runner los persiste tal cual (sin mapeo).
+
+---
+
+### v5.2 — Decay por tipo de cambio + clasificacion de promo
+
+- BAJADA de precio = promo sostenida -> sin decay (factor vive hasta nuevo cambio).
+- SUBIDA de precio = decay 12 sem (era 8, adaptacion mas gradual).
+- Promo clasificada por `minimum_qty` (no solo por nombre):
+  - `min_qty <= 2`: pareo, no alertar salvo lift extremo.
+  - `min_qty 3-4`: mixto.
+  - `min_qty >= 6`: stock-up (DISPARO_W1, SATURACION_W3+).
+
+---
+
+## 03_stock / OH Analisis de Stock.py
+
+### v9.1.86 — Trazabilidad de OC pendientes
 
 - Trazabilidad de OC y pickings que originan el stock_pedido.
   - **Antes**: `stock_pedido_compra` y `stock_pedido_transfer` mostraban solo
@@ -34,7 +502,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.85 — CD usa period_weeks por SKU
+### v9.1.85 — CD usa period_weeks por SKU
 
 - Reposición automática CD para `solo_bodega` ahora usa `period_weeks` por
   SKU (mismo horizonte que la sala) en lugar del `CD_TARGET_WEEKS` fijo (30/7).
@@ -66,7 +534,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.84 — Techo financiero por proveedor
+### v9.1.84 — Techo financiero por proveedor
 
 - Techo financiero (`financial_ceiling_sku`) ahora se calcula por proveedor.
   - **Antes (v9.1.83)**: `PAYMENT_DAYS=30` global → `FINANCIAL_CEILING_WEEKS=4.29`
@@ -101,7 +569,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.83 — Cobertura de caja + exclusión por categoría
+### v9.1.83 — Cobertura de caja + exclusión por categoría
 
 - Reemplaza la regla v9.1.74 de `capital_atascado` (monto x tiempo) por una
   regla simple basada en COBERTURA DE CAJA y EXCLUSIÓN POR CATEGORÍA.
@@ -138,7 +606,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.82 — Sala solo_bodega con safety stock
+### v9.1.82 — Sala solo_bodega con safety stock
 
 - Sala `solo_bodega`: agrega safety stock al target.
   - **Antes (v9.1.81)**: `target = mu * sala_target_weeks_base` (plano, sin
@@ -169,7 +637,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.81 — Reposición automática CD para solo_bodega
+### v9.1.81 — Reposición automática CD para solo_bodega
 
 - Agrega reposición automática del CD para SKUs `solo_bodega` elegibles.
 - Si locales necesitan el SKU, el CD está bajo target y no hay `compra_cd`
@@ -186,7 +654,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.80 — Fix crítico lectura ABC/XYZ (variant vs template)
+### v9.1.80 — Fix crítico lectura ABC/XYZ (variant vs template)
 
 - FIX crítico de lectura ABC/XYZ. Bug originado al unificar scripts:
   `x_calculo_abc_xyz.x_studio_product_id` apunta a `product.product` (variant),
@@ -208,7 +676,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.79 — Limpieza operativa box_or_wait_no_qty
+### v9.1.79 — Limpieza operativa box_or_wait_no_qty
 
 - Si la política caja-o-esperar deja `reponer_ahora` sin `qty_a_pedir` ni
   transferencia, cambia la acción a `no_comprar_esta_semana`.
@@ -220,7 +688,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.78 — Pool pack/unidad: padre absorbe pool
+### v9.1.78 — Pool pack/unidad: padre absorbe pool
 
 - Corrige política de pools pack/unidad: la demanda de hijos/componentes se
   consolida hacia el padre phantom comprable en unidad equivalente de compra.
@@ -236,7 +704,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.77 — Fix sigma scaling para FWD local
+### v9.1.77 — Fix sigma scaling para FWD local
 
 - Fix crítico: `sigma_week` NO debe escalarse por `sqrt(share_demanda)` cuando
   la fuente es FWD LOCAL (`fwd_source='local'`).
@@ -260,7 +728,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.76 — Auditoría sigma en decision_reason
+### v9.1.76 — Auditoría sigma en decision_reason
 
 - Agrega `sigma=` al motivo de decisión para auditoría.
 - Antes el motivo mostraba `z=2.05` pero no el sigma que multiplicaba.
@@ -276,7 +744,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.75 — Service level top movers
+### v9.1.75 — Service level top movers
 
 - Subida de service level en `_SAFETY_FACTOR` para top movers:
   - AX: Z 1.645 → 2.05 (~95% → ~98% service level).
@@ -300,7 +768,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.74 — Capital atascado (OBSOLETA, reemplazada por v9.1.83)
+### v9.1.74 — Capital atascado (OBSOLETA, reemplazada por v9.1.83)
 
 - Cambio de criterio en la regla que forzaba SKUs sin `solo_bodega` a
   `compra_cd` cuando el MOQ excedía un techo de semanas
@@ -317,7 +785,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.73 — Fix double counting venta_bruta CD
+### v9.1.73 — Fix double counting venta_bruta CD
 
 - Fix bug introducido en v9.1.72: `venta_bruta_mensual_estimada` en filas CD
   generaba DOUBLE COUNTING (~CLP 75M sobreestimación).
@@ -334,7 +802,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.72 — Fix double counting compra_cd
+### v9.1.72 — Fix double counting compra_cd
 
 - Fix 4: `compra_cd` se presupuesta UNA SOLA VEZ a nivel SKU-red, no por local.
 - **Antes**: cada línea local con `buy_action='compra_cd'` calculaba su propio
@@ -358,7 +826,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.71 — Fix phantom block compra mensual
+### v9.1.71 — Fix phantom block compra mensual
 
 - Fix 3: `phantom_block_procurement` fuerza `compra_mensual = 0`.
 - Los packs/kit phantom padre están bloqueados de generar OC operativa (la
@@ -371,7 +839,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.70 — Fix compra mensual: no_disponible + stock_pedido
+### v9.1.70 — Fix compra mensual: no_disponible + stock_pedido
 
 - Fix 1: `buy_action='no_disponible_de_compra'` fuerza `compra_mensual = 0`.
   Estos productos están marcados para descatalogar (`purchase_ok=False` y no
@@ -390,7 +858,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.69 — Compra mensual estimada → presupuesto operativo
+### v9.1.69 — Compra mensual estimada → presupuesto operativo
 
 - Reemplaza `compra_mensual_estimada` de "presupuesto financiero teórico" por
   "presupuesto operativo realista" para flujo de caja por proveedor.
@@ -415,7 +883,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.67 — Compra mensual estimada (presupuesto teórico)
+### v9.1.67 — Compra mensual estimada (presupuesto teórico)
 
 - Agrega `x_studio_compra_mensual_estimada`.
 - Calcula monto estimado de compra desde `snapshot_date` hasta fin de mes:
@@ -427,7 +895,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.66 — Bloqueo procurement phantom padre
+### v9.1.66 — Bloqueo procurement phantom padre
 
 - Bloquea abastecimiento documental del producto padre phantom.
 - El pack/kit phantom queda visible para análisis, cobertura y valorización,
@@ -438,7 +906,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.65 — Fix NameError purchase_row
+### v9.1.65 — Fix NameError purchase_row
 
 - Fix NameError: reemplaza referencia obsoleta `purchase_row` por
   `purchase_map.get(tid)`.
@@ -446,7 +914,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.64 — Valorización phantom kits
+### v9.1.64 — Valorización phantom kits
 
 - Corrige valoración de stock en productos tipo pack/kit phantom.
 - **Antes**: si el SKU era `pool=phantom`,
@@ -461,7 +929,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.63 — Cigarros display_mult
+### v9.1.63 — Cigarros display_mult
 
 - Corrige bajo impacto de v9.1.62: el target de cigarros estaba dominado por
   reserva de exhibición.
@@ -472,7 +940,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.62 — Ajuste safety cigarros
+### v9.1.62 — Ajuste safety cigarros
 
 - Agrega ajuste de estimación para categoría Cigarrillos y Tabacos / Cigarros.
 - Categoría Cigarros = `product.category ID 1628`.
@@ -491,7 +959,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.61 — Reserva exhibición + top cash safety
+### v9.1.61 — Reserva exhibición + top cash safety
 
 - Agrega reserva comercial de exhibición como % de demanda semanal.
 - La reserva de exhibición se suma al target operativo, no a la demanda.
@@ -505,7 +973,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.60 — MOQ crítico segmentado por ABCXYZ
+### v9.1.60 — MOQ crítico segmentado por ABCXYZ
 
 - Segmenta la excepción crítica MOQ por ABCXYZ.
 - La protección fuerte de ceil crítico aplica solo a AX, AY, AZ, BX, BY, BZ.
@@ -515,7 +983,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.59 — MOQ ceil en críticos
+### v9.1.59 — MOQ ceil en críticos
 
 - Corrige redondeo MOQ en productos críticos/sin_stock.
 - Si el floor de caja deja cobertura post-compra menor a la cobertura mínima
@@ -525,7 +993,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.58 — Consolidación compra_cd antes de MOQ
+### v9.1.58 — Consolidación compra_cd antes de MOQ
 
 - Corrige `compra_cd`: consolida primero la necesidad exacta por SKU entre
   locales y recién después aplica MOQ/caja una sola vez en Bodega Central.
@@ -535,7 +1003,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.57 — Venta bruta semanal estimada
+### v9.1.57 — Venta bruta semanal estimada
 
 - Agrega estimación de venta bruta semanal por SKU/local:
   - `x_studio_pvp_bruto_sku = product.template.list_price`.
@@ -548,7 +1016,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.56 — Política caja-o-esperar global
+### v9.1.56 — Política caja-o-esperar global
 
 - Aplica al motor completo una política de caja-o-esperar.
 - No compra una caja solo por cerrar una brecha menor que el MOQ.
@@ -559,7 +1027,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.55 — Sin lead extra en target
+### v9.1.55 — Sin lead extra en target
 
 - Prueba sin días extra de lead en el target: `protection_weeks = period_weeks`.
 - `x_studio_lead_weeks` queda en 0.0 para aislar el efecto del extra de llegada.
@@ -569,7 +1037,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.52 — Stock proyectado CD lee OC/transfers abiertas
+### v9.1.52 — Stock proyectado CD lee OC/transfers abiertas
 
 - Corrige stock proyectado de Bodega Central: ahora la pseudo-sucursal CD lee
   compras y transferencias entrantes abiertas hacia el warehouse central.
@@ -583,7 +1051,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.51 — Elimina VERANO_*
+### v9.1.51 — Elimina VERANO_*
 
 - Elimina efecto operativo/auditoría de bandas `VERANO_*` en este análisis:
   `VERANO_BAJO`, `VERANO_MEDIO` y `VERANO_ALTO` se normalizan a `BASE`.
@@ -594,7 +1062,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.50 — Retorno a CD via qty_transferir
+### v9.1.50 — Retorno a CD via qty_transferir
 
 - No usa/escribe `x_studio_qty_retorno_cd`. El retorno a CD se informa en
   `x_studio_qty_transferir` con `buy_action = retorno_a_cd`.
@@ -608,7 +1076,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.49 — MOQ en compra_cd consolidada
+### v9.1.49 — MOQ en compra_cd consolidada
 
 - Corrige `compra_cd` para que la cantidad consolidada en Bodega Central se
   redondee a múltiplos de MOQ/caja antes de generar documentos.
@@ -618,7 +1086,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.39 — GMROI y rotación por peso
+### v9.1.39 — GMROI y rotación por peso
 
 - Agrega lectura de `costo_oh_unit` y `precio_neto_unit` desde
   `x_margen_por_producto_` (último registro por producto,
@@ -650,7 +1118,7 @@ limpieza es **v9.1.86**.
 
 ---
 
-## v9.1.36 — purchase_ok como criterio base
+### v9.1.36 — purchase_ok como criterio base
 
 - Usa `purchase_ok` de `product.template` como criterio base para
   `no_disponible_de_compra`.
@@ -676,3 +1144,234 @@ Adicionalmente se eliminaron de los headers del script:
   desde ningún sitio (los cambios v9.1.55+ la dejaron sin consumidores).
 - **Tags `# v9.1.XX:` inline** sin contexto funcional se reescribieron o
   borraron en favor de comentarios que explican el "por qué" del código.
+
+---
+
+## 03_stock / OH Generacion de Documentos.py
+
+### v1.5 — Draft mode adoption
+
+- Modo adopcion: NO confirma automaticamente Ordenes de Compra ni Traslados Internos.
+- Las OC quedan como RFQ/Borrador para revision de Compras.
+- Los pickings quedan en Borrador para revision de Bodega/Operaciones.
+- Mantiene idempotencia por `origin_key` contra documentos no cancelados.
+- Advertencia operativa: documentos borrador NO deberian entrar a `stock_pedido` hasta ser confirmados.
+
+---
+
+### v1.4 — Retorno a CD via qty_transferir
+
+- Retorno a CD / `transferencia_interna_retiro` usa `x_studio_qty_transferir`.
+- Elimina dependencia del campo separado de retorno, que no existe en `x_analisis_de_stock`.
+- Filtra retorno por `x_studio_buy_action = retorno_a_cd`.
+
+---
+
+### v1.3 — Correcciones varias
+
+- Corrige `_now_dt()`: Odoo espera datetime naive UTC, no timestamp timezone-aware.
+- Mantiene eliminacion de `getattr()`.
+- Mantiene validacion de Nombre del Lote.
+- Ejecuta `Analisis de Stock` (action 1502) al inicio.
+- Exige snapshot fresco posterior al inicio de la ejecucion.
+- Idempotencia ignora documentos cancelados.
+- Compras en cajas. Traslados en unidades.
+
+---
+
+## 03_stock / Stock Balance Daily.py
+
+### v2.0 — Modo dual (backfill / incremental)
+
+Reconstruye balance diario de stock por `(team, warehouse, producto, dia)` para detectar quiebres reales. Permite separar "error del modelo" de "no habia stock" en el analisis del backtest.
+
+Estrategia: snapshot actual (`stock.quant`) + roll backward sobre `stock.move` completados en la ventana efectiva:
+
+```text
+balance[D] = balance[D+1] - qty_in_(D+1) + qty_out_(D+1)
+```
+
+Modo dual:
+
+- `mode='backfill'`: reconstruye rango explicito `[date_from, date_to]`. Default range = `[BACKFILL_FLOOR_DEFAULT, hoy]`.
+- `mode='incremental'`: detecta ultima fecha procesada y recalcula `tail_window_days` (default 7) + hoy. NO toca dias anteriores. Es lo que corre el cron diario.
+
+El roll backward SIEMPRE ancla en `stock.quant` de HOY. **Aceptacion explicita del usuario**: el balance reconstruido para enero 2026 es una inferencia matematica desde el quant actual, no un snapshot real de ese momento. Suficiente para detectar quiebres operativos.
+
+Backdating > `tail_window_days` NO se captura en incremental. Mitigacion: correr `backfill` manual u opcional cron semanal con `tail_window_days=30`.
+
+### Modelo destino
+
+`x_stock_balance_daily` (crear en Studio antes de correr).
+
+Campos requeridos:
+
+- `x_team_id` (Many2one -> `crm.team`)
+- `x_warehouse_id` (Many2one -> `stock.warehouse`)
+- `x_product_id` (Many2one -> `product.product`)
+- `x_categ_id` (Many2one -> `product.category`)
+- `x_supplier_id` (Many2one -> `res.partner`, proveedor principal)
+- `x_abcxyz` (Char, clasificacion desde `x_calculo_abc_xyz`)
+- `x_date` (Date)
+- `x_qty_balance` (Float, balance fin de dia)
+- `x_qty_start`, `x_qty_in`, `x_qty_out` (Float)
+- `x_stockout` (Boolean, `balance <= 0`)
+- `x_stockout_partial` (Boolean, `start > 0 AND end <= 0`)
+- `x_run_version` (Char)
+- `x_run_at` (Datetime)
+
+Campos opcionales (v2.0, best-effort):
+
+- `x_run_id` (Char indexed, UUID corto)
+- `x_mode` (Selection `backfill|incremental`)
+
+Indice recomendado: `(x_team_id, x_warehouse_id, x_product_id, x_date)`.
+
+---
+
+## 04_analitica / OH Analisis Ventas SKU.py
+
+### v12 — COMBO_EXPLODE: prorating de combos en ventas
+
+Persiste venta semanal por SKU desagregando combos: cada componente recibe su `qty/revenue` prorateado segun reglas (`priced_child_count` -> `child_rev`; `weight_sum` -> peso por valor; sino reparto uniforme).
+
+### v11 — Estandar calendario OH
+
+Incorpora estandar calendario OH para que todos los scripts semanales sean comparables:
+
+- Semana OH: lunes a domingo, siempre en hora local Chile.
+- `week_start`: lunes. `week_end`: domingo.
+- Comparacion LY semanal: -364 dias = 52 semanas exactas.
+- ISO week para bandas estacionales (verano alto, verano bajo, otono, invierno, primavera, fiestas).
+
+### Esquema persistido
+
+Modelo destino: `x_pos_week_sku_sale`.
+Grano: `company + team (local) + week_start + categ_id + product_id`.
+
+Campos base:
+
+- `x_studio_qty_sold` = `SUM(pos_order_line.qty)`
+- `x_studio_sales_gross` = `SUM(pos_order_line.price_subtotal_incl)`
+- `x_studio_week_start` = lunes hora local Chile
+- `x_studio_week_end` = domingo hora local Chile
+
+Campos principales (independientes de feriados):
+
+- `x_studio_response_vs_category_pct` (Float) = crecimiento SKU vs LY - crecimiento categoria vs LY.
+- `x_studio_seasonal_band` (Char/Selection) = banda estacional calculada desde ISO week.
+
+Definicion:
+
+```text
+sku_growth_qty   = qty_sku_semana / qty_sku_semana_LY_364 - 1
+categ_growth_qty = qty_categoria_semana / qty_categoria_semana_LY_364 - 1
+response_vs_category = sku_growth_qty - categ_growth_qty
+```
+
+Interpretacion: +0.20 = el SKU crecio 20pp mas que su categoria; -0.15 = crecio 15pp menos.
+
+Fuente feriados:
+
+1. Contexto opcional: `{'holiday_dates': ['2025-01-01', ...]}`.
+2. Modelo por defecto: `x_holiday_occurrence.x_studio_holiday_date`.
+3. Relacion: `x_holiday_occurrence.x_studio_holiday_id` -> `x_holiday_master`.
+4. Contexto opcional: `{'holiday_model': 'x_nombre_modelo'}`.
+
+SAFE_EVAL friendly: sin lambdas, sin closures, sin nested functions. Requiere `datetime` en contexto de Server Action.
+
+---
+
+## 04_analitica / OH Analisis ventas Categoria.py
+
+### v10 — Factor anual por categoria
+
+POS week category fact: TY + LY + factor anual por categoria.
+
+- Mantiene la logica original a nivel `semana x sucursal x categoria`.
+- NO baja a SKU (lo hace el script de Ventas SKU).
+- Agrega/corrige factor categoria vs promedio semanal anual:
+  - `annual_avg_sales` / `annual_avg_units` = promedio semanal del mismo ano ISO comercial, por sucursal x categoria.
+  - `season_factor_sales` / `season_factor_units` = semana / promedio anual.
+- LY = semana - 364 dias.
+- Soporta `run_mode` / `date_from` / `date_to` y tambien `pos_week_start` / `pos_week_end`.
+- `x_name` compatible con jsonb.
+
+Modelo destino: `x_x_pos_week_sku_fact`.
+
+---
+
+## 04_analitica / OH Analisis ventas Team.py
+
+### v13 — Combo explode + backfill
+
+KPI mensual por sucursal (POS only).
+
+- Explota combos/sets en unidades usando `combo_parent_id`:
+  - Excluye `service` y `combo/set` standalone del conteo de unidades.
+  - Baja unidades del SET al SKU hijo real.
+  - Ventas brutas y tickets siguen a nivel pedido (no cambian).
+- Backfill por rango de meses via contexto `run_mode='range'` con `date_from` / `date_to`.
+
+SAFE_EVAL friendly. Requiere `datetime` disponible en contexto del server action.
+
+Contexto opcional:
+
+- `run_mode`: `'last_closed'` | `'range'` (default: `'last_closed'`).
+- `date_from`: `'YYYY-MM-DD'` (default: `'2025-01-01'`).
+- `date_to`: `'YYYY-MM-DD'` (default: ultimo dia del mes cerrado).
+- `team_ids`: `[18,16,...]` (default: FILTERED_TEAM_IDS).
+- `dry_run`: `True/False` (default: `False`).
+
+Modelo destino: `x_sales_month_team_kpi`.
+
+---
+
+## 05_finanzas / OH Flujo de Caja.py
+
+### v1.3 — Facturas venta + IVA SII (2026-04-30)
+
+Generador de flujo de caja diario que persiste en `x_cash_flow`.
+
+Inputs procesados:
+
+1. Ventas POS reales: venta D entra a caja D+1.
+2. Presupuesto de venta futuro (`x_presupuesto_de_venta`): presupuesto D entra a caja D+1.
+3. Facturas de compra pendientes: fecha flujo = vencimiento.
+4. Facturas de compra vencidas: fecha flujo = hoy - 1.
+5. IVA estimado: IVA ventas - IVA compras, pago dia 20 del mes siguiente.
+
+Modelos Odoo Studio validados:
+
+- `x_cash_flow` (modelo destino).
+- `x_presupuesto_de_venta` (lectura de proyecciones).
+
+No incluye (deuda visible): Bancos, Arriendos, Remuneraciones, TGR, BAT.
+
+Recomendado: ejecutar diariamente a las 06:00.
+
+---
+
+## 05_finanzas / OH Presupuesto ventas.py
+
+### v13 — Feriados desde modelo + offset policy en codigo
+
+Recalc presupuesto de ayer + futuro hasta 31-12-2026.
+
+Cambios vs v12.4:
+
+- La fecha base del feriado YA NO esta hardcodeada en `HOLIDAY_SPECS`.
+- Se lee desde `x_holiday_occurrence` + `x_holiday_master`.
+- Se mantiene en codigo solo la politica de offsets P/H por codigo.
+- Se mantiene logica especial de Ano Nuevo cross-year.
+
+SAFE_EVAL friendly: sin imports, sin `global`, sin `getattr`.
+
+Parametros operativos:
+
+- `ALPHA_BLEND = 0.25` (blend con ventana larga).
+- `MIN_BASE_IN_WINDOW = 30,000,000` (umbral minimo para considerar base valida).
+- `ROLL_WINDOW_DAYS = 45` (ventana rolling corto plazo).
+- `LONG_WINDOW_DAYS = 365` (ventana larga referencia anual).
+- `WEEKS_FOR_WD_AVG = 4` (semanas para promedio working-day).
+- `FILTERED_TEAM_IDS = [18, 16, 12, 10, 9, 8, 7, 6, 5, 17, 13, 11]`.
