@@ -51,6 +51,9 @@ env/
 /.cache/
 /_tmp/
 
+# --- Precios competencia (caches + reportes generados) ---
+/04_analitica/salida_precios_competencia/
+
 # --- IDE / editor ---
 .vscode/
 .idea/
