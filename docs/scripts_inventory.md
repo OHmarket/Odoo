@@ -45,7 +45,7 @@ demanda) por equipo/sucursal. Calcula GMROI (snapshot), ADI (Average Demand Inte
 | `x_studio_ciclo_de_vida` | char | ramp_up / mature / declining / dead |
 
 **Notas:** SAFE_EVAL. El regimen es descriptivo: **NO** interviene en el cálculo del forecast
-(per `02_forecast/HM_SI_v4_proceso.md`).
+(per `docs/forecast/HM_SI_v4_proceso.md`).
 
 ---
 
@@ -171,7 +171,7 @@ heurístico vs SBA vs Croston vs seasonal_naive evaluados con MAE en holdout de 
 | Z3 | seasonal lifecycle, BY/BZ/AZ erratic/lumpy | secondary_model |
 | Z4 | no_signal, CX/CY/CZ, declining/dead, mu<2.0 | no_forecast |
 
-**Notas:** SAFE_EVAL. Ver `02_forecast/HM_SI_v4_proceso.md` para decisiones de diseño y
+**Notas:** SAFE_EVAL. Ver `docs/forecast/HM_SI_v4_proceso.md` para decisiones de diseño y
 linaje de versiones (v3.24 → v3.39).
 
 ---

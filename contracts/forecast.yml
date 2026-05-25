@@ -151,7 +151,7 @@ critical_fields:
     values: [Z1, Z2, Z3, Z4]
     description: >
       Router de tratamiento: Z1=core, Z2=controlled, Z3=secondary, Z4=no_forecast.
-      Ver HM_SI_v4_proceso.md para definición de cada zona.
+      Ver docs/forecast/HM_SI_v4_proceso.md para definición de cada zona.
   x_studio_demand_method:
     type: char
     values: [heuristic, sba, croston, seasonal_naive]

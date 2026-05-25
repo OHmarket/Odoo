@@ -62,4 +62,4 @@ Camino productivo del día: v3.35 → **v3.36** → **v3.37** → **v3.39**.
 
 - Plan completo de la sesión: `C:\Users\sanhu\.claude\plans\es-clave-detectar-estos-joyful-shore.md`
 - Header del runner con changelog completo: `5- HM SI Forecast.py:1-220`
-- Roadmap original: `HM_SI_v4_proceso.md:395-454`
+- Roadmap original: `docs/forecast/HM_SI_v4_proceso.md:395-454`

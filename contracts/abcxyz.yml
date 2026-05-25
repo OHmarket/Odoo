@@ -39,7 +39,7 @@ critical_fields:
     values: [REG-0, REG-1, REG-2, REG-3, REG-4, REG-5, REG-6, REG-7, REG-8]
     description: >
       Régimen canónico de 9 segmentos derivado de ABCXYZ × series_type.
-      DESCRIPTIVO: NO interviene en el cálculo del forecast (per HM_SI_v4_proceso.md).
+      DESCRIPTIVO: NO interviene en el cálculo del forecast (per docs/forecast/HM_SI_v4_proceso.md).
       Se persiste en x_hm_si_forecast para análisis de WAPE por segmento.
   x_studio_series_type:
     type: char
