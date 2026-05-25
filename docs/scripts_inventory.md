@@ -225,7 +225,7 @@ compra sea caja). Calcula GMROI rolling, severidad de quiebre y días de cobertu
 | `x_studio_abcxyz` | Clasificación heredada |
 | `x_studio_snapshot_date` | Fecha del cálculo |
 
-**Notas:** SAFE_EVAL. Ver `03_stock/Analisis_de_Stock_proceso.md` para deficiencia conocida:
+**Notas:** SAFE_EVAL. Ver `docs/stock/Analisis_de_Stock_proceso.md` para deficiencia conocida:
 stock en tránsito no se refleja (propuesta: campo `x_studio_stock_en_transito`).
 
 ---

@@ -38,7 +38,7 @@ critical_fields:
     description: >
       Stock físico actual por ubicación interna del equipo (stock.quant).
       ADVERTENCIA: no incluye stock en tránsito (transferencias internas en progreso).
-      Ver Analisis_de_Stock_proceso.md para propuesta de campo x_studio_stock_en_transito.
+      Ver docs/stock/Analisis_de_Stock_proceso.md para propuesta de campo x_studio_stock_en_transito.
   x_studio_qty_a_pedir:
     type: float
     description: Cantidad a pedir expresada en cajas (UoM compra). 0 si no hay necesidad.
