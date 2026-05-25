@@ -101,9 +101,19 @@ Capas paralelas (no bloquean el pipeline):
 - `04_analitica/` (Team, Categoria, SKU, Margen)
 - `05_finanzas/OH Flujo de Caja.py` (proyeccion 90 dias)
 
-Laboratorio:
+Laboratorio (solo backtests):
 - `02_forecast/analisis backtest/` — ~60 experimentos HM-SI. El espejo
   productivo del motor esta en `2026-05-20/HM_SI_v3_39_productivo.py`.
+  Esta carpeta es exclusiva para backtests; los proyectos en diseno NO
+  viven aqui.
+
+Proyectos en diseno:
+- `proyectos/<YYYY-MM-DD>-<slug>/` — un proyecto = una carpeta. Contiene
+  todos los artefactos del cambio: `diseno.md` (que/por que), `plan.md`
+  (tareas y validacion), y los scripts en desarrollo (incluidos los DIAG
+  read-only de Fase 1). Cuando el proyecto se promueve a productivo, el
+  script productivo se mueve al dominio correspondiente (`02_forecast/`,
+  `03_stock/`, etc.) y la carpeta del proyecto queda como historial.
 
 Legacy:
 - `_legacy/OH Forecast Semanal.py` (reemplazado por HM-SI Forecast el 2026-05-13).
