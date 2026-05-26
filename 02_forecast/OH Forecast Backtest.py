@@ -35,7 +35,10 @@ HM_SI_MODEL_DEFAULT = 'x_hm_si_forecast'
 OLD_MODEL_DEFAULT = 'x_forecast_weekly_data'
 
 HM_SI_ACTION_ID_DEFAULT = 1553
-OLD_FORECAST_ACTION_ID_DEFAULT = 1527
+# OLD legacy (OH Forecast Semanal) eliminado el 2026-05-25: SA 1527 no existe
+# y x_forecast_weekly_data tiene data residual sin refresh. Desactivado para
+# evitar contaminacion en el backtest comparativo.
+OLD_FORECAST_ACTION_ID_DEFAULT = 0
 LOAD_EXISTING_OLD_WHEN_NO_ACTION_DEFAULT = False   # no cargar OLD existente
 CREATE_HYBRID_ROWS_DEFAULT = False          # no crear filas hybrid
 HYBRID_METHOD_CODE = 'hybrid_z12_hm_z34_old'
@@ -48,7 +51,7 @@ ZONES_ORDER = ['Z1', 'Z2', 'Z3', 'Z4']
 # La purga borra todas las semanas del rango antes de insertar — idempotente.
 TARGET_WEEK_STARTS_DEFAULT = []   # vacío = auto-detect desde WEEK_OFFSET
 WEEK_OFFSET_DEFAULT = 0           # 0 = semana más reciente
-BACKTEST_WEEKS_DEFAULT = 1        # 4 semanas por ejecución
+BACKTEST_WEEKS_DEFAULT = 4        # 4 semanas por ejecución
 
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 BATCH_SIZE = 800
@@ -501,6 +504,11 @@ HM_SI_MODEL = str(CTX.get('hm_si_model', HM_SI_MODEL_DEFAULT) or HM_SI_MODEL_DEF
 OLD_MODEL = str(CTX.get('old_model', OLD_MODEL_DEFAULT) or OLD_MODEL_DEFAULT)
 
 HM_SI_ACTION_ID = _safe_int(CTX.get('hm_si_action_id', HM_SI_ACTION_ID_DEFAULT), HM_SI_ACTION_ID_DEFAULT)
+
+# Propaga el flag de normalizacion de demanda al HM-SI Action invocado.
+# Default TRUE durante el backtest comparativo (no productivo). Para desactivar
+# temporalmente, pasar context use_demand_normalization=False.
+USE_DEMAND_NORMALIZATION = bool(CTX.get('use_demand_normalization', True))
 OLD_FORECAST_ACTION_ID = _safe_int(CTX.get('old_forecast_action_id', OLD_FORECAST_ACTION_ID_DEFAULT), OLD_FORECAST_ACTION_ID_DEFAULT)
 LOAD_EXISTING_OLD_WHEN_NO_ACTION = bool(CTX.get('load_existing_old_when_no_action', LOAD_EXISTING_OLD_WHEN_NO_ACTION_DEFAULT))
 CREATE_HYBRID_ROWS = bool(CTX.get('create_hybrid_rows', CREATE_HYBRID_ROWS_DEFAULT))
@@ -937,6 +945,7 @@ else:
                     'date_to': str(cutoff_date),
                     'hard_reset': True,
                     'team_ids': TEAM_IDS,
+                    'use_demand_normalization': USE_DEMAND_NORMALIZATION,
                 })
                 act.with_context(ctx2).run()
                 return True

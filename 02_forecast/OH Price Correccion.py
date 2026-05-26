@@ -36,7 +36,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = "PRICE_CORRECCION_v5_8"
+VERSION_ID = "PRICE_CORRECCION_v5_9"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009612
@@ -68,6 +68,15 @@ PESO_ABC = {'A': 1.0, 'B': 0.2, 'C': 0.03}
 # C: cola con clientes cautivos -> menos elastico, corregir menos.
 ELASTICIDAD_ABC = {'A': 1.30, 'B': 1.00, 'C': 0.70}
 
+# v5.9: PROMO_PAREO_MODERADO (min_qty<=2 con lift 1.5-2.5).
+# baseline_min protege contra ruido (SKUs con baseline=1 y lift=33x son
+# anomalias estadisticas, no promos significativas). Calibrado vs distribucion
+# de baseline_8w en eventos cerveza/alcohol min_qty<=2:
+#   p10=1.2 p25=3.5 p50=10.5 p75=29.2 -> min=5 conserva ~75% sin ruido.
+# Cobertura esperada: ~138 nuevos eventos /6 meses sobre cerveza/alcohol.
+BASELINE_MIN_PROMO_PAREO_DEFAULT = 5
+LIFT_PROMO_PAREO_MODERADO_DEFAULT = 1.5
+
 
 def _aplicar_elasticidad_abc(factor, abc_letter):
     """Amplifica/reduce la 'distancia desde 1.0' del factor segun el
@@ -98,7 +107,8 @@ def _tipo_studio(tipo_interno, var_pct):
     if t.startswith('SATURACION_STOCKUP_W') or t.startswith('SATURACION_6X_W'):
         return 'PROMO_SATURACION'
     if t in ('DISPARO_12X_W1', 'DISPARO_STOCKUP_W1', 'DISPARO_MIXTO_W1',
-             'PROMO_PAREO_LIFT_EXTREMO', 'SUBIDA_FUERTE_CON_PROMO_W1'):
+             'PROMO_PAREO_LIFT_EXTREMO', 'PROMO_PAREO_MODERADO',
+             'SUBIDA_FUERTE_CON_PROMO_W1'):
         return 'PROMO_DISPARO'
     if t == 'SUBIDA_CANIBAL_FUERTE':
         return 'SUBIDA_FUERTE_CANIBAL'
@@ -289,6 +299,8 @@ CORR_MODEL = str(CTX.get('correccion_model', CORR_MODEL_DEFAULT) or CORR_MODEL_D
 HARD_RESET = bool(CTX.get('hard_reset', HARD_RESET_DEFAULT))
 LOOKBACK_PRICE_WEEKS = int(CTX.get('lookback_price_weeks', LOOKBACK_PRICE_WEEKS_DEFAULT))
 LOOKBACK_PROMO_WEEKS = int(CTX.get('lookback_promo_weeks', LOOKBACK_PROMO_WEEKS_DEFAULT))
+BASELINE_MIN_PROMO_PAREO = int(CTX.get('baseline_min_promo_pareo', BASELINE_MIN_PROMO_PAREO_DEFAULT))
+LIFT_PROMO_PAREO_MODERADO = float(CTX.get('lift_promo_pareo_moderado', LIFT_PROMO_PAREO_MODERADO_DEFAULT))
 
 company = env.company
 
@@ -475,6 +487,8 @@ else:
                 pr_program_f = _first_field(Pr, ['x_studio_program_name'])
                 pr_categ_f = _first_field(Pr, ['x_studio_categ_id', 'x_studio_categoria'])
                 pr_minqty_f = _first_field(Pr, ['x_studio_minimum_qty', 'minimum_qty'])
+                # v5.9: baseline_8w para guard rail anti-ruido en rama PROMO_PAREO_MODERADO.
+                pr_baseline_f = _first_field(Pr, ['x_studio_qty_baseline_8w', 'qty_baseline_8w'])
 
                 if pr_pf and pr_period_f:
                     domain = [(pr_period_f, '>=', promo_lookback_start),
@@ -483,7 +497,15 @@ else:
                     if pr_lift_f: rfields.append(pr_lift_f)
                     if pr_program_f: rfields.append(pr_program_f)
                     if pr_minqty_f: rfields.append(pr_minqty_f)
-                    rows = Pr.search(domain, order='%s desc' % pr_period_f).read(rfields)
+                    if pr_baseline_f: rfields.append(pr_baseline_f)
+                    # v5.9: ordenar por lift_qty DESC (no period_start DESC) para
+                    # quedarnos con el evento de MAYOR lift en lookback. Casos como
+                    # CUSQUENA tienen promo activa con lift 1.98 una semana y 0.94 la
+                    # siguiente (saturacion); el detector debe alertar segun el peak,
+                    # no la cola. En empates de lift, period_start DESC desempata
+                    # con el evento mas reciente.
+                    order_clause = '%s desc, %s desc' % (pr_lift_f, pr_period_f) if pr_lift_f else '%s desc' % pr_period_f
+                    rows = Pr.search(domain, order=order_clause).read(rfields)
                     for r in rows:
                         pv = r.get(pr_pf)
                         pid = pv[0] if isinstance(pv, (list, tuple)) else _safe_int(pv)
@@ -507,6 +529,7 @@ else:
                             weeks_active = max(1, ((target_week_start - period).days // 7) + 1)
                         except Exception:
                             weeks_active = 1
+                        baseline_8w = _safe_float(r.get(pr_baseline_f, 0.0), 0.0) if pr_baseline_f else 0.0
                         promos_by_sku[pid] = {
                             'period_start': period,
                             'lift_qty': lift,
@@ -514,6 +537,7 @@ else:
                             'mecanica': mecanica,
                             'min_qty': min_qty,
                             'weeks_active': weeks_active,
+                            'baseline_8w': baseline_8w,
                         }
                         sub_cat = sku_to_subcat.get(pid, '')
                         if sub_cat:
@@ -560,12 +584,18 @@ else:
                 cambio = price_changes_by_sku.get(pid)
                 promo = promos_by_sku.get(pid)
 
-                # ============ CASO: subida + promo propia → NO ALERTAR ============
+                # ============ CASO: subida + promo propia ============
+                # v5.8: solo emitia SUBIDA_FUERTE_CON_PROMO_W1 (var>=20%, wa=1, lift>=1.5).
+                # v5.9: fallback a PROMO_PAREO_MODERADO si min_qty<=2 con lift>=1.5
+                # y baseline>=5 (CUSQUENA, MAD CHARLIES y otras 2X DESCUENTO de cerveza
+                # tienen subida de precio nominal + promo, antes quedaban sin alerta).
                 if cambio and promo and cambio['direccion'] in ('Sube', 'sube', 'SUBE'):
                     var_pct = cambio['var_pct']
                     lift = promo['lift_qty']
                     wa = promo['weeks_active']
-                    # Excepcion estrecha
+                    min_qty = promo.get('min_qty', 0)
+                    mec = promo['mecanica']
+                    baseline_8w = _safe_float(promo.get('baseline_8w'), 0.0)
                     if var_pct >= 0.20 and wa == 1 and lift >= 1.5:
                         factor = min(1.8, 1.0 + (lift - 1.0) * 0.6)
                         alertas.append({
@@ -573,10 +603,24 @@ else:
                             'event_date': promo.get('period_start') or cambio['fecha'],
                             'tipo': 'SUBIDA_FUERTE_CON_PROMO_W1',
                             'factor_corr': round(factor, 3),
-                            'razon': 'Sube %+.0f%% + %s W1 lift %.2f' % (var_pct*100, promo['mecanica'], lift),
+                            'razon': 'Sube %+.0f%% + %s W1 lift %.2f' % (var_pct*100, mec, lift),
                             'source': 'mixto', 'indice_canibal': 0.0,
                             'var_pct': var_pct, 'lift_qty': lift,
                             'weeks_since_change': 0,
+                        })
+                    elif min_qty <= 2 and lift >= LIFT_PROMO_PAREO_MODERADO and baseline_8w >= BASELINE_MIN_PROMO_PAREO:
+                        # v5.9 fallback: promo de pareo con subida moderada de precio.
+                        # Domina el efecto promo: factor < 1 reduce forecast post-promo.
+                        factor = min(1.7, 1.0 + (lift - 1.0) * 0.6)
+                        alertas.append({
+                            'product_id': pid, 'sub_cat': sub_cat, 'abcxyz': abcxyz,
+                            'event_date': promo.get('period_start') or cambio['fecha'],
+                            'tipo': 'PROMO_PAREO_MODERADO',
+                            'factor_corr': round(factor, 3),
+                            'razon': '%s (min_qty=%d) lift %.2f bl=%.0f (+ sube %+.0f%%)' % (mec, min_qty, lift, baseline_8w, var_pct*100),
+                            'source': 'mixto', 'indice_canibal': 0.0,
+                            'var_pct': var_pct, 'lift_qty': lift,
+                            'weeks_since_change': wa,
                         })
                     continue
 
@@ -607,8 +651,14 @@ else:
 
                     promo_evt_date = promo.get('period_start')
 
-                    # PROMO DE PAREO (min_qty <= 2): solo extremos
+                    # PROMO DE PAREO (min_qty <= 2):
+                    #   - lift >= 2.5: extremo (v5.8 existente, sin cambio).
+                    #   - lift 1.5-2.5 con baseline >= BASELINE_MIN_PROMO_PAREO:
+                    #     moderado (v5.9 NUEVO). El baseline_min evita ruido de
+                    #     SKUs con muy poca venta donde lift es anomalia.
+                    #   - resto: descartar (ruido).
                     if min_qty <= 2:
+                        baseline_8w = _safe_float(promo.get('baseline_8w'), 0.0)
                         if lift >= 2.5:
                             factor = min(2.0, lift * 0.7)
                             alertas.append({
@@ -621,7 +671,21 @@ else:
                                 'var_pct': 0.0, 'lift_qty': lift,
                                 'weeks_since_change': wa,
                             })
-                        # else: no alertar pareo neutro
+                        elif lift >= LIFT_PROMO_PAREO_MODERADO and baseline_8w >= BASELINE_MIN_PROMO_PAREO:
+                            # v5.9: factor moderado, lift escala suave.
+                            # lift=1.5 -> factor=1.30; lift=2.0 -> factor=1.60; lift=2.5 -> factor=1.90 (cap=1.7).
+                            factor = min(1.7, 1.0 + (lift - 1.0) * 0.6)
+                            alertas.append({
+                                'product_id': pid, 'sub_cat': sub_cat, 'abcxyz': abcxyz,
+                                'event_date': promo_evt_date,
+                                'tipo': 'PROMO_PAREO_MODERADO',
+                                'factor_corr': round(factor, 3),
+                                'razon': '%s (min_qty=%d) lift moderado %.2f (baseline=%.0f)' % (mec, min_qty, lift, baseline_8w),
+                                'source': 'promo', 'indice_canibal': 0.0,
+                                'var_pct': 0.0, 'lift_qty': lift,
+                                'weeks_since_change': wa,
+                            })
+                        # else: no alertar (lift < 1.5 o baseline < min = ruido)
                         continue
 
                     # PROMO STOCK-UP (min_qty >= 6): mecanica clasica

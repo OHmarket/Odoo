@@ -56,6 +56,14 @@ DEMAND_HISTORY_MONTHS_DEFAULT = 24
 DEMAND_WINDOW_WEEKS_DEFAULT   = 26
 BATCH_SIZE = 500
 
+# Normalizacion de demanda (proyecto 2026-05-25-normalizacion-demanda).
+# Overlay x_demanda_normalizada(team, sku, week_start) = {qty_obs, qty_norm}
+# corrige censura de quiebre. Default TRUE durante el backtest comparativo
+# (no productivo). Una vez validado, queda como default permanente. Para
+# desactivar temporalmente, pasar context use_demand_normalization=False.
+USE_DEMAND_NORMALIZATION_DEFAULT = True
+DEMAND_NORMALIZATION_MODEL       = 'x_demanda_normalizada'
+
 
 # ----------------------
 # Parametros HM-SI
@@ -1199,6 +1207,8 @@ if not TEAM_IDS:
 DEMAND_HISTORY_MONTHS = int(CTX.get('demand_history_months', DEMAND_HISTORY_MONTHS_DEFAULT))
 DEMAND_WINDOW_WEEKS = int(CTX.get('demand_window_weeks', DEMAND_WINDOW_WEEKS_DEFAULT))
 
+USE_DEMAND_NORMALIZATION = bool(CTX.get('use_demand_normalization', USE_DEMAND_NORMALIZATION_DEFAULT))
+
 SI_ENABLED = bool(CTX.get('si_enabled', SI_ENABLED_DEFAULT))
 SI_HISTORY_MONTHS = int(CTX.get('si_history_months', SI_HISTORY_MONTHS_DEFAULT))
 SI_TARGET_WEEKS = int(CTX.get('si_target_weeks', SI_TARGET_WEEKS_DEFAULT))
@@ -1691,10 +1701,29 @@ else:
 
                 local_pairs = sorted(data.keys())
 
+                # Overlay de normalizacion de demanda (proyecto 2026-05-25).
+                # Si flag activo, carga x_demanda_normalizada por (team, sku, week)
+                # para reemplazar q_raw en el loop principal. Dict vacio = sin efecto.
+                demand_norm_overlay = {}
+                if USE_DEMAND_NORMALIZATION and demand_weeks_list:
+                    env.cr.execute("""
+                        SELECT x_studio_team_id, x_studio_product_id,
+                               x_studio_week_start, x_studio_qty_norm
+                        FROM x_demanda_normalizada
+                        WHERE x_studio_team_id = ANY(%s)
+                          AND x_studio_week_start >= %s
+                          AND x_studio_week_start <= %s
+                    """, (list(TEAM_IDS), demand_weeks_list[0], demand_weeks_list[-1]))
+                    for _tid, _pid, _wk, _qn in env.cr.fetchall():
+                        if _tid is None or _pid is None or _wk is None:
+                            continue
+                        demand_norm_overlay[(int(_tid), int(_pid), _wk)] = float(_qn or 0.0)
+
                 batch = []
                 total_created = 0
                 si_level_counts = {'local_categ': 0, 'categ_global': 0, 'global': 0}
                 method_counts = {}
+                norm_overlay_hits = 0
 
                 fwd_create = FWD.with_context(
                     tracking_disable=True,
@@ -1771,6 +1800,12 @@ else:
                         q_raw = _safe_float((row and row[1]) or 0.0, 0.0)
                         if q_raw < 0.0:
                             q_raw = 0.0
+                        # Overlay: reemplazar q_raw por qty_norm si la celda
+                        # esta en x_demanda_normalizada (semana con quiebre).
+                        _norm_q = demand_norm_overlay.get((team_id, product_id, wk))
+                        if _norm_q is not None:
+                            q_raw = _norm_q
+                            norm_overlay_hits += 1
                         r_raw = _safe_float((row and row[0]) or 0.0, 0.0)
 
                         _si_main, _ = si_base_cache.get((team_id, categ_id, iso_w), (1.0, 'global'))
@@ -2269,6 +2304,7 @@ else:
                         'message': (
                             'created=%s | sku_local=%s | zones=%s'
                             ' | xyz_local: X=%s Y=%s Z=%s global=%s%s'
+                            ' | norm_overlay=%s (hits=%s)'
                         ) % (
                             total_created,
                             len(local_pairs),
@@ -2278,6 +2314,8 @@ else:
                             xyz_local_counts['Z'],
                             xyz_local_counts['global'],
                             _xyz_missing_msg,
+                            'ON' if USE_DEMAND_NORMALIZATION else 'OFF',
+                            norm_overlay_hits,
                         ),
                         'sticky': True,
                         'type': _notif_type,
