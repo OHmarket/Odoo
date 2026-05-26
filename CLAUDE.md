@@ -64,6 +64,12 @@ Despues de promover, volver a validar antes del siguiente cambio.
 - **Validar campos y unidades antes de codear:** confirmar nombres tecnicos,
   tipo de campo, unidad, signo, granularidad y dimension. No tapar dudas con
   `getattr(..., 0)` si el campo es critico.
+- **Modelos Studio personalizados: x_name es required.** Studio crea siempre el
+  campo `x_name` (Descripcion) como NOT NULL en todo modelo `x_*`. Al hacer
+  `create()` desde Server Action hay que setearlo explicitamente; sino, falla
+  con `NotNullViolation` en el primer batch. Convencion: usar las claves
+  logicas del registro como display name. Ej: `'x_name': '%s:%s:%s' %
+  (team_id, product_id, week_start)`.
 - **Una version, un cambio:** no mezclar formula, fuente de datos, nombres y
   features en una misma version.
 - **Preguntar o diagnosticar lo incierto:** no asumir modelos Studio, relaciones,

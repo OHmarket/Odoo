@@ -39,7 +39,7 @@ BATCH_SIZE = 1000
 
 # Parametros default (overridable via context)
 TAIL_WINDOW_DAYS_DEFAULT  = 7                 # cola de re-calculo en modo incremental
-BACKFILL_FLOOR_DEFAULT    = (2026, 1, 1)      # piso historico, no retrocede mas atras
+BACKFILL_FLOOR_DEFAULT    = (2025, 1, 1)      # piso historico, no retrocede mas atras
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 
 # Toggle: borrado total de x_stock_balance_daily al inicio de cada corrida.
