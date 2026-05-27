@@ -1,7 +1,7 @@
 # HM SI Forecast - Motor de demanda semanal con estacionalidad por nivel
 # ============================================================
 #
-# Version activa: v3.42 (ver CHANGELOG.md para historial completo)
+# Version activa: v3.43 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Calcular mu_week y sigma_week por (sala, SKU) usando heuristica de
@@ -34,11 +34,16 @@
 #     02_forecast/OH Price Correccion.py). Se aplica DESPUES de caps P1/P3/P6.
 #     Validacion empirica si factor<0.90 y >=3 sem post-cambio.
 #   - Redondeo mu_week final medio-arriba (>=0.5 sube). sigma_week continuo.
+#   - Trend correction (v3.43): factor multiplicativo por team basado en
+#     weekly YoY asimetrico de las ultimas TREND_WINDOW_WEEKS=8 sem.
+#     Clamp [0.70, 1.00] - solo recorta cuando hay deterioro, NO amplifica
+#     teams en alza. Se aplica DESPUES de correccion_factor, ANTES de
+#     redondeo. mu_week_pre_bias persiste el valor pre-trend.
 #
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = "FWD_v3_42_CANON"
+VERSION_ID = "FWD_v3_43_TREND_CORRECTION"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438
@@ -94,6 +99,17 @@ SERVICE_DOWN_W_LONG_DEFAULT      = 0.30
 SERVICE_CORR_VALIDATION_MIN_WEEKS_DEFAULT  = 3
 SERVICE_CORR_VALIDATION_BASELINE_DEFAULT   = 8
 SERVICE_CORR_VALIDATION_THRESHOLD_DEFAULT  = 0.15
+
+# v3.43: trend correction multiplicativo por team (weekly YoY asimetrico)
+# Captura el deterioro estructural YoY de cada local sin doble-contar el
+# nivel ya estimado por SMA en el motor. Asimetrico (cap_high=1.00) por
+# diseno: NO amplifica teams en alza (que ya estan over-forecast por otras
+# razones - SI suave en bebidas/verano). Solo recorta cuando hay deterioro.
+APPLY_TREND_CORRECTION_DEFAULT = True
+TREND_LOOKBACK_WEEKS_DEFAULT   = 60      # ventana historica para pull POS (>= 52 + window)
+TREND_WINDOW_WEEKS_DEFAULT     = 8       # ventana reciente para promediar YoY
+TREND_CLAMP_LOW_DEFAULT        = 0.70
+TREND_CLAMP_HIGH_DEFAULT       = 1.00    # asimetrico: cap a 1.0 (no amplifica)
 
 
 # ----------------------
@@ -1230,6 +1246,13 @@ SERVICE_CORR_VALIDATION_MIN_WEEKS = int(CTX.get('service_corr_validation_min_wee
 SERVICE_CORR_VALIDATION_BASELINE = int(CTX.get('service_corr_validation_baseline', SERVICE_CORR_VALIDATION_BASELINE_DEFAULT))
 SERVICE_CORR_VALIDATION_THRESHOLD = float(CTX.get('service_corr_validation_threshold', SERVICE_CORR_VALIDATION_THRESHOLD_DEFAULT))
 
+# v3.43: trend correction
+APPLY_TREND_CORRECTION = bool(CTX.get('apply_trend_correction', APPLY_TREND_CORRECTION_DEFAULT))
+TREND_LOOKBACK_WEEKS   = int(CTX.get('trend_lookback_weeks', TREND_LOOKBACK_WEEKS_DEFAULT))
+TREND_WINDOW_WEEKS     = int(CTX.get('trend_window_weeks', TREND_WINDOW_WEEKS_DEFAULT))
+TREND_CLAMP_LOW        = float(CTX.get('trend_clamp_low', TREND_CLAMP_LOW_DEFAULT))
+TREND_CLAMP_HIGH       = float(CTX.get('trend_clamp_high', TREND_CLAMP_HIGH_DEFAULT))
+
 # v3.40: fair share
 FAIR_SHARE_ENABLED            = bool(CTX.get('fair_share_enabled', FAIR_SHARE_ENABLED_DEFAULT))
 FAIR_SHARE_MIN_SALAS_ACTIVAS  = int(CTX.get('fair_share_min_salas_activas', FAIR_SHARE_MIN_SALAS_ACTIVAS_DEFAULT))
@@ -1775,6 +1798,73 @@ else:
                             continue
                         si_base_cache[(_t, _c, _w)] = (float(si_global.get(_w, 1.0)), 'global')
 
+                # ============================================================
+                # v3.43 — Trend correction por team (weekly YoY asimetrico)
+                # ============================================================
+                # Calcula trend_factor_by_team[tid] ANTES del loop principal,
+                # 1 vez por corrida. Aplica en el loop a mu_week final.
+                trend_factor_by_team = {}
+                trend_factor_log = []  # para el msg final
+                if APPLY_TREND_CORRECTION and TEAM_IDS:
+                    trend_from = _week_start(date_to) - datetime.timedelta(weeks=TREND_LOOKBACK_WEEKS)
+                    trend_sql = """
+                        SELECT
+                            __TEAM_COL__ AS team_id,
+                            date_trunc('week',
+                                po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s
+                            )::date AS wk,
+                            SUM(COALESCE(pol.qty, 0.0)) AS qty
+                        FROM pos_order_line pol
+                        JOIN pos_order po ON po.id = pol.order_id
+                        LEFT JOIN pos_session ps ON ps.id = po.session_id
+                        LEFT JOIN pos_config pc ON pc.id = ps.config_id
+                        JOIN product_product pp ON pp.id = pol.product_id
+                        JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                        WHERE po.company_id = %(company_id)s
+                          AND po.state IN ('paid','done','invoiced')
+                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date >= %(trend_from)s
+                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date <= %(date_to)s
+                          AND pp.active = TRUE
+                          AND pt.sale_ok = TRUE
+                          AND pt.active = TRUE
+                          AND __TEAM_COL__ IS NOT NULL
+                          AND __TEAM_COL__ = ANY(%(team_ids)s)
+                        GROUP BY 1, 2
+                    """.replace('__TEAM_COL__', team_col_sql)
+                    env.cr.execute(trend_sql, {
+                        'tz': TZ_NAME,
+                        'company_id': company.id,
+                        'trend_from': trend_from,
+                        'date_to': date_to,
+                        'team_ids': list(TEAM_IDS),
+                    })
+                    weekly_team_units = {}
+                    for _tid, _wk, _qty in env.cr.fetchall():
+                        if _tid is None or _wk is None:
+                            continue
+                        weekly_team_units[(int(_tid), _wk)] = _safe_float(_qty, 0.0)
+
+                    # Cutoff = lunes de la semana del date_to (la semana del cutoff incluido)
+                    cutoff_week = _week_start(date_to)
+                    for _tid in TEAM_IDS:
+                        yoy_vals = []
+                        for _i in range(TREND_WINDOW_WEEKS):
+                            _wk = cutoff_week - datetime.timedelta(weeks=_i)
+                            _wk_ly = _wk - datetime.timedelta(weeks=52)
+                            _curr = weekly_team_units.get((int(_tid), _wk))
+                            _prev = weekly_team_units.get((int(_tid), _wk_ly))
+                            if _curr is not None and _prev and _prev > 0:
+                                yoy_vals.append(_curr / _prev - 1.0)
+                        if yoy_vals:
+                            _avg = sum(yoy_vals) / float(len(yoy_vals))
+                            _fac = _clamp(1.0 + _avg, TREND_CLAMP_LOW, TREND_CLAMP_HIGH)
+                        else:
+                            _avg = 0.0
+                            _fac = 1.0
+                        trend_factor_by_team[int(_tid)] = _fac
+                        trend_factor_log.append('t%s:f=%.3f(yoy=%+.1f%%,n=%d)' % (
+                            int(_tid), _fac, _avg * 100.0, len(yoy_vals)))
+
                 for team_id, product_id in local_pairs:
                     categ_id = product_to_categ.get(product_id)
                     if not product_id or product_id not in active_product_ids:
@@ -2183,6 +2273,23 @@ else:
                                 correccion_tipo_counts.get(correccion_tipo, 0) + 1
 
                     # ============================================================
+                    # v3.43 — Trend correction multiplicativo por team
+                    # Se aplica DESPUES de correccion_factor (precio) para que:
+                    #  - mu_week_pre_bias capture el valor pre-trend
+                    #  - el redondeo sea sobre el valor final corregido
+                    # Asimetrico por design (cap_high=1.00 default): solo recorta
+                    # cuando hay deterioro YoY, NO amplifica teams en alza.
+                    # ============================================================
+                    mu_week_pre_bias = mu_week
+                    trend_factor = 1.0
+                    if APPLY_TREND_CORRECTION:
+                        trend_factor = _safe_float(
+                            trend_factor_by_team.get(team_id, 1.0), 1.0)
+                        if trend_factor != 1.0 and mu_week > 0:
+                            mu_week = mu_week * trend_factor
+                            sigma_week = sigma_week * trend_factor
+
+                    # ============================================================
                     # v3.31 — Redondeo medio-arriba al entero del mu_week final.
                     # fraccion < 0.5 -> entero abajo; fraccion >= 0.5 -> entero arriba.
                     # 0.3 -> 0; 0.5 -> 1; 1.3 -> 1; 1.5 -> 2; 1.7 -> 2.
@@ -2203,7 +2310,7 @@ else:
                     _put_field(vals, fwd_fields, 'x_studio_categ_id', categ_id)
                     _put_field(vals, fwd_fields, 'x_studio_week_start', target_date)
                     _put_field(vals, fwd_fields, 'x_studio_mu_week', mu_week)
-                    _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_bias', mu_week)
+                    _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_bias', mu_week_pre_bias)
                     _put_field(vals, fwd_fields, 'x_studio_sigma_week', sigma_week)
                     _put_field(vals, fwd_fields, 'x_studio_mu_base', mu_base)
                     _put_field(vals, fwd_fields, 'x_studio_sigma_base', sigma_base)
@@ -2305,6 +2412,7 @@ else:
                             'created=%s | sku_local=%s | zones=%s'
                             ' | xyz_local: X=%s Y=%s Z=%s global=%s%s'
                             ' | norm_overlay=%s (hits=%s)'
+                            ' | trend=%s [%s]'
                         ) % (
                             total_created,
                             len(local_pairs),
@@ -2316,6 +2424,8 @@ else:
                             _xyz_missing_msg,
                             'ON' if USE_DEMAND_NORMALIZATION else 'OFF',
                             norm_overlay_hits,
+                            'ON' if APPLY_TREND_CORRECTION else 'OFF',
+                            ' '.join(trend_factor_log) if APPLY_TREND_CORRECTION else '',
                         ),
                         'sticky': True,
                         'type': _notif_type,
