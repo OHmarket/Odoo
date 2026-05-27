@@ -32,16 +32,12 @@ LOCK_KEY = 99009490
 # ------------------------------------------------------------
 BACKTEST_MODEL_DEFAULT = 'x_forecast_backtest'
 HM_SI_MODEL_DEFAULT = 'x_hm_si_forecast'
-OLD_MODEL_DEFAULT = 'x_forecast_weekly_data'
 
 HM_SI_ACTION_ID_DEFAULT = 1553
-# OLD legacy (OH Forecast Semanal) eliminado el 2026-05-25: SA 1527 no existe
-# y x_forecast_weekly_data tiene data residual sin refresh. Desactivado para
-# evitar contaminacion en el backtest comparativo.
-OLD_FORECAST_ACTION_ID_DEFAULT = 0
-LOAD_EXISTING_OLD_WHEN_NO_ACTION_DEFAULT = False   # no cargar OLD existente
-CREATE_HYBRID_ROWS_DEFAULT = False          # no crear filas hybrid
-HYBRID_METHOD_CODE = 'hybrid_z12_hm_z34_old'
+# OLD legacy (x_forecast_weekly_data + OH Forecast Semanal SA 1527) eliminado
+# del backtest el 2026-05-27. La data residual y el SA inexistente generaban
+# contaminacion. Toda la clasificacion (series_type, lifecycle, etc.) ahora
+# se lee desde x_hm_si_forecast directamente.
 ZONE_MISSING = 'SIN_ZONA'
 ZONES_ORDER = ['Z1', 'Z2', 'Z3', 'Z4']
 
@@ -51,7 +47,7 @@ ZONES_ORDER = ['Z1', 'Z2', 'Z3', 'Z4']
 # La purga borra todas las semanas del rango antes de insertar — idempotente.
 TARGET_WEEK_STARTS_DEFAULT = []   # vacío = auto-detect desde WEEK_OFFSET
 WEEK_OFFSET_DEFAULT = 0           # 0 = semana más reciente
-BACKTEST_WEEKS_DEFAULT = 4        # 4 semanas por ejecución
+BACKTEST_WEEKS_DEFAULT = 3        # 3 semanas por ejecución
 
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 BATCH_SIZE = 800
@@ -240,7 +236,6 @@ def _put_selection_safe(vals, model_obj, fname, code):
         'Z3': ['z3'],
         'Z4': ['z4'],
         'SIN_ZONA': ['sin_zona', 'no_zone'],
-        'hybrid_z12_hm_z34_old': ['hybrid', 'hibrido', 'mixto'],
     }
     for alt in alt_map.get(str(code), []):
         if alt in keys:
@@ -259,10 +254,6 @@ def _selection_accepts(model_obj, fname, code):
     keys = _selection_keys(model_obj, fname)
     if not keys or str(code) in keys:
         return True
-    if str(code) == HYBRID_METHOD_CODE:
-        for alt in ['hybrid', 'hibrido', 'mixto']:
-            if alt in keys:
-                return True
     return False
 
 
@@ -335,8 +326,6 @@ def _format_zone_metrics(metrics):
     parts = []
     method_labels = [
         ('hm_si', 'HM'),
-        ('old', 'OLD'),
-        (HYBRID_METHOD_CODE, 'HYB'),
     ]
     for z in ZONES_ORDER:
         z_parts = []
@@ -501,7 +490,6 @@ CTX = env.context or {}
 
 BACKTEST_MODEL = str(CTX.get('backtest_model', BACKTEST_MODEL_DEFAULT) or BACKTEST_MODEL_DEFAULT)
 HM_SI_MODEL = str(CTX.get('hm_si_model', HM_SI_MODEL_DEFAULT) or HM_SI_MODEL_DEFAULT)
-OLD_MODEL = str(CTX.get('old_model', OLD_MODEL_DEFAULT) or OLD_MODEL_DEFAULT)
 
 HM_SI_ACTION_ID = _safe_int(CTX.get('hm_si_action_id', HM_SI_ACTION_ID_DEFAULT), HM_SI_ACTION_ID_DEFAULT)
 
@@ -509,9 +497,6 @@ HM_SI_ACTION_ID = _safe_int(CTX.get('hm_si_action_id', HM_SI_ACTION_ID_DEFAULT),
 # Default TRUE durante el backtest comparativo (no productivo). Para desactivar
 # temporalmente, pasar context use_demand_normalization=False.
 USE_DEMAND_NORMALIZATION = bool(CTX.get('use_demand_normalization', True))
-OLD_FORECAST_ACTION_ID = _safe_int(CTX.get('old_forecast_action_id', OLD_FORECAST_ACTION_ID_DEFAULT), OLD_FORECAST_ACTION_ID_DEFAULT)
-LOAD_EXISTING_OLD_WHEN_NO_ACTION = bool(CTX.get('load_existing_old_when_no_action', LOAD_EXISTING_OLD_WHEN_NO_ACTION_DEFAULT))
-CREATE_HYBRID_ROWS = bool(CTX.get('create_hybrid_rows', CREATE_HYBRID_ROWS_DEFAULT))
 BACKTEST_WEEKS = _safe_int(CTX.get('backtest_weeks', BACKTEST_WEEKS_DEFAULT), BACKTEST_WEEKS_DEFAULT)
 WEEK_OFFSET = _safe_int(CTX.get('week_offset', WEEK_OFFSET_DEFAULT), WEEK_OFFSET_DEFAULT)
 
@@ -523,7 +508,6 @@ company = env.company
 
 Backtest = env[BACKTEST_MODEL].sudo()
 HmModel = env[HM_SI_MODEL].sudo()
-OldModel = env[OLD_MODEL].sudo()
 
 
 # ------------------------------------------------------------
@@ -598,25 +582,6 @@ HM_ZONE = _first_existing_field(HmModel, ['x_studio_forecast_zone', 'x_studio_z_
 # v4.3 motor canonico: regimen y model_code escritos por HM-SI v4.3-revert+.
 HM_REGIMEN = _first_existing_field(HmModel, ['x_studio_regimen', 'x_regimen'])
 HM_MODEL_CODE = _first_existing_field(HmModel, ['x_studio_forecast_model_code', 'x_forecast_model_code'])
-
-
-# ------------------------------------------------------------
-# Resolver campos forecast anterior
-# ------------------------------------------------------------
-OLD_WEEK = _first_existing_field(OldModel, ['x_studio_week_start', 'x_studio_fecha_de_corte', 'x_studio_fecha_corte', 'x_studio_cutoff_date', 'x_studio_date_to', 'x_studio_target_week_start', 'x_week_start', 'x_studio_period_start'])
-OLD_PRODUCT = _first_existing_field(OldModel, ['x_studio_product_id', 'x_product_id', 'x_studio_producto'])
-OLD_TEAM = _first_existing_field(OldModel, ['x_studio_local', 'x_studio_team_id', 'x_team_id', 'x_studio_sucursal'])
-OLD_MU = _first_existing_field(OldModel, ['x_studio_mu_week', 'x_studio_demanda_semanal_ajustada', 'x_studio_demanda_ajustada', 'x_studio_demanda_semanal', 'x_studio_forecast_qty', 'x_studio_demanda_estimada', 'x_studio_demanda_estimada_entera'])
-OLD_SIGMA = _first_existing_field(OldModel, ['x_studio_sigma_week', 'x_studio_desviacion_semanal', 'x_studio_sigma'])
-OLD_CATEG = _first_existing_field(OldModel, ['x_studio_categ_id', 'x_studio_categoria'])
-
-OLD_SERIES_TYPE = _first_existing_field_or_label(OldModel, ['x_studio_series_type', 'x_series_type'], ['Tipo de Serie', 'series_type', 'Series Type'])
-OLD_LIFECYCLE = _first_existing_field_or_label(OldModel, ['x_studio_ciclo_de_vida', 'x_studio_lifecycle', 'x_ciclo_de_vida'], ['ciclo_de_vida', 'Ciclo de Vida', 'Ciclo de vida', 'lifecycle'])
-OLD_SEASONAL_BAND = _first_existing_field_or_label(OldModel, ['x_studio_banda_actual', 'x_studio_seasonal_band', 'x_banda_actual'], ['banda_actual', 'Banda actual', 'Banda Actual', 'seasonal_band'])
-OLD_CV2 = _first_existing_field_or_label(OldModel, ['x_studio_cv2', 'x_cv2'], ['cv2', 'CV2', 'CV²'])
-OLD_CV_ALL = _first_existing_field_or_label(OldModel, ['x_studio_cv_all', 'x_studio_cv', 'x_cv_all', 'x_cv'], ['cv_all', 'CV all', 'CV'])
-OLD_ADI = _first_existing_field_or_label(OldModel, ['x_studio_adi', 'x_adi'], ['adi', 'ADI'])
-OLD_DENSITY = _first_existing_field_or_label(OldModel, ['x_studio_density_pct', 'x_density_pct'], ['density_pct', 'Densidad', 'Densidad de venta'])
 
 
 # ------------------------------------------------------------
@@ -732,17 +697,6 @@ else:
                 forecast_warnings.append('Backtest sin campo mu_week_pre_bias')
             if not HM_MU_PRE_BIAS:
                 forecast_warnings.append('HM-SI sin campo mu_week_pre_bias')
-
-            if (OLD_FORECAST_ACTION_ID and OLD_FORECAST_ACTION_ID > 0) or LOAD_EXISTING_OLD_WHEN_NO_ACTION:
-                if not OLD_WEEK or not OLD_PRODUCT or not OLD_TEAM or not OLD_MU:
-                    forecast_warnings.append('OLD campos incompletos')
-            hybrid_rows_enabled = bool(CREATE_HYBRID_ROWS)
-            if hybrid_rows_enabled and not BT_METHOD:
-                hybrid_rows_enabled = False
-                forecast_warnings.append('hybrid no persistido: sin campo metodo')
-            elif hybrid_rows_enabled and BT_METHOD and not _selection_accepts(Backtest, BT_METHOD, HYBRID_METHOD_CODE):
-                hybrid_rows_enabled = False
-                forecast_warnings.append('hybrid no persistido: falta selection')
 
             # ----------------------------------------------------
             # Purga backtest de semanas objetivo
@@ -1082,107 +1036,6 @@ else:
                 return out, sigma_out, categ_out, meta_out
 
             # ----------------------------------------------------
-            # Función: leer señales del forecast viejo
-            # ----------------------------------------------------
-            def _load_old_segment_rows(lookup_week):
-                series_out = {}
-                lifecycle_out = {}
-                band_out = {}
-                cv2_out = {}
-
-                if not OLD_WEEK or not OLD_PRODUCT or not OLD_TEAM:
-                    return series_out, lifecycle_out, band_out, cv2_out
-
-                domain = [(OLD_WEEK, '=', lookup_week)]
-                if TEAM_IDS:
-                    domain.append((OLD_TEAM, 'in', TEAM_IDS))
-
-                rows = OldModel.search(domain)
-                for rec in rows:
-                    try:
-                        team_rec = rec[OLD_TEAM]
-                        team_id = team_rec.id if team_rec else False
-                    except Exception:
-                        team_id = False
-
-                    try:
-                        prod_rec = rec[OLD_PRODUCT]
-                    except Exception:
-                        prod_rec = False
-
-                    variant_id = _normalize_product_to_variant_id(prod_rec)
-                    if not team_id or not variant_id:
-                        continue
-
-                    key = (team_id, variant_id)
-
-                    cv2_val = None
-                    if OLD_CV2:
-                        try:
-                            cv2_val = _safe_float(rec[OLD_CV2], 0.0)
-                        except Exception:
-                            cv2_val = None
-
-                    if cv2_val is None and OLD_CV_ALL:
-                        try:
-                            cv = _safe_float(rec[OLD_CV_ALL], 0.0)
-                            cv2_val = cv * cv
-                        except Exception:
-                            cv2_val = None
-
-                    if cv2_val is not None:
-                        if cv2_val < 0.0:
-                            cv2_val = 0.0
-                        cv2_out[key] = cv2_val
-
-                    density_val = None
-                    if OLD_DENSITY:
-                        try:
-                            density_val = _safe_float(rec[OLD_DENSITY], 0.0)
-                        except Exception:
-                            density_val = None
-
-                    adi_val = None
-                    if OLD_ADI:
-                        try:
-                            adi_val = _safe_float(rec[OLD_ADI], 999.0)
-                        except Exception:
-                            adi_val = None
-
-                    st_val = False
-                    if OLD_SERIES_TYPE:
-                        try:
-                            val = rec[OLD_SERIES_TYPE]
-                            if val not in (None, False, ''):
-                                st_val = val
-                        except Exception:
-                            st_val = False
-
-                    if not st_val and cv2_val is not None and density_val is not None and adi_val is not None:
-                        st_val = _series_type_from_metrics(cv2_val, density_val, adi_val)
-
-                    if st_val not in (None, False, ''):
-                        series_out[key] = st_val
-
-                    if OLD_LIFECYCLE:
-                        try:
-                            val = rec[OLD_LIFECYCLE]
-                            if val not in (None, False, ''):
-                                lifecycle_out[key] = val
-                        except Exception:
-                            pass
-
-                    if OLD_SEASONAL_BAND:
-                        try:
-                            val = rec[OLD_SEASONAL_BAND]
-                            if val not in (None, False, ''):
-                                band_out[key] = val
-                        except Exception:
-                            pass
-
-                return series_out, lifecycle_out, band_out, cv2_out
-
-            # ----------------------------------------------------
             # Función: calcular señales de serie desde POS, llave product.product
             # ----------------------------------------------------
             def _load_computed_segment_rows_from_pos(lookup_week):
@@ -1511,8 +1364,6 @@ else:
             methods_done = {}
             hm_total_forecast = 0.0
             hm_total_pre_bias = 0.0
-            old_total_forecast = 0.0
-            hybrid_total_forecast = 0.0
             real_total_all = 0.0
             abc_loaded_rows = 0
             abc_missing_rows = 0
@@ -1540,10 +1391,6 @@ else:
                 hm_sigma = {}
                 hm_categ = {}
                 hm_meta = {}
-                old_forecast = {}
-                old_sigma = {}
-                old_categ = {}
-                old_meta = {}
                 hm_zone_map = {}
 
                 if not forecast_warnings or 'HM-SI campos incompletos' not in forecast_warnings:
@@ -1560,67 +1407,23 @@ else:
                         hm_total_forecast += _safe_float(_v, 0.0)
                         hm_total_pre_bias += _safe_float((hm_meta.get(_k, {}) or {}).get('mu_week_pre_bias', _v), 0.0)
 
-                if (OLD_FORECAST_ACTION_ID and OLD_FORECAST_ACTION_ID > 0) or LOAD_EXISTING_OLD_WHEN_NO_ACTION:
-                    if 'OLD campos incompletos' not in forecast_warnings:
-                        if OLD_FORECAST_ACTION_ID and OLD_FORECAST_ACTION_ID > 0:
-                            _run_forecast_action(OLD_FORECAST_ACTION_ID, cutoff_date)
-                        old_forecast, old_sigma, old_categ, old_meta = _load_forecast_rows(
-                            OldModel, OLD_WEEK, OLD_PRODUCT, OLD_TEAM, OLD_MU, OLD_SIGMA, OLD_CATEG, cutoff_date
-                        )
-                        methods.append(('old', old_forecast, old_sigma, old_categ, old_meta, True))
-                        for _v in old_forecast.values():
-                            old_total_forecast += _safe_float(_v, 0.0)
-
-                        series_map, lifecycle_map, seasonal_band_map, cv2_map = _load_old_segment_rows(cutoff_date)
-
+                # series_type / lifecycle desde HM-SI meta (clasificacion LOCAL por team
+                # del motor con el cutoff de esta semana). El OLD model fue eliminado.
                 for _k, _m in hm_meta.items():
-                    if not series_map.get(_k):
-                        st = (_m or {}).get('series_type')
-                        if st:
-                            series_map[_k] = st
-                    if not lifecycle_map.get(_k):
-                        lc = (_m or {}).get('lifecycle')
-                        if lc:
-                            lifecycle_map[_k] = lc
+                    st = (_m or {}).get('series_type')
+                    if st:
+                        series_map[_k] = st
+                    lc = (_m or {}).get('lifecycle')
+                    if lc:
+                        lifecycle_map[_k] = lc
 
                 _real_week_sum = 0.0
                 for _v in real_map.values():
                     _real_week_sum += _safe_float(_v, 0.0)
                 real_total_all += _real_week_sum
 
-                if hm_forecast and old_forecast:
-                    hybrid_forecast = {}
-                    hybrid_sigma = {}
-                    hybrid_categ = {}
-                    hybrid_meta = {}
-                    hybrid_keys = {}
-                    for _k in real_map.keys():
-                        hybrid_keys[_k] = True
-                    for _k in hm_forecast.keys():
-                        hybrid_keys[_k] = True
-                    for _k in old_forecast.keys():
-                        hybrid_keys[_k] = True
-
-                    for _k in hybrid_keys.keys():
-                        z = _zone_code(hm_zone_map.get(_k, ZONE_MISSING))
-                        if z in ('Z1', 'Z2'):
-                            hybrid_forecast[_k] = _safe_float(hm_forecast.get(_k, 0.0), 0.0)
-                            hybrid_sigma[_k] = _safe_float(hm_sigma.get(_k, 0.0), 0.0)
-                            hybrid_categ[_k] = hm_categ.get(_k, False) or old_categ.get(_k, False)
-                            hybrid_meta[_k] = {'forecast_zone': z, 'hybrid_source': 'hm_si'}
-                        elif z in ('Z3', 'Z4'):
-                            hybrid_forecast[_k] = _safe_float(old_forecast.get(_k, 0.0), 0.0)
-                            hybrid_sigma[_k] = _safe_float(old_sigma.get(_k, 0.0), 0.0)
-                            hybrid_categ[_k] = old_categ.get(_k, False) or hm_categ.get(_k, False)
-                            hybrid_meta[_k] = {'forecast_zone': z, 'hybrid_source': 'old'}
-
-                    if hybrid_forecast:
-                        methods.append((HYBRID_METHOD_CODE, hybrid_forecast, hybrid_sigma, hybrid_categ, hybrid_meta, hybrid_rows_enabled))
-                        for _v in hybrid_forecast.values():
-                            hybrid_total_forecast += _safe_float(_v, 0.0)
-
                 _abc_pids = list(set(
-                    k[1] for k in list(hm_forecast.keys()) + list(old_forecast.keys()) + list(real_map.keys())
+                    k[1] for k in list(hm_forecast.keys()) + list(real_map.keys())
                 ))
                 abcxyz_map = _load_abcxyz_map(_abc_pids)
 
@@ -1780,7 +1583,7 @@ else:
 
             try:
                 log(
-                    '%s | purged=%s | weeks=%s | created=%s | methods=%s | teams=%s | hm_fcst=%s | hm_pre_bias=%s | old_fcst=%s | hybrid_fcst=%s | real_sum=%s | abc_loaded=%s | abc_missing=%s | zone_missing=%s | zone_metrics=%s | warnings=%s' % (
+                    '%s | purged=%s | weeks=%s | created=%s | methods=%s | teams=%s | hm_fcst=%s | hm_pre_bias=%s | real_sum=%s | abc_loaded=%s | abc_missing=%s | zone_missing=%s | zone_metrics=%s | warnings=%s' % (
                         VERSION_ID,
                         purge_count,
                         weeks_done,
@@ -1789,8 +1592,6 @@ else:
                         len(TEAM_IDS),
                         round(hm_total_forecast, 2),
                         round(hm_total_pre_bias, 2),
-                        round(old_total_forecast, 2),
-                        round(hybrid_total_forecast, 2),
                         round(real_total_all, 2),
                         abc_loaded_rows,
                         abc_missing_rows,
@@ -1803,14 +1604,12 @@ else:
             except Exception:
                 pass
 
-            msg = 'Backtest creado: semanas=%s | filas=%s | metodos=%s | HM=%s | HMpre=%s | OLD=%s | HYB=%s | Real=%s | ABC cargado=%s | ABC faltante=%s' % (
+            msg = 'Backtest creado: semanas=%s | filas=%s | metodos=%s | HM=%s | HMpre=%s | Real=%s | ABC cargado=%s | ABC faltante=%s' % (
                 weeks_done,
                 total_created,
                 ','.join(methods_done.keys()),
                 round(hm_total_forecast, 0),
                 round(hm_total_pre_bias, 0),
-                round(old_total_forecast, 0),
-                round(hybrid_total_forecast, 0),
                 round(real_total_all, 0),
                 abc_loaded_rows,
                 abc_missing_rows,
