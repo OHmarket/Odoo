@@ -1,7 +1,7 @@
 # HM SI Forecast - Motor de demanda semanal con estacionalidad por nivel
 # ============================================================
 #
-# Version activa: v3.43 (ver CHANGELOG.md para historial completo)
+# Version activa: v3.46 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Calcular mu_week y sigma_week por (sala, SKU) usando heuristica de
@@ -39,11 +39,31 @@
 #     Clamp [0.70, 1.00] - solo recorta cuando hay deterioro, NO amplifica
 #     teams en alza. Se aplica DESPUES de correccion_factor, ANTES de
 #     redondeo. mu_week_pre_bias persiste el valor pre-trend.
+#   - Lifecycle declining fix (v3.44): _infer_lifecycle_local ya no clasifica
+#     'declining' por matriz trimestral cuando nz_recent_8w > 0. Antes, los
+#     cutoffs cerca del inicio de un Q (Apr-06, May-04) clasificaban masivamente
+#     SKUs activos como 'declining' y los enviaba a REG-0/min_stock_or_manual
+#     (99% en Apr-06, 71% en May). El check SMA-style evita falsos positivos.
+#   - Remove mu<2.0 threshold from router (v3.45): canon SAP IBP / Blue Yonder.
+#     El catch-all del router ya no descarta por mu_week<2.0. Croston/SBA del
+#     bake-off de _select_best_model ya esta calibrado para slow-movers; el
+#     threshold post-forecast descartaba el output de esos modelos. Ahora los
+#     SKUs B/B con mu<2.0 caen a Z3 (secondary_replenishment) y reciben
+#     forecast. min_stock_or_manual solo aplica a no_signal, C-class y
+#     declining/dead (causas legitimas).
+#   - Remove rounding (v3.46): canon SAP IBP. El motor ya NO redondea mu_week
+#     a entero. Antes (v3.31-v3.45): int(mu_week + 0.5). Para slow-movers el
+#     redondeo medio-arriba era un ajuste de hasta 50%-100% del valor: mu=0.3
+#     -> 0 (pierde toda la senal), mu=0.5 -> 1 (+100%). Para Croston/SBA en
+#     slow-movers (valores tipicos 0.2-0.8), el redondeo destruia la salida.
+#     Persistir mu_week float deja al sistema de stock decidir el reorder
+#     point con valor continuo. CONSUMERS downstream (x_analisis_de_stock)
+#     deben leer mu_week como float, no int.
 #
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = "FWD_v3_43_TREND_CORRECTION"
+VERSION_ID = "FWD_v3_46_REMOVE_ROUNDING"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438
@@ -396,8 +416,18 @@ def _classify_series_type_local(adi, cv2, active_weeks, min_active_weeks,
     return 'erratic' if high_var else 'smooth'
 
 
-def _infer_lifecycle_local(u_q0, u_q1, u_q2, u_q3, u_q4, u_q5, u_q6, u_q7, p_q8, xyz):
-    """PLC inferido por presencia trimestral local. Identico a archivo 1."""
+def _infer_lifecycle_local(u_q0, u_q1, u_q2, u_q3, u_q4, u_q5, u_q6, u_q7, p_q8, xyz,
+                            nz_recent_8w=0):
+    """PLC inferido por presencia trimestral local.
+
+    v3.44: parametro nz_recent_8w (semanas con venta > 0 en ultimas 8 sem
+    de base_vals). La regla 'declining' (u_q0=0 con historia previa) genera
+    falsos positivos cuando cutoff cae al inicio de un Q (Apr-06, May-04
+    backtest mostraron 4,926 SKUs activos clasificados 'declining' por este
+    bug). Si nz_recent_8w > 0 (SKU sigue vendiendo en ventana SMA), el
+    lifecycle pasa a la siguiente regla (mature/seasonal/intermittent)
+    en vez de quedarse en 'declining'.
+    """
     u_rest = u_q1 + u_q2 + u_q3 + u_q4 + u_q5 + u_q6 + u_q7
     u8 = u_q0 + u_rest
     if u8 <= 0:
@@ -406,7 +436,10 @@ def _infer_lifecycle_local(u_q0, u_q1, u_q2, u_q3, u_q4, u_q5, u_q6, u_q7, p_q8,
         return 'intermittent'
     if u_q0 > 0 and u_rest <= 0:
         return 'new'
-    if u_q0 <= 0 and (u_q1 + u_q2 + u_q3) > 0:
+    # v3.44: declining solo si NO hay venta reciente (SMA-style sobre 8 sem).
+    # Antes: u_q0 <= 0 with prior history -> 'declining'. Genera falso positivo
+    # cuando el cutoff cae al inicio de Q (u_q0=0 trivialmente por boundary).
+    if u_q0 <= 0 and (u_q1 + u_q2 + u_q3) > 0 and nz_recent_8w <= 0:
         return 'declining'
     if xyz == 'Z' and p_q8 <= 5:
         return 'seasonal'
@@ -1193,8 +1226,11 @@ def _route_forecast_scope(abcxyz, series_type, lifecycle, mu_week):
     if (abc in ('AX', 'AY')) and (lc not in ('declining', 'dead')):
         return 'Z1', 'core_hm_si', 'hm_si_core_a_low_mu', 'A_low_velocity_rescue'
 
-    if (st == 'no_signal') or (abc in ('CX', 'CY', 'CZ')) or (lc in ('declining', 'dead')) or (mu < 2.0):
-        return 'Z4', 'no_forecast', 'min_stock_or_manual', 'D_no_signal_C_or_low_mu'
+    # v3.45: removido `or (mu < 2.0)`. Croston/SBA del bake-off ya maneja
+    # slow-movers; el threshold post-forecast descartaba ese output (anti-canon).
+    # Los SKUs B con mu<2.0 ahora caen a Z3 (secondary_replenishment).
+    if (st == 'no_signal') or (abc in ('CX', 'CY', 'CZ')) or (lc in ('declining', 'dead')):
+        return 'Z4', 'no_forecast', 'min_stock_or_manual', 'D_no_signal_C_terminal'
 
     if (st == 'smooth') and (abc in ('AX', 'AY', 'BX')) and (lc in ('mature', 'ramp_up')) and (mu >= 2.0):
         return 'Z1', 'core_hm_si', 'hm_si_core', 'A_smooth_core'
@@ -2010,12 +2046,18 @@ else:
                             _q_offsets_seen.add(_off)
                     _p_q8_local = sum(1 for _u in _u_q if _u > 0.0)
 
+                    # v3.44: semanas con venta > 0 en ultimas 8 sem de base_vals.
+                    # SMA-style signal para evitar falso positivo 'declining' cuando
+                    # cutoff cae al inicio de un Q (u_q0=0 trivialmente).
+                    _nz_recent_8w_local = sum(1 for _v in (base_vals or [])[-8:] if _v > 0)
+
                     # --- lifecycle local: si dead por falta de datos pero el global
                     # dice otra cosa, prefiere global. Mismo criterio que series_type.
                     _lc_calc = _infer_lifecycle_local(
                         _u_q[0], _u_q[1], _u_q[2], _u_q[3],
                         _u_q[4], _u_q[5], _u_q[6], _u_q[7],
                         _p_q8_local, xyz_local,
+                        nz_recent_8w=_nz_recent_8w_local,
                     )
                     # Si el local sale 'dead' pero hay senal global vigente, se usa global
                     # (caso tipico: producto vivo en otras sucursales sin presencia aqui).
@@ -2290,14 +2332,13 @@ else:
                             sigma_week = sigma_week * trend_factor
 
                     # ============================================================
-                    # v3.31 — Redondeo medio-arriba al entero del mu_week final.
-                    # fraccion < 0.5 -> entero abajo; fraccion >= 0.5 -> entero arriba.
-                    # 0.3 -> 0; 0.5 -> 1; 1.3 -> 1; 1.5 -> 2; 1.7 -> 2.
-                    # No tocamos sigma_week (es metrica continua) ni mu_week_pre_corr
-                    # (mantiene la trazabilidad pre-redondeo).
+                    # v3.46 — Redondeo eliminado. Persistimos mu_week como FLOAT
+                    # (canon SAP IBP). Antes (v3.31-v3.45): int(mu_week + 0.5).
+                    # Para slow-movers el redondeo medio-arriba era ajuste de
+                    # hasta 50-100% del valor (mu=0.3 -> 0; mu=0.5 -> 1),
+                    # destruyendo el output de Croston/SBA. El sistema de stock
+                    # downstream debe leer mu_week como float continuo.
                     # ============================================================
-                    if mu_week > 0:
-                        mu_week = float(int(mu_week + 0.5))
 
                     rec_name = 'HM-SI LOC%s PP%s' % (team_id, product_id)
 
