@@ -1,0 +1,70 @@
+Conectado: OdooReader(url='https://www.ohmarket.cl', db='ohmarket17', uid=239)
+
+CSV filas (limpio): 37,359
+Teams en CSV: 11 | L1s en CSV: 4
+L1s: ['Bebidas Alcohólicas', 'Bebidas No Alcohólicas', 'Congelados', 'Esenciales Hogar']
+
+--- Team mapping ---
+  Ventas Coñaripe                -> crm_team=16  configs=[430, 431, 432]
+  Ventas Futrono                 -> crm_team=7  configs=[399, 400, 401]
+  Ventas Lautaro                 -> crm_team=10  configs=[403, 404]
+  Ventas Los Lagos               -> crm_team=6  configs=[407, 408, 409]
+  Ventas Malalhue                -> crm_team=18  configs=[443, 444]
+  Ventas Mehuin Express          -> crm_team=13  configs=[445, 446]
+  Ventas Nueva Imperial          -> crm_team=17  configs=[438, 439]
+  Ventas Paillaco                -> crm_team=12  configs=[414, 415]
+  Ventas Panguipulli 645         -> crm_team=8  configs=[417, 418]
+  Ventas Panguipulli 763         -> crm_team=9  configs=[447, 448]
+  Ventas Panguipulli 790         -> crm_team=5  configs=[420, 421, 422]
+
+--- L1 categs CSV resueltos: 4/4 ---
+  'Bebidas Alcohólicas' -> id=1533
+  'Bebidas No Alcohólicas' -> id=1714
+  'Congelados' -> id=1717
+  'Esenciales Hogar' -> id=1716
+
+--- Pull POS aggregado por (team, L1, mes) ---
+History from: 2024-05-01
+  done L1=Bebidas Alcohólicas           
+  done L1=Bebidas No Alcohólicas        
+  done L1=Congelados                    
+  done L1=Esenciales Hogar              
+
+YoY puntos calculados: 572
+
+====================================================================================================
+Tabla factores (team x L1) - variante G_sym - cutoff Mar-16
+====================================================================================================
+                  team  Bebidas Alcohólicas  Bebidas No Alcohólicas  Congelados  Esenciales Hogar
+       Ventas Coñaripe                1.230                   1.190       1.190             0.860
+        Ventas Futrono                0.930                   0.980       1.020             0.700
+        Ventas Lautaro                1.200                   1.280       1.300             0.920
+      Ventas Los Lagos                0.860                   1.020       0.920             0.700
+       Ventas Malalhue                1.300                   1.300       1.300             1.300
+ Ventas Mehuin Express                1.100                   1.200       1.300             1.220
+ Ventas Nueva Imperial                0.920                   0.990       1.300             0.860
+       Ventas Paillaco                1.120                   1.200       1.100             1.000
+Ventas Panguipulli 645                1.200                   1.100       1.030             0.920
+Ventas Panguipulli 763                1.260                   1.110       1.070             1.300
+Ventas Panguipulli 790                0.960                   0.920       0.750             0.850
+
+====================================================================================================
+RESULTADOS WAPE / BIAS por variante y semana
+====================================================================================================
+
+  variante               |     Feb-16 WAPE/BIAS |     Mar-16 WAPE/BIAS |     Apr-06 WAPE/BIAS |         Total 3w
+  ---------------------- | -------------------- | -------------------- | -------------------- | ----------------
+  baseline               |       47.3% / +13.3% |       72.4% / -15.0% |      101.2% / +98.8% |  64.1% / +25.9%
+  B_team_sym             |       48.6% /  -0.8% |       77.6% / -24.9% |      101.3% / +98.7% |  65.9% / +15.6%
+  I_team_asym            |       47.3% / +13.9% |       71.7% / -12.0% |      101.2% / +98.8% |  63.9% / +26.9%
+  G_sym                  |       48.8% /  -0.8% |       77.8% / -25.0% |      101.2% / +98.7% |  66.0% / +15.6%
+  H_asym                 |       47.4% / +14.6% |       71.7% / -11.7% |      101.1% / +98.8% |  63.9% / +27.3%
+
+====================================================================================================
+DETALLE por categoria_L1 en Mar-16 (variante H_asym = team x L1 asimetrico)
+====================================================================================================
+              categ_L1    n      real  fc_before  fc_after  avg_factor  WAPE_b  WAPE_a  BIAS_b  BIAS_a
+Bebidas No Alcohólicas 2631 6,965.000  8,842.000 8,716.173       0.989  62.699  61.952 -26.949 -25.142
+   Bebidas Alcohólicas 8500 5,212.000  5,214.000 5,061.613       0.968  87.913  87.574  -0.038   2.885
+            Congelados  680 1,278.000  1,575.000 1,519.960       0.969  64.554  65.462 -23.239 -18.933
+      Esenciales Hogar  632 1,276.000  1,307.000 1,159.491       0.893  69.828  66.125  -2.429   9.131

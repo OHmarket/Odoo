@@ -1,0 +1,125 @@
+NEW (v3.43): 37,359 filas limpio | semanas: ['2026-02-16', '2026-03-16', '2026-04-06']
+OLD (v3.42): 37,359 filas limpio
+
+====================================================================================================
+1. VALIDACION: mu_week_pre_bias vs forecast_qty (debe ser distinto si trend!=1.0)
+====================================================================================================
+
+  Filas donde mu_week_pre_bias != forecast_qty: 1,229 (3.3%)
+  delta_pre_post stats:
+count   37,359.00
+mean         0.07
+std          0.46
+min         -0.50
+25%          0.00
+50%          0.00
+75%          0.12
+max         30.66
+
+  Trend factor implicito por team (forecast_qty / mu_week_pre_bias):
+
+  --- 2026-02-16 ---
+                            n  sum_pre  sum_post  factor_implicit
+team_id                                                          
+Ventas CoÃ±aripe       753.00 6,015.79  6,036.00             1.00
+Ventas Futrono         638.00 3,303.90  3,183.00             0.96
+Ventas Lautaro         524.00 1,784.15  1,822.00             1.02
+Ventas Los Lagos       547.00 2,710.36  2,533.00             0.94
+Ventas Malalhue        529.00 2,001.55  2,020.00             1.01
+Ventas Mehuin Express  586.00 3,562.91  3,598.00             1.01
+Ventas Nueva Imperial  522.00 2,439.49  2,444.00             1.00
+Ventas Paillaco        548.00 2,213.12  2,240.00             1.01
+Ventas Panguipulli 645 632.00 3,538.41  3,571.00             1.01
+Ventas Panguipulli 763 572.00 2,856.89  2,883.00             1.01
+Ventas Panguipulli 790 680.00 5,276.51  4,574.00             0.87
+
+  --- 2026-03-16 ---
+                            n  sum_pre  sum_post  factor_implicit
+team_id                                                          
+Ventas CoÃ±aripe       539.00 1,963.84  1,989.00             1.01
+Ventas Futrono         484.00 1,424.47  1,289.00             0.91
+Ventas Lautaro         471.00 1,220.54  1,260.00             1.03
+Ventas Los Lagos       457.00 1,496.76  1,356.00             0.91
+Ventas Malalhue        429.00   987.24  1,042.00             1.05
+Ventas Mehuin Express  465.00 1,267.16  1,281.00             1.01
+Ventas Nueva Imperial  465.00 1,589.40  1,595.00             1.00
+Ventas Paillaco        513.00 1,525.24  1,547.00             1.01
+Ventas Panguipulli 645 480.00 1,569.63  1,603.00             1.02
+Ventas Panguipulli 763 430.00 1,243.85  1,270.00             1.02
+Ventas Panguipulli 790 500.00 2,300.89  1,955.00             0.85
+
+  --- 2026-04-06 ---
+                           n  sum_pre  sum_post  factor_implicit
+team_id                                                         
+Ventas CoÃ±aripe        3.00    37.08     37.00             1.00
+Ventas Lautaro          5.00    16.47     17.00             1.03
+Ventas Los Lagos        7.00    16.16     15.00             0.93
+Ventas Malalhue         7.00    20.53     21.00             1.02
+Ventas Mehuin Express  14.00    14.00     14.00             1.00
+Ventas Nueva Imperial   5.00     5.18      5.00             0.96
+Ventas Paillaco         7.00    20.25     20.00             0.99
+Ventas Panguipulli 645  4.00    16.13     16.00             0.99
+Ventas Panguipulli 763  7.00    30.05     30.00             1.00
+Ventas Panguipulli 790  1.00     9.05      8.00             0.88
+
+====================================================================================================
+2. HEADLINE: WAPE / BIAS por semana NEW (v3.43 trend ON) vs OLD (v3.42 baseline)
+====================================================================================================
+
+  semana       |   WAPE old |   WAPE new |    delta ||   BIAS old |   BIAS new |    delta
+  ------------ | ---------- | ---------- | -------- || ---------- | ---------- | --------
+  2026-02-16   |      47.3% |      47.2% |   -0.10pp ||     +13.3% |     +15.9% |   +2.65pp
+  2026-03-16   |      72.4% |      70.9% |   -1.47pp ||     -15.0% |      -9.9% |   +5.10pp
+  2026-04-06   |     101.2% |     101.2% |   -0.01pp ||     +98.8% |     +98.8% |   +0.01pp
+  TOTAL        |      64.1% |      63.7% |   -0.36pp ||     +25.9% |     +28.5% |   +2.59pp
+
+====================================================================================================
+3. DETALLE POR TEAM Mar-16 (NEW vs OLD)
+====================================================================================================
+                  team  factor     real   fc_old   fc_new  WAPE_old  WAPE_new  BIAS_old  BIAS_new
+      Ventas CoÃ±aripe    0.98 1,830.00 1,989.00 1,989.00     70.50     70.50     -8.70     -8.70
+        Ventas Futrono    0.85 1,255.00 1,471.00 1,289.00     72.20     67.70    -17.20     -2.70
+        Ventas Lautaro    0.97 1,148.00 1,260.00 1,260.00     68.50     68.50     -9.80     -9.80
+      Ventas Los Lagos    0.86 1,359.00 1,524.00 1,356.00     69.20     66.90    -12.10      0.20
+       Ventas Malalhue    0.98 1,123.00 1,042.00 1,042.00     68.50     68.50      7.20      7.20
+ Ventas Mehuin Express    0.96   839.00 1,288.00 1,281.00     95.20     95.10    -53.50    -52.70
+ Ventas Nueva Imperial    0.96 1,442.00 1,616.00 1,595.00     68.90     68.20    -12.10    -10.60
+       Ventas Paillaco    0.97 1,492.00 1,547.00 1,547.00     70.70     70.70     -3.70     -3.70
+Ventas Panguipulli 645    0.97 1,373.00 1,603.00 1,603.00     74.10     74.10    -16.80    -16.80
+Ventas Panguipulli 763    0.96 1,063.00 1,270.00 1,270.00     77.20     77.20    -19.50    -19.50
+Ventas Panguipulli 790    0.82 1,807.00 2,328.00 1,955.00     71.10     64.60    -28.80     -8.20
+
+====================================================================================================
+4. DELTA por REGIMEN en Mar-16
+====================================================================================================
+regimen    n     real  WAPE_old  WAPE_new  BIAS_old  BIAS_new  delta_WAPE  delta_BIAS
+  REG-0 1774    87.00    100.00    100.00    100.00    100.00        0.00        0.00
+  REG-1 1852 8,959.00     54.50     53.20    -18.30    -13.00       -1.34        5.29
+  REG-2  648   855.00     88.30     85.50    -37.30    -28.90       -2.81        8.42
+  REG-3  262   126.00     92.10     92.90     54.00     54.80        0.79        0.79
+  REG-4  201   316.00     84.50     81.00    -26.30    -20.90       -3.48        5.38
+  REG-5   42   127.00     69.30     69.30     34.60     36.20        0.00        1.57
+  REG-6  145    29.00    124.10    117.20    -20.70    -13.80       -6.90        6.90
+  REG-7 2045   878.00     89.50     89.50     -0.50      2.70        0.00        3.19
+  REG-8 5442 3,318.00    108.90    107.00    -11.70     -7.00       -1.84        4.67
+
+====================================================================================================
+5. TOP 15 categorias por contribucion al WAPE Mar-16 - NEW vs OLD
+====================================================================================================
+                                                                           n     real   fc_old   fc_new  WAPE_old  WAPE_new  BIAS_old  BIAS_new  delta_BIAS
+categ_id                                                                                                                                                   
+Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice            456.00 1,453.00 1,810.00 1,740.00    103.70    102.30    -24.60    -19.80        4.80
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares        492.00 2,098.00 2,434.00 2,324.00     45.10     44.50    -16.00    -10.80        5.20
+Bebidas AlcohÃ³licas / Vinos / Formatos EconÃ³micos                   784.00 1,232.00 1,306.00 1,245.00     60.90     60.10     -6.00     -1.10        5.00
+Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas   398.00 1,267.00 1,392.00 1,334.00     57.50     56.10     -9.90     -5.30        4.60
+Congelados / Helados                                                  658.00   397.00   766.00   740.00    160.50    157.40    -92.90    -86.40        6.50
+Bebidas AlcohÃ³licas / Vinos / Formato EstÃ¡ndar                    1,578.00   607.00   475.00   459.00     96.90     95.60     21.70     24.40        2.60
+Esenciales Hogar / Despensa / Despensa                                417.00   595.00   779.00   742.00     82.00     76.50    -30.90    -24.70        6.20
+Bebidas AlcohÃ³licas / Destilados / Pisco                             817.00   625.00   449.00   427.00     67.20     67.80     28.20     31.70        3.50
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Light y Zero     292.00   723.00   765.00   740.00     58.60     58.20     -5.80     -2.40        3.50
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales     223.00   597.00   833.00   792.00     67.30     62.50    -39.50    -32.70        6.90
+Bebidas AlcohÃ³licas / Destilados / Whisky                            824.00   447.00   430.00   410.00     84.30     81.70      3.80      8.30        4.50
+Bebidas No AlcohÃ³licas / Aguas / Agua Mineral                        139.00   462.00   705.00   678.00     78.60     74.90    -52.60    -46.80        5.80
+Esenciales Hogar / PanaderÃ­a / Queques y Magdalenas                  119.00   471.00   289.00   274.00     61.10     62.60     38.60     41.80        3.20
+Bebidas No AlcohÃ³licas / Aguas / Aguas Saborizadas                   220.00   320.00   486.00   462.00     89.40     85.00    -51.90    -44.40        7.50
+Bebidas No AlcohÃ³licas / Jugos / Jugos ColaciÃ³n                     187.00   326.00   520.00   488.00     84.70     79.80    -59.50    -49.70        9.80

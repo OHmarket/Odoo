@@ -1,0 +1,47 @@
+Conectado: OdooReader(url='https://www.ohmarket.cl', db='ohmarket17', uid=239)
+
+Campos de fecha en pos.order.line:
+  create_date  (datetime)  'Created on'
+  write_date  (datetime)  'Last Updated on'
+
+Usando campo: create_date
+
+Buscando categs por nombre (contiene):
+Matched 9 categs:
+  id=1665  Congelados / Helados
+  id=1631  Bebidas Alcohólicas / Cócteles y Licores / Cócteles Ice
+  id=1612  Bebidas No Alcohólicas / Aguas / Aguas Saborizadas
+  id=1608  Bebidas No Alcohólicas / Aguas / Agua Mineral
+  id=1615  Bebidas No Alcohólicas / Bebidas Gaseosas / Bebidas Individuales
+  id=1720  Bebidas No Alcohólicas / Isotónicas y Energéticas
+  id=1618  Bebidas No Alcohólicas / Bebidas Gaseosas / Bebidas Regulares
+  id=1643  Bebidas No Alcohólicas / Jugos / Jugos Colación
+  id=1701  Bebidas Alcohólicas / Espumantes
+
+History from: 2023-05-01
+
+====================================================================================================
+SI historica calculada desde pos.order.line
+====================================================================================================
+  Bebidas No Alcohólicas / Isotónicas y Energéticas: sin data
+
+Tabla SI historica (categ-level, 36 meses POS):
+                                                  categ  n_obs  SI_7  SI_8  SI_9  SI_10  SI_11  SI_12  SI_13  ratio_12_8  ratio_avg_mar_avg_feb
+                                   Congelados / Helados    160 2.040 2.122 1.349  1.128  0.843  0.619  0.842       0.292                  0.418
+Bebidas Alcohólicas / Cócteles y Licores / Cócteles Ice    160 2.081 1.902 1.500  1.134  1.015  0.901  1.029       0.474                  0.537
+     Bebidas No Alcohólicas / Aguas / Aguas Saborizadas    160 2.043 1.942 1.449  1.178  1.018  0.882  1.057       0.454                  0.544
+          Bebidas No Alcohólicas / Aguas / Agua Mineral    160 2.334 2.147 1.520  1.201  1.041  0.807  0.998       0.376                  0.474
+Bebidas No Alcohólicas / Bebidas Gaseosas / Bebidas Ind    160 1.976 1.830 1.434  1.227  1.048  0.896  1.053       0.490                  0.572
+Bebidas No Alcohólicas / Bebidas Gaseosas / Bebidas Reg    160 1.893 1.762 1.315  1.023  0.871  0.809  0.958       0.459                  0.531
+        Bebidas No Alcohólicas / Jugos / Jugos Colación    160 1.889 1.742 1.469  1.289  1.104  0.934  1.096       0.536                  0.615
+                       Bebidas Alcohólicas / Espumantes     13 1.140   NaN   NaN    NaN    NaN  0.684    NaN       0.684                  0.855
+
+ratio_12_8 promedio simple:        0.471
+ratio_12_8 mediana:                0.467
+ratio_12_8 ponderado por n_obs:    0.443
+ratio mar(11-13)/feb(7-9) promedio: 0.568
+
+Comparacion:
+  Motor implicito (fc_mar/fc_feb agregado): 0.480
+  Reality (real_mar/real_feb agregado):     0.413
+  Historica SI(12)/SI(8) categ-level:        0.471

@@ -1,0 +1,113 @@
+Conectado: OdooReader(url='https://www.ohmarket.cl', db='ohmarket17', uid=239)
+
+Top SKUs problema (over-units Mar): 20
+Codigos extraidos: ['9640', '8005', '0161', 'HIELO GOURMET 2 KILO', '2509', '7845', '0177', '0173', '870203', '0767', '0154', '2218', '7843', '2233', '0925', '870653', '2508', '871240', '1988', '2133']
+
+Product IDs resueltos: 20 de 20 codes
+
+====================================================================================================
+CHECK A: si_n_years + si_main vs si_sku para top SKUs problema (datos Apr-06)
+====================================================================================================
+Filas obtenidas: 240
+
+Promedio por SKU (cutoff actual = Apr-05, target = Apr-06 = iso_week 15):
+                      n_teams  si_n_years_avg  si_current_avg  si_next_avg  si_main_avg  si_sku_avg
+product_code                                                                                       
+0154                       12           4.000           0.964        0.850        0.849       1.007
+0161                       12           4.000           0.970        0.956        0.975       0.990
+0173                       12           4.000           1.027        0.967        0.849       1.146
+0177                       12           4.000           1.031        0.988        0.975       1.024
+0767                       12           4.000           0.954        0.791        0.849       0.936
+0925                       12           2.000           0.976        0.836        0.849       0.987
+1988                       12           3.000           1.074        0.901        0.887       1.025
+2133                       12           4.000           0.850        0.741        0.751       1.016
+2218                       12           4.000           0.880        0.795        0.749       1.074
+2233                       12           4.000           0.871        0.725        0.749       0.977
+2508                       12           4.000           0.818        0.769        0.751       1.056
+2509                       12           4.000           0.893        0.691        0.749       0.930
+7843                       12           4.000           0.994        0.863        0.933       0.929
+7845                       12           4.000           1.137        0.972        0.933       1.048
+8005                       12           4.000           0.873        1.034        1.070       0.994
+870203                     12           4.000           1.020        0.929        0.958       0.974
+870653                     12           4.000           0.995        0.956        0.913       1.059
+871240                     12           4.000           0.918        0.709        0.749       0.955
+9640                       12           3.000           1.245        0.787        0.839       0.944
+HIELO GOURMET 2 KILO       12           4.000           0.879        0.692        0.709       0.994
+
+Distribucion si_n_years sobre 240 filas:
+count   240.000
+mean      3.800
+std       0.511
+min       2.000
+25%       4.000
+50%       4.000
+75%       4.000
+max       4.000
+
+Filas con si_n_years >= 3: 228 (95.0%)
+Filas con si_n_years < 1:  0
+
+si_main_factor distribucion (debe ser SI categ-level, iso_week 15):
+count   240.000
+mean      0.854
+std       0.200
+min       0.423
+25%       0.738
+50%       0.835
+75%       0.933
+max       2.097
+
+si_sku_factor distribucion (deviacion sku vs categ tras alpha cap):
+count   240.000
+mean      1.003
+std       0.080
+min       0.836
+25%       0.942
+50%       0.988
+75%       1.054
+max       1.273
+
+Distribucion si_level (donde sale el SI):
+x_studio_si_level
+local_categ+sku_adj    240
+
+====================================================================================================
+CHECK B: SI historica desde POS por categoria (replica _calc_si_from_weekly)
+====================================================================================================
+Para cada categ: pull pos.order.line agregada por semana (read_group),
+calcular promedio por iso_week sobre 36 meses, normalizar a global_avg.
+Comparar SI(8) (mid-Feb) vs SI(12) (mid-Mar) y su ratio.
+
+Top 12 categorias por volumen Feb-16:
+  Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares
+  Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice
+  Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas
+  Congelados / Hielo
+  Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Light y Zero
+  Congelados / Helados
+  Esenciales Hogar / Despensa / Despensa
+  Bebidas No AlcohÃ³licas / Aguas / Agua Mineral
+  Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales
+  Bebidas No AlcohÃ³licas / Aguas / Agua Mineral sin Gas
+  Bebidas AlcohÃ³licas / Vinos / Formatos EconÃ³micos
+  Bebidas AlcohÃ³licas / Destilados / Pisco
+
+Resolviendo IDs de categoria...
+  WARN no match para 'Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares'
+  WARN no match para 'Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice'
+  WARN no match para 'Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas'
+  WARN no match para 'Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Light y Zero'
+  WARN no match para 'Bebidas No AlcohÃ³licas / Aguas / Agua Mineral'
+  WARN no match para 'Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales'
+  WARN no match para 'Bebidas No AlcohÃ³licas / Aguas / Agua Mineral sin Gas'
+  WARN no match para 'Bebidas AlcohÃ³licas / Vinos / Formatos EconÃ³micos'
+  WARN no match para 'Bebidas AlcohÃ³licas / Destilados / Pisco'
+
+Matched 3 categs
+
+Pulling pos history desde 2023-05-01 ...
+  ERROR query categ Congelados / Hielo: <Fault 1: 'Traceback (most recent call last):\n  File "/odoo/17/odoo/odoo/addons/base/controllers/rpc.py", line 147, in xmlrpc_2\n    response = self._xmlrpc(service)\n               ^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/addons/base/controllers/rpc.py", line 127, in _xmlrpc\n    result = dispatch_rpc(service, method, params)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/http.py", line 389, in dispatch_rpc\n    return dispatch(method, params)\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 37, in dispatch\n    res = execute_kw(db, uid, *params[3:])\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 59, in execute_kw\n    return execute(db, uid, obj, method, *args, **kw or {})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 65, in execute\n    res = execute_cr(cr, uid, obj, method, *args, **kw)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 50, in execute_cr\n    result = retrying(partial(odoo.api.call_kw, recs, method, args, kw), env)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 133, in retrying\n    result = func()\n             ^^^^^^\n  File "/odoo/17/odoo/odoo/api.py", line 464, in call_kw\n    result = _call_kw_model(method, model, args, kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/api.py", line 435, in _call_kw_model\n    result = method(recs, *args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 2741, in read_group\n    rows = self._read_group(domain, annoted_groupby.values(), annoted_aggregates.values(), offset=offset, limit=limit, order=orderby)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 1880, in _read_group\n    groupby_terms[spec], fnames_used = self._read_group_groupby(spec, query)\n                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 1989, in _read_group_groupby\n    raise ValueError(f"Granularity set on a no-datetime field or property: {groupby_spec!r}")\nValueError: Granularity set on a no-datetime field or property: \'order_id:week\'\n'>
+  ERROR query categ Congelados / Helados: <Fault 1: 'Traceback (most recent call last):\n  File "/odoo/17/odoo/odoo/addons/base/controllers/rpc.py", line 147, in xmlrpc_2\n    response = self._xmlrpc(service)\n               ^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/addons/base/controllers/rpc.py", line 127, in _xmlrpc\n    result = dispatch_rpc(service, method, params)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/http.py", line 389, in dispatch_rpc\n    return dispatch(method, params)\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 37, in dispatch\n    res = execute_kw(db, uid, *params[3:])\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 59, in execute_kw\n    return execute(db, uid, obj, method, *args, **kw or {})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 65, in execute\n    res = execute_cr(cr, uid, obj, method, *args, **kw)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 50, in execute_cr\n    result = retrying(partial(odoo.api.call_kw, recs, method, args, kw), env)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 133, in retrying\n    result = func()\n             ^^^^^^\n  File "/odoo/17/odoo/odoo/api.py", line 464, in call_kw\n    result = _call_kw_model(method, model, args, kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/api.py", line 435, in _call_kw_model\n    result = method(recs, *args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 2741, in read_group\n    rows = self._read_group(domain, annoted_groupby.values(), annoted_aggregates.values(), offset=offset, limit=limit, order=orderby)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 1880, in _read_group\n    groupby_terms[spec], fnames_used = self._read_group_groupby(spec, query)\n                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 1989, in _read_group_groupby\n    raise ValueError(f"Granularity set on a no-datetime field or property: {groupby_spec!r}")\nValueError: Granularity set on a no-datetime field or property: \'order_id:week\'\n'>
+  ERROR query categ Esenciales Hogar / Despensa / Despensa: <Fault 1: 'Traceback (most recent call last):\n  File "/odoo/17/odoo/odoo/addons/base/controllers/rpc.py", line 147, in xmlrpc_2\n    response = self._xmlrpc(service)\n               ^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/addons/base/controllers/rpc.py", line 127, in _xmlrpc\n    result = dispatch_rpc(service, method, params)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/http.py", line 389, in dispatch_rpc\n    return dispatch(method, params)\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 37, in dispatch\n    res = execute_kw(db, uid, *params[3:])\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 59, in execute_kw\n    return execute(db, uid, obj, method, *args, **kw or {})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 65, in execute\n    res = execute_cr(cr, uid, obj, method, *args, **kw)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 50, in execute_cr\n    result = retrying(partial(odoo.api.call_kw, recs, method, args, kw), env)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/service/model.py", line 133, in retrying\n    result = func()\n             ^^^^^^\n  File "/odoo/17/odoo/odoo/api.py", line 464, in call_kw\n    result = _call_kw_model(method, model, args, kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/api.py", line 435, in _call_kw_model\n    result = method(recs, *args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 2741, in read_group\n    rows = self._read_group(domain, annoted_groupby.values(), annoted_aggregates.values(), offset=offset, limit=limit, order=orderby)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 1880, in _read_group\n    groupby_terms[spec], fnames_used = self._read_group_groupby(spec, query)\n                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/odoo/17/odoo/odoo/models.py", line 1989, in _read_group_groupby\n    raise ValueError(f"Granularity set on a no-datetime field or property: {groupby_spec!r}")\nValueError: Granularity set on a no-datetime field or property: \'order_id:week\'\n'>
+
+Resultados SI historica (categ_global) por categoria:

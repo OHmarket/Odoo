@@ -1,0 +1,101 @@
+Conectado: OdooReader(url='https://www.ohmarket.cl', db='ohmarket17', uid=239)
+
+CSV filas (limpio): 37,359
+Teams en CSV: 11
+
+--- Mapping CSV team label -> crm_team_id (via prefix de pos.config) ---
+  MISS Ventas CoÃ±aripe               (no match)
+  OK  Ventas Futrono                 -> crm_team_id=7
+  OK  Ventas Lautaro                 -> crm_team_id=10
+  OK  Ventas Los Lagos               -> crm_team_id=6
+  OK  Ventas Malalhue                -> crm_team_id=18
+  OK  Ventas Mehuin Express          -> crm_team_id=13
+  OK  Ventas Nueva Imperial          -> crm_team_id=17
+  OK  Ventas Paillaco                -> crm_team_id=12
+  OK  Ventas Panguipulli 645         -> crm_team_id=8
+  OK  Ventas Panguipulli 763         -> crm_team_id=9
+  OK  Ventas Panguipulli 790         -> crm_team_id=5
+
+  Matched: 10/11
+
+--- Pull x_sales_month_team_kpi ---
+  Filas: 99  meses: ['2025-08', '2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04']
+
+--- Trend factors por team y cutoff ---
+
+--- Tabla factores por team (variante B_avg3) ---
+week                    2026-02-16  2026-03-16  2026-04-06
+team                                                      
+Ventas Futrono                0.86        0.88        0.88
+Ventas Lautaro                1.00        1.07        1.06
+Ventas Los Lagos              0.85        0.88        0.87
+Ventas Malalhue               1.24        1.30        1.30
+Ventas Mehuin Express         1.15        1.08        0.97
+Ventas Nueva Imperial         0.86        0.92        0.92
+Ventas Paillaco               1.02        1.04        1.01
+Ventas Panguipulli 645        1.01        1.01        0.99
+Ventas Panguipulli 763        1.14        1.09        1.04
+Ventas Panguipulli 790        0.92        0.84        0.81
+
+--- Tabla factores por team (variante D_med6) ---
+week                    2026-02-16  2026-03-16  2026-04-06
+team                                                      
+Ventas Futrono                0.81        0.82        0.82
+Ventas Lautaro                0.86        0.96        1.06
+Ventas Los Lagos              0.80        0.81        0.85
+Ventas Malalhue               1.00        1.14        1.26
+Ventas Mehuin Express         1.06        1.04        1.04
+Ventas Nueva Imperial         0.87        0.87        0.86
+Ventas Paillaco               0.93        0.97        0.97
+Ventas Panguipulli 645        0.92        0.95        0.95
+Ventas Panguipulli 763        1.09        1.05        1.07
+Ventas Panguipulli 790        0.89        0.88        0.87
+
+====================================================================================================
+RESULTADOS WAPE/BIAS por variante y semana
+====================================================================================================
+
+[BASELINE - sin corregir]
+  2026-02-16                      real=  41,526  fcst=  36,006  WAPE= 47.3%  BIAS= +13.3%
+  2026-03-16                      real=  14,731  fcst=  16,938  WAPE= 72.4%  BIAS= -15.0%
+  2026-04-06                      real=  15,420  fcst=     185  WAPE=101.2%  BIAS= +98.8%
+  TOTAL 3 sem                      real=  71,677  WAPE= 64.1%  BIAS= +25.9%
+
+[A_last1]
+  2026-02-16                      real=  41,526  fcst=  36,911  WAPE= 48.0%  BIAS= +11.1%
+  2026-03-16                      real=  14,731  fcst=  16,118  WAPE= 71.3%  BIAS=  -9.4%
+  2026-04-06                      real=  15,420  fcst=     182  WAPE=101.2%  BIAS= +98.8%
+  TOTAL 3 sem                      real=  71,677  WAPE= 64.2%  BIAS= +25.8%
+
+[B_avg3]
+  2026-02-16                      real=  41,526  fcst=  35,903  WAPE= 47.8%  BIAS= +13.5%
+  2026-03-16                      real=  14,731  fcst=  16,755  WAPE= 73.0%  BIAS= -13.7%
+  2026-04-06                      real=  15,420  fcst=     189  WAPE=101.2%  BIAS= +98.8%
+  TOTAL 3 sem                      real=  71,677  WAPE= 64.5%  BIAS= +26.3%
+
+[C_avg6]
+  2026-02-16                      real=  41,526  fcst=  33,948  WAPE= 47.8%  BIAS= +18.2%
+  2026-03-16                      real=  14,731  fcst=  15,946  WAPE= 71.3%  BIAS=  -8.2%
+  2026-04-06                      real=  15,420  fcst=     185  WAPE=101.2%  BIAS= +98.8%
+  TOTAL 3 sem                      real=  71,677  WAPE= 64.1%  BIAS= +30.1%
+
+[D_med6]
+  2026-02-16                      real=  41,526  fcst=  33,642  WAPE= 47.9%  BIAS= +19.0%
+  2026-03-16                      real=  14,731  fcst=  15,996  WAPE= 71.5%  BIAS=  -8.6%
+  2026-04-06                      real=  15,420  fcst=     188  WAPE=101.2%  BIAS= +98.8%
+  TOTAL 3 sem                      real=  71,677  WAPE= 64.2%  BIAS= +30.5%
+
+====================================================================================================
+DETALLE por team (variante B_avg3) - semana Mar-16
+====================================================================================================
+                  team  factor     real  fc_before  fc_after  WAPE_before  WAPE_after  BIAS_before  BIAS_after
+        Ventas Futrono    0.88 1,255.00   1,471.00  1,297.00        72.20       68.60       -17.20       -3.40
+        Ventas Lautaro    1.07 1,148.00   1,260.00  1,355.00        68.50       71.80        -9.80      -18.00
+      Ventas Los Lagos    0.88 1,359.00   1,524.00  1,334.00        69.20       67.60       -12.10        1.90
+       Ventas Malalhue    1.30 1,123.00   1,042.00  1,355.00        68.50       77.30         7.20      -20.60
+ Ventas Mehuin Express    1.08   839.00   1,288.00  1,386.00        95.20      104.20       -53.50      -65.20
+ Ventas Nueva Imperial    0.92 1,442.00   1,616.00  1,480.00        68.90       67.10       -12.10       -2.70
+       Ventas Paillaco    1.04 1,492.00   1,547.00  1,608.00        70.70       71.80        -3.70       -7.80
+Ventas Panguipulli 645    1.01 1,373.00   1,603.00  1,614.00        74.10       74.50       -16.80      -17.50
+Ventas Panguipulli 763    1.09 1,063.00   1,270.00  1,381.00        77.20       82.80       -19.50      -29.90
+Ventas Panguipulli 790    0.84 1,807.00   2,328.00  1,957.00        71.10       64.80       -28.80       -8.30

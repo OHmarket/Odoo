@@ -1,0 +1,197 @@
+CSV: OH Forecast Backtest (x_forecast_backtest) (1).csv
+Filas raw: 59,639  | limpio: 37,359
+Excluidos: categoria_ruido=20,215  team_ruido=3,219
+Semanas presentes en limpio:
+target_week_start
+2026-02-16    12360
+2026-03-16    12443
+2026-04-06    12556
+
+Regimenes presentes (limpio):
+regimen            REG-0  REG-1  REG-2  REG-3  REG-4  REG-5  REG-6  REG-7  REG-8
+target_week_start                                                               
+2026-02-16          2273   1832    574    254    191     36    123   1795   5165
+2026-03-16          1774   1852    648    262    201     42    145   2045   5442
+2026-04-06         10880     13     60     83     39     13     91   1184    157
+
+====================================================================================================
+A. SANITY ABRIL-06: el motor escribio forecast o sigue colapsado a REG-0?
+====================================================================================================
+  filas Abr-06 limpio: 12,556
+  con forecast>0: 60 (0.5%)
+  forecast total: 185   real total: 15,420   WAPE=101.2%
+  forecast_model_code distribucion Abr-06:
+forecast_model_code
+min_stock_or_manual    12446
+fair_share_canon          60
+hm_si_core_az              8
+hm_si_core_a_low_mu        6
+
+====================================================================================================
+B. HEADLINE: WAPE / BIAS por semana (LIMPIO)
+====================================================================================================
+  2026-02-16  n=12,360  real=    41,526  fcst=    36,006  WAPE= 47.3%  BIAS= +13.3%
+  2026-03-16  n=12,443  real=    14,731  fcst=    16,938  WAPE= 72.4%  BIAS= -15.0%
+  2026-04-06  n=12,556  real=    15,420  fcst=       185  WAPE=101.2%  BIAS= +98.8%
+
+  Buckets % por semana:
+bucket             forecast_sin_venta  sin_movimiento  vendio_y_forecast  venta_sin_forecast
+target_week_start                                                                           
+2026-02-16                      13.36           38.37              39.80                8.48
+2026-03-16                      16.16           51.11              26.46                6.27
+2026-04-06                       0.46           66.26               0.02               33.26
+
+====================================================================================================
+C. DELTA Feb-16 (temp alta) -> Mar-16 (transicion LIMPIA) por REGIMEN
+====================================================================================================
+regimen  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+  REG-0      303.00      100.99       99.01       87.00      100.00      100.00       -0.99        0.99
+  REG-3      260.00       99.23       57.69      126.00       92.06       53.97       -7.17       -3.72
+  REG-5      108.00       60.19       43.52      127.00       69.29       34.65        9.11       -8.87
+  REG-7    1,593.00       68.86       23.16      878.00       89.52       -0.46       20.66      -23.62
+  REG-8    9,889.00       75.46       13.65    3,318.00      108.86      -11.69       33.40      -25.35
+  REG-1   25,831.00       32.60       10.74    8,959.00       54.49      -18.33       21.89      -29.06
+  REG-4    1,045.00       47.85       13.40      316.00       84.49      -26.27       36.65      -39.66
+  REG-2    2,231.00       57.69        7.22      855.00       88.30      -37.31       30.62      -44.53
+
+====================================================================================================
+D. DELTA Feb-16 -> Mar-16 por TEAM
+====================================================================================================
+               team_id  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+      Ventas Los Lagos    2,661.00       55.09       -3.01    1,359.00       69.24      -12.14       14.15       -9.13
+       Ventas Malalhue    2,473.00       56.09       18.32    1,123.00       68.48        7.21       12.39      -11.11
+       Ventas Paillaco    2,547.00       55.56       12.05    1,492.00       70.71       -3.69       15.15      -15.74
+ Ventas Nueva Imperial    2,732.00       47.00        9.88    1,442.00       68.93      -12.07       21.93      -21.95
+        Ventas Lautaro    2,116.00       55.20       13.89    1,148.00       68.47       -9.76       13.27      -23.65
+        Ventas Futrono    3,639.00       47.40        8.38    1,255.00       72.19      -17.21       24.79      -25.59
+      Ventas CoÃ±aripe    7,839.00       41.37       23.00    1,830.00       70.55       -8.69       29.18      -31.69
+Ventas Panguipulli 645    4,295.00       45.96       16.86    1,373.00       74.14      -16.75       28.18      -33.61
+Ventas Panguipulli 790    5,566.00       42.38        4.80    1,807.00       71.11      -28.83       28.73      -33.63
+Ventas Panguipulli 763    3,468.00       47.55       16.87    1,063.00       77.23      -19.47       29.69      -36.34
+ Ventas Mehuin Express    4,190.00       47.45       14.13      839.00       95.23      -53.52       47.79      -67.64
+
+====================================================================================================
+E. DELTA Feb-16 -> Mar-16 por ABCXYZ
+====================================================================================================
+abcxyz  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+    CZ    1,087.00      117.02       39.93      316.00      131.65       36.71       14.63       -3.22
+    CY    1,001.00       95.70       24.58      322.00      132.61        4.66       36.90      -19.92
+    CX       94.00       90.43       73.40       89.00       84.27       52.81       -6.16      -20.60
+    AX   16,830.00       35.65        7.59    7,176.00       55.17      -13.70       19.52      -21.29
+    BX    2,310.00       57.53        3.33    1,052.00       84.98      -22.43       27.45      -25.77
+    AZ      769.00       73.47       -4.55      164.00      120.12      -32.32       46.65      -27.77
+    BY    3,837.00       74.22       19.39    1,266.00      119.51      -16.03       45.29      -35.42
+    AY   14,919.00       39.27       17.51    4,135.00       69.09      -20.77       29.83      -38.28
+    BZ      673.00      108.77       14.56      204.00      156.86      -26.47       48.10      -41.03
+
+====================================================================================================
+F. DELTA Feb-16 -> Mar-16 por SERIES_TYPE
+====================================================================================================
+ series_type  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+       lumpy    1,704.00       84.15       16.67      724.00      105.52        3.31       21.37      -13.35
+intermittent    9,209.00       75.14       18.00    3,343.00      104.55       -7.21       29.40      -25.21
+      smooth   28,565.00       35.44       10.96   10,024.00       58.28      -18.75       22.84      -29.72
+     erratic    1,824.00       52.30       12.39      604.00       87.42      -24.17       35.11      -36.56
+
+====================================================================================================
+G. DELTA Feb-16 -> Mar-16 por CICLO_DE_VIDA
+====================================================================================================
+ciclo_de_vida  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+     seasonal      933.00       97.00       50.05      267.00      109.36       25.47       12.36      -24.59
+       mature   40,468.00       45.87       12.55   14,449.00       71.35      -15.47       25.48      -28.02
+
+====================================================================================================
+H. DELTA Feb-16 -> Mar-16 por IMPORTANCIA
+====================================================================================================
+importancia  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+       bajo    2,558.00      104.18       34.21      828.00      127.42       18.96       23.23      -15.25
+    critico   16,613.00       28.09       12.62    5,555.00       44.81      -11.68       16.71      -24.31
+       alto   12,328.00       46.27        8.86    4,612.00       72.68      -19.99       26.41      -28.85
+      medio   10,021.00       65.97       14.56    3,729.00      100.88      -21.35       34.91      -35.91
+
+====================================================================================================
+I. DELTA Feb-16 -> Mar-16 top 25 CATEGORIAS por delta_bias desc
+====================================================================================================
+                                                             categ_id  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+                 Esenciales Hogar / PanaderÃ­a / Queques y Magdalenas      528.00       60.04        8.14      471.00       61.15       38.64        1.11       30.50
+                            Bebidas AlcohÃ³licas / Destilados / Pisco    1,277.00       51.21       12.06      625.00       67.20       28.16       15.99       16.10
+                     Bebidas AlcohÃ³licas / Vinos / Formato EstÃ¡ndar    1,204.00       92.36       14.62      607.00       96.87       21.75        4.51        7.13
+                  Bebidas AlcohÃ³licas / Vinos / Formatos EconÃ³micos    1,522.00       55.52       -7.95    1,232.00       60.88       -6.01        5.36        1.94
+                 Bebidas AlcohÃ³licas / CÃ³cteles y Licores / Licores      420.00       73.81       11.43      151.00       97.35       11.26       23.54       -0.17
+             Bebidas AlcohÃ³licas / Vinos / SangrÃ­a y Coctel de vino      266.00       80.45        9.77      126.00       96.83        7.94       16.37       -1.84
+                                                   Congelados / Hielo    3,222.00       22.66       17.94      881.00       21.34        8.17       -1.32       -9.77
+Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Sour y Colados      390.00       72.31        5.13      152.00      112.50      -12.50       40.19      -17.63
+    Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Light y Zero    2,828.00       43.25       13.05      723.00       58.64       -5.81       15.40      -18.86
+                           Bebidas AlcohÃ³licas / Destilados / Whisky    1,081.00       60.87       25.90      447.00       84.34        3.80       23.47      -22.10
+       Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares    5,414.00       30.88        6.91    2,098.00       45.09      -16.02       14.21      -22.92
+  Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas    3,702.00       39.36       16.18    1,267.00       57.54       -9.87       18.18      -26.05
+                    Bebidas No AlcohÃ³licas / Jugos / Jugos y NÃ©ctar      643.00       42.46        6.69      258.00       70.93      -19.77       28.47      -26.45
+                               Esenciales Hogar / Despensa / Despensa    1,900.00       39.16       -0.42      595.00       82.02      -30.92       42.86      -30.50
+                   Esenciales Hogar / Aseo y Otros / Limpieza y Hogar      655.00       35.27       27.63      179.00       44.69      -12.29        9.43      -39.92
+     Bebidas No AlcohÃ³licas / Jugos / Jugos Naturales y Refrigerados      753.00       44.75       -0.13      288.00       80.21      -44.79       35.45      -44.66
+               Bebidas AlcohÃ³licas / Espumantes / Espumantes y Sidra      552.00       89.86       23.91      108.00      137.96      -23.15       48.11      -47.06
+           Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice    3,937.00       61.32       25.10    1,453.00      103.72      -24.57       42.40      -49.67
+    Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales    1,713.00       40.51       14.36      597.00       67.34      -39.53       26.82      -53.89
+               Bebidas No AlcohÃ³licas / Aguas / Agua Mineral sin Gas    1,524.00       33.01       12.93      326.00       75.15      -42.64       42.15      -55.56
+                  Bebidas No AlcohÃ³licas / Aguas / Aguas Saborizadas    1,058.00       43.67       12.48      320.00       89.38      -51.88       45.71      -64.35
+                    Bebidas No AlcohÃ³licas / Jugos / Jugos ColaciÃ³n      959.00       48.18        5.63      326.00       84.66      -59.51       36.49      -65.14
+                       Bebidas No AlcohÃ³licas / Aguas / Agua Mineral    1,765.00       37.28       15.30      462.00       78.57      -52.60       41.29      -67.89
+   Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / IsotÃ³nicas      760.00       46.18       -8.55      232.00      112.07      -85.34       65.88      -76.79
+                                                 Congelados / Helados    2,281.00       70.23       25.08      397.00      160.45      -92.95       90.22     -118.02
+
+====================================================================================================
+J. DELTA Feb-16 -> Mar-16 top 15 CATEGORIAS que MEJORAN BIAS (over-forecast Mar)
+====================================================================================================
+                                                           categ_id  real_02-16  wape_02-16  bias_02-16  real_03-16  wape_03-16  bias_03-16  delta_wape  delta_bias
+                                               Congelados / Helados    2,281.00       70.23       25.08      397.00      160.45      -92.95       90.22     -118.02
+ Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / IsotÃ³nicas      760.00       46.18       -8.55      232.00      112.07      -85.34       65.88      -76.79
+                     Bebidas No AlcohÃ³licas / Aguas / Agua Mineral    1,765.00       37.28       15.30      462.00       78.57      -52.60       41.29      -67.89
+                  Bebidas No AlcohÃ³licas / Jugos / Jugos ColaciÃ³n      959.00       48.18        5.63      326.00       84.66      -59.51       36.49      -65.14
+                Bebidas No AlcohÃ³licas / Aguas / Aguas Saborizadas    1,058.00       43.67       12.48      320.00       89.38      -51.88       45.71      -64.35
+             Bebidas No AlcohÃ³licas / Aguas / Agua Mineral sin Gas    1,524.00       33.01       12.93      326.00       75.15      -42.64       42.15      -55.56
+  Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales    1,713.00       40.51       14.36      597.00       67.34      -39.53       26.82      -53.89
+         Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice    3,937.00       61.32       25.10    1,453.00      103.72      -24.57       42.40      -49.67
+             Bebidas AlcohÃ³licas / Espumantes / Espumantes y Sidra      552.00       89.86       23.91      108.00      137.96      -23.15       48.11      -47.06
+   Bebidas No AlcohÃ³licas / Jugos / Jugos Naturales y Refrigerados      753.00       44.75       -0.13      288.00       80.21      -44.79       35.45      -44.66
+                 Esenciales Hogar / Aseo y Otros / Limpieza y Hogar      655.00       35.27       27.63      179.00       44.69      -12.29        9.43      -39.92
+                             Esenciales Hogar / Despensa / Despensa    1,900.00       39.16       -0.42      595.00       82.02      -30.92       42.86      -30.50
+                  Bebidas No AlcohÃ³licas / Jugos / Jugos y NÃ©ctar      643.00       42.46        6.69      258.00       70.93      -19.77       28.47      -26.45
+Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas    3,702.00       39.36       16.18    1,267.00       57.54       -9.87       18.18      -26.05
+     Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares    5,414.00       30.88        6.91    2,098.00       45.09      -16.02       14.21      -22.92
+
+====================================================================================================
+K. ABRIL SIGUE ROTO  -- skipping Mar->Abr comparison
+====================================================================================================
+
+====================================================================================================
+N. mu_week_pre_bias vs forecast_qty por semana
+====================================================================================================
+  2026-02-16: pre=36,006.0  post=36,006.0  identical=True
+  2026-03-16: pre=16,938.0  post=16,938.0  identical=True
+  2026-04-06: pre=185.0  post=185.0  identical=True
+
+====================================================================================================
+O. Top 20 categorias por contribucion al WAPE absoluto (3 semanas, limpio)
+====================================================================================================
+                                                                        n     real     fcst  abs_err      err  wape_pct  bias_pct  share_abs_err
+categ_id                                                                                                                                        
+Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice           1363 7,289.00 4,788.00 5,849.00 2,501.00     80.24     34.31          12.74
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares       1499 9,737.00 7,484.00 4,853.00 2,253.00     49.84     23.14          10.57
+Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas  1204 6,376.00 4,495.00 3,593.00 1,881.00     56.35     29.50           7.82
+Congelados / Helados                                                 1974 3,267.00 2,547.00 2,900.00   720.00     88.77     22.04           6.31
+Bebidas AlcohÃ³licas / Vinos / Formatos EconÃ³micos                  2351 3,812.00 2,949.00 2,653.00   863.00     69.60     22.64           5.78
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Light y Zero     874 4,282.00 3,224.00 2,378.00 1,058.00     55.53     24.71           5.18
+Bebidas AlcohÃ³licas / Vinos / Formato EstÃ¡ndar                     4702 2,338.00 1,509.00 2,233.00   829.00     95.51     35.46           4.86
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales     671 3,022.00 2,312.00 1,820.00   710.00     60.23     23.49           3.96
+Bebidas AlcohÃ³licas / Destilados / Pisco                            2461 2,460.00 1,584.00 1,644.00   876.00     66.83     35.61           3.58
+Congelados / Hielo                                                     66 4,816.00 3,453.00 1,631.00 1,363.00     33.87     28.30           3.55
+Bebidas No AlcohÃ³licas / Aguas / Agua Mineral                        416 2,744.00 2,200.00 1,538.00   544.00     56.05     19.83           3.35
+Esenciales Hogar / Despensa / Despensa                               1253 2,740.00 2,700.00 1,490.00    40.00     54.38      1.46           3.24
+Bebidas AlcohÃ³licas / Destilados / Whisky                           2463 1,971.00 1,237.00 1,482.00   734.00     75.19     37.24           3.23
+Esenciales Hogar / PanaderÃ­a / Queques y Magdalenas                  357 1,804.00   774.00 1,410.00 1,030.00     78.16     57.10           3.07
+Bebidas No AlcohÃ³licas / Jugos / Jugos ColaciÃ³n                     561 1,711.00 1,425.00 1,164.00   286.00     68.03     16.72           2.53
+Bebidas No AlcohÃ³licas / Aguas / Aguas Saborizadas                   660 1,732.00 1,412.00 1,102.00   320.00     63.63     18.48           2.40
+Bebidas No AlcohÃ³licas / Aguas / Agua Mineral sin Gas                330 2,163.00 1,792.00 1,061.00   371.00     49.05     17.15           2.31
+Bebidas No AlcohÃ³licas / Jugos / Jugos Naturales y Refrigerados      561 1,353.00 1,171.00   880.00   182.00     65.04     13.45           1.92
+Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / IsotÃ³nicas    561 1,253.00 1,255.00   872.00    -2.00     69.59     -0.16           1.90
+Bebidas AlcohÃ³licas / Espumantes / Espumantes y Sidra               1759   787.00   553.00   772.00   234.00     98.09     29.73           1.68
