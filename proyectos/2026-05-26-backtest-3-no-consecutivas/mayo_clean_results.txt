@@ -1,0 +1,175 @@
+Filas limpio: 37,910
+Semanas: ['2026-05-04', '2026-05-11', '2026-05-18']
+
+====================================================================================================
+1. HEADLINE WAPE/BIAS por semana (LIMPIO)
+====================================================================================================
+
+  semana       |      n |      real |      fcst |   WAPE |    BIAS
+  ------------ | ------ | --------- | --------- | ------ | -------
+  2026-05-04 | 12,612 |    15,852 |    13,274 |  62.2% |  +16.3%
+  2026-05-11 | 12,637 |    14,313 |    12,919 |  63.6% |   +9.7%
+  2026-05-18 | 12,661 |    17,782 |    12,933 |  62.7% |  +27.3%
+  TOTAL        | 37,910 |    47,947 |    39,126 |  62.8% |  +18.4%
+
+====================================================================================================
+2. VALIDAR trend correction (mu_week_pre_bias vs forecast_qty)
+====================================================================================================
+  Filas con mu_week_pre_bias != forecast_qty: 3,626 (9.6%)
+  delta_pre_post stats:
+count   37,910.00
+mean         0.16
+std          0.59
+min         -0.50
+25%          0.00
+50%          0.00
+75%          0.25
+max         20.47
+
+  Factor implicito por team y semana:
+
+  --- 2026-05-04 ---
+                            n  pre_sum  post_sum  factor
+team_id                                                 
+Ventas CoÃ±aripe       471.00 1,428.81  1,421.00    0.99
+Ventas Futrono         402.00 1,323.27  1,075.00    0.81
+Ventas Lautaro         466.00 1,132.84  1,152.00    1.02
+Ventas Los Lagos       416.00 1,453.95  1,209.00    0.83
+Ventas Malalhue        408.00 1,033.37  1,059.00    1.02
+Ventas Mehuin Express  418.00   860.54    878.00    1.02
+Ventas Nueva Imperial  416.00 1,369.28  1,087.00    0.79
+Ventas Paillaco        439.00 1,341.23  1,203.00    0.90
+Ventas Panguipulli 645 429.00 1,332.67  1,292.00    0.97
+Ventas Panguipulli 763 400.00 1,141.95  1,169.00    1.02
+Ventas Panguipulli 790 491.00 2,083.64  1,729.00    0.83
+
+  --- 2026-05-11 ---
+                            n  pre_sum  post_sum  factor
+team_id                                                 
+Ventas CoÃ±aripe       445.00 1,510.06  1,487.00    0.98
+Ventas Futrono         389.00 1,271.13    997.00    0.78
+Ventas Lautaro         421.00   954.83    976.00    1.02
+Ventas Los Lagos       414.00 1,480.05  1,194.00    0.81
+Ventas Malalhue        395.00 1,005.88  1,033.00    1.03
+Ventas Mehuin Express  408.00   891.09    925.00    1.04
+Ventas Nueva Imperial  372.00 1,307.75    989.00    0.76
+Ventas Paillaco        441.00 1,362.74  1,190.00    0.87
+Ventas Panguipulli 645 431.00 1,382.57  1,348.00    0.97
+Ventas Panguipulli 763 384.00 1,044.71  1,075.00    1.03
+Ventas Panguipulli 790 498.00 2,054.55  1,705.00    0.83
+
+  --- 2026-05-18 ---
+                            n  pre_sum  post_sum  factor
+team_id                                                 
+Ventas CoÃ±aripe       465.00 1,420.27  1,368.00    0.96
+Ventas Futrono         411.00 1,307.32  1,042.00    0.80
+Ventas Lautaro         423.00 1,013.35  1,028.00    1.01
+Ventas Los Lagos       412.00 1,427.58  1,145.00    0.80
+Ventas Malalhue        406.00 1,017.10  1,048.00    1.03
+Ventas Mehuin Express  388.00   854.64    875.00    1.02
+Ventas Nueva Imperial  376.00 1,263.17    947.00    0.75
+Ventas Paillaco        428.00 1,364.68  1,181.00    0.86
+Ventas Panguipulli 645 447.00 1,323.64  1,297.00    0.98
+Ventas Panguipulli 763 401.00 1,050.41  1,081.00    1.03
+Ventas Panguipulli 790 522.00 2,269.64  1,921.00    0.85
+
+====================================================================================================
+3. Distribucion forecast_model_code y regimen por semana
+====================================================================================================
+
+forecast_model_code:
+forecast_model_code  fair_share_canon  hm_si_core  hm_si_core_a_low_mu  hm_si_core_az  min_stock_or_manual  secondary_replenishment
+target_week_start                                                                                                                  
+2026-05-04                         62         419                 1674           1150                 9027                      266
+2026-05-11                         63         409                 1697           1192                 9008                      243
+2026-05-18                         66         409                 1698           1224                 8992                      248
+
+regimen:
+regimen            REG-0  REG-1  REG-2  REG-3  REG-4  REG-5  REG-6  REG-7  REG-8
+target_week_start                                                               
+2026-05-04          4134   1871    514    152    168     12    108   1513   4126
+2026-05-11          3839   1893    518    153    160     14    109   1490   4436
+2026-05-18          3615   1883    506    158    166     14    112   1517   4666
+
+forecast_zone:
+forecast_zone      SIN_ZONA    Z1   Z3    Z4
+target_week_start                           
+2026-05-04               14  3305  266  9027
+2026-05-11               25  3361  243  9008
+2026-05-18               24  3397  248  8992
+
+====================================================================================================
+4. SANITY: chequeo % min_stock_or_manual (bug Apr-06 era 99%)
+====================================================================================================
+  2026-05-04:  9,027 / 12,612 (71.6%)
+  2026-05-11:  9,008 / 12,637 (71.3%)
+  2026-05-18:  8,992 / 12,661 (71.0%)
+
+  (referencia: Feb-16 13%, Mar-16 14%, Apr-06 99% [BUG])
+
+====================================================================================================
+5. Top 15 categorias por contribucion al WAPE (3 semanas total)
+====================================================================================================
+                                                                           n     real     fcst  WAPE_pct  BIAS_pct  share_ae
+categ_id                                                                                                                    
+Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice          1,403.00 6,426.00 3,799.00     67.00     40.90     14.30
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares      1,547.00 7,031.00 6,080.00     39.50     13.50      9.20
+Bebidas AlcohÃ³licas / Vinos / Formatos EconÃ³micos                 2,348.00 3,596.00 3,932.00     67.00     -9.30      8.00
+Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas 1,227.00 4,147.00 3,290.00     53.00     20.70      7.30
+Bebidas AlcohÃ³licas / Vinos / Formato EstÃ¡ndar                    4,814.00 1,733.00 1,366.00    112.00     21.20      6.40
+Congelados / Helados                                                1,974.00 1,190.00   950.00    124.20     20.20      4.90
+Esenciales Hogar / PanaderÃ­a / Queques y Magdalenas                  360.00 2,301.00 1,731.00     62.10     24.80      4.70
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Light y Zero     876.00 2,153.00 1,806.00     56.10     16.10      4.00
+Bebidas AlcohÃ³licas / Destilados / Pisco                           2,489.00 1,948.00 1,432.00     59.50     26.50      3.90
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales     678.00 1,908.00 1,665.00     55.20     12.70      3.50
+Esenciales Hogar / Despensa / Despensa                              1,265.00 1,506.00 1,389.00     69.30      7.80      3.50
+Bebidas AlcohÃ³licas / Destilados / Whisky                          2,555.00 1,466.00 1,172.00     69.30     20.10      3.40
+Bebidas No AlcohÃ³licas / Jugos / Jugos ColaciÃ³n                     561.00 1,138.00 1,001.00     65.30     12.00      2.50
+Bebidas No AlcohÃ³licas / Aguas / Agua Mineral                        420.00 1,265.00 1,088.00     58.30     14.00      2.40
+Congelados / Hielo                                                     66.00 2,477.00 1,928.00     28.80     22.20      2.40
+
+====================================================================================================
+6. WAPE/BIAS por team x semana
+====================================================================================================
+
+  --- 2026-05-04 ---
+                  team  factor    n     real     fcst  WAPE  BIAS
+      Ventas CoÃ±aripe    0.96 1181 1,615.00 1,421.00 68.40 12.00
+        Ventas Futrono    0.77 1190 1,167.00 1,075.00 63.10  7.90
+        Ventas Lautaro    0.98 1161 1,229.00 1,152.00 63.20  6.30
+      Ventas Los Lagos    0.80 1122 1,486.00 1,209.00 55.70 18.60
+       Ventas Malalhue    0.98 1094 1,182.00 1,059.00 68.40 10.40
+ Ventas Mehuin Express    0.97 1066   852.00   878.00 79.80 -3.10
+ Ventas Nueva Imperial    0.76 1132 1,509.00 1,087.00 58.30 28.00
+       Ventas Paillaco    0.86 1168 1,721.00 1,203.00 57.30 30.10
+Ventas Panguipulli 645    0.93 1136 1,622.00 1,292.00 58.90 20.30
+Ventas Panguipulli 763    0.97 1109 1,270.00 1,169.00 69.40  8.00
+Ventas Panguipulli 790    0.80 1253 2,199.00 1,729.00 55.90 21.40
+
+  --- 2026-05-11 ---
+                  team  factor    n     real     fcst  WAPE  BIAS
+      Ventas CoÃ±aripe    0.94 1182 1,379.00 1,487.00 66.30 -7.80
+        Ventas Futrono    0.73 1194 1,227.00   997.00 66.20 18.70
+        Ventas Lautaro    0.95 1165 1,146.00   976.00 64.00 14.80
+      Ventas Los Lagos    0.77 1124 1,456.00 1,194.00 59.50 18.00
+       Ventas Malalhue    0.97 1097 1,069.00 1,033.00 68.80  3.40
+ Ventas Mehuin Express    0.98 1067 1,017.00   925.00 72.80  9.00
+ Ventas Nueva Imperial    0.70 1132 1,399.00   989.00 57.50 29.30
+       Ventas Paillaco    0.83 1170 1,384.00 1,190.00 57.20 14.00
+Ventas Panguipulli 645    0.93 1138 1,259.00 1,348.00 69.80 -7.10
+Ventas Panguipulli 763    0.96 1110   990.00 1,075.00 68.80 -8.60
+Ventas Panguipulli 790    0.80 1258 1,987.00 1,705.00 57.90 14.20
+
+  --- 2026-05-18 ---
+                  team  factor    n     real     fcst  WAPE  BIAS
+      Ventas CoÃ±aripe    0.92 1183 1,931.00 1,368.00 66.40 29.20
+        Ventas Futrono    0.75 1198 1,562.00 1,042.00 61.50 33.30
+        Ventas Lautaro    0.95 1166 1,231.00 1,028.00 65.20 16.50
+      Ventas Los Lagos    0.76 1126 1,626.00 1,145.00 60.80 29.60
+       Ventas Malalhue    0.97 1100 1,279.00 1,048.00 66.80 18.10
+ Ventas Mehuin Express    0.96 1068 1,151.00   875.00 64.60 24.00
+ Ventas Nueva Imperial    0.70 1137 1,587.00   947.00 61.50 40.30
+       Ventas Paillaco    0.82 1170 1,565.00 1,181.00 60.40 24.50
+Ventas Panguipulli 645    0.94 1142 1,994.00 1,297.00 63.30 35.00
+Ventas Panguipulli 763    0.96 1112 1,372.00 1,081.00 69.90 21.20
+Ventas Panguipulli 790    0.82 1259 2,484.00 1,921.00 55.30 22.70

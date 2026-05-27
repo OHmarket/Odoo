@@ -1,0 +1,83 @@
+v3.45 limpio: 37,910
+
+====================================================================================================
+1. HEADLINE comparativo v3.44 (baseline) -> v3.45
+====================================================================================================
+
+  semana       |  WAPE v44 |  WAPE v45 |        Δ ||  BIAS v44 |  BIAS v45 |        Δ
+  ------------ | --------- | --------- | -------- || --------- | --------- | --------
+  2026-05-04 |     63.2% |     63.2% |   -0.04pp ||    +14.9% |    +14.9% |   +0.00pp
+  2026-05-11 |     64.1% |     64.1% |   +0.02pp ||     +9.2% |     +9.2% |   -0.04pp
+  2026-05-18 |     62.9% |     62.9% |   -0.04pp ||    +27.0% |    +27.0% |   +0.02pp
+  TOTAL        |     63.3% |     63.3% |   +0.03pp ||    +17.7% |    +17.7% |   -0.02pp
+
+  Fcst total v44: 39,470  vs v45: 39,470
+
+====================================================================================================
+2. % min_stock_or_manual v3.44 vs v3.45
+====================================================================================================
+  2026-05-04: v44  70.2%  ->  v45  48.3%  (-21.87pp)  [6,095 de 12,612]
+  2026-05-11: v44  70.4%  ->  v45  48.4%  (-21.97pp)  [6,120 de 12,637]
+  2026-05-18: v44  70.5%  ->  v45  48.6%  (-21.87pp)  [6,157 de 12,661]
+
+====================================================================================================
+3. Distribucion forecast_model_code y zone (v3.45) por semana
+====================================================================================================
+
+forecast_model_code:
+forecast_model_code  fair_share_canon  hm_si_core  hm_si_core_a_low_mu  hm_si_core_az  min_stock_or_manual  secondary_replenishment
+target_week_start                                                                                                                  
+2026-05-04                         73         419                 1687           1291                 6095                     3033
+2026-05-11                         72         409                 1704           1280                 6120                     3027
+2026-05-18                         79         409                 1699           1281                 6157                     3012
+
+forecast_zone:
+forecast_zone      SIN_ZONA    Z1    Z3    Z4
+target_week_start                            
+2026-05-04               14  3470  3033  6095
+2026-05-11               25  3465  3027  6120
+2026-05-18               24  3468  3012  6157
+
+regimen:
+regimen            REG-0  REG-1  REG-2  REG-3  REG-4  REG-5  REG-6  REG-7  REG-8
+target_week_start                                                               
+2026-05-04          2745   1878    540    187    177     12    108   1569   5382
+2026-05-11          2850   1895    541    180    167     14    109   1530   5326
+2026-05-18          2930   1883    517    174    173     14    112   1549   5285
+
+====================================================================================================
+4. Detalle por team May-18 (v3.45)
+====================================================================================================
+                  team    n     real     fcst  WAPE  BIAS
+      Ventas CoÃ±aripe 1183 1,931.00 1,372.00 66.60 28.90
+        Ventas Futrono 1198 1,562.00 1,047.00 61.70 33.00
+        Ventas Lautaro 1166 1,231.00 1,033.00 65.30 16.10
+      Ventas Los Lagos 1126 1,626.00 1,146.00 60.90 29.50
+       Ventas Malalhue 1100 1,279.00 1,053.00 67.20 17.70
+ Ventas Mehuin Express 1068 1,151.00   879.00 64.80 23.60
+ Ventas Nueva Imperial 1137 1,587.00   953.00 61.80 39.90
+       Ventas Paillaco 1170 1,565.00 1,183.00 60.40 24.40
+Ventas Panguipulli 645 1142 1,994.00 1,301.00 63.40 34.80
+Ventas Panguipulli 763 1112 1,372.00 1,085.00 70.00 20.90
+Ventas Panguipulli 790 1259 2,484.00 1,926.00 55.40 22.50
+
+====================================================================================================
+5. Top 15 categorias por contribucion al WAPE (3 sem, v3.45)
+====================================================================================================
+                                                                           n     real     fcst   WAPE   BIAS
+categ_id                                                                                                    
+Bebidas AlcohÃ³licas / CÃ³cteles y Licores / CÃ³cteles Ice          1,403.00 6,426.00 3,847.00  67.60  40.10
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Regulares      1,547.00 7,031.00 6,089.00  39.60  13.40
+Bebidas AlcohÃ³licas / Vinos / Formatos EconÃ³micos                 2,348.00 3,596.00 3,959.00  67.40 -10.10
+Bebidas No AlcohÃ³licas / IsotÃ³nicas y EnergÃ©ticas / EnergÃ©ticas 1,227.00 4,147.00 3,293.00  53.10  20.60
+Bebidas AlcohÃ³licas / Vinos / Formato EstÃ¡ndar                    4,814.00 1,733.00 1,398.00 113.00  19.30
+Congelados / Helados                                                1,974.00 1,190.00   978.00 125.70  17.80
+Esenciales Hogar / PanaderÃ­a / Queques y Magdalenas                  360.00 2,301.00 1,731.00  62.10  24.80
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Light y Zero     876.00 2,153.00 1,806.00  56.10  16.10
+Bebidas AlcohÃ³licas / Destilados / Pisco                           2,489.00 1,948.00 1,432.00  59.50  26.50
+Esenciales Hogar / Despensa / Despensa                              1,265.00 1,506.00 1,473.00  74.20   2.20
+Bebidas No AlcohÃ³licas / Bebidas Gaseosas / Bebidas Individuales     678.00 1,908.00 1,669.00  55.30  12.50
+Bebidas AlcohÃ³licas / Destilados / Whisky                          2,555.00 1,466.00 1,183.00  69.20  19.30
+Bebidas No AlcohÃ³licas / Jugos / Jugos ColaciÃ³n                     561.00 1,138.00 1,001.00  65.30  12.00
+Bebidas No AlcohÃ³licas / Aguas / Agua Mineral                        420.00 1,265.00 1,091.00  58.30  13.80
+Congelados / Hielo                                                     66.00 2,477.00 1,928.00  28.80  22.20
