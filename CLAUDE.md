@@ -152,9 +152,12 @@ Flujo:
 3. Usuario lo copia a Odoo (servidor o instancia) y lo ejecuta.
 4. Usuario confirma explicitamente que corrio bien (ej: "corrio", "ok",
    "funciono", "subir"). Sin confirmacion explicita, no se sugiere subir.
-5. Claude entrega los comandos git listos para pegar en la terminal:
-   `git add <archivo>`, `git commit -m "<mensaje>"`, `git push`.
-6. Usuario los ejecuta. Claude no corre estos comandos por su cuenta.
+5. Claude muestra los comandos git que va a correr (add, commit, push) y
+   espera confirmacion verbal explicita del usuario ("corre", "dale", "ok",
+   "subir"). Sin confirmacion clara, no ejecuta.
+6. Tras confirmacion, Claude ejecuta los comandos directamente. El usuario
+   no copia/pega — solo da palabra de aceptacion. Si la confirmacion no es
+   inequivoca, Claude vuelve a preguntar antes de tocar git.
 
 Mensaje de commit: una linea corta describiendo el cambio funcional (no el
 nombre del archivo). Ej: "forecast: corrige factor de precio en HM-SI" en lugar
