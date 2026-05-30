@@ -81,6 +81,12 @@ Despues de promover, volver a validar antes del siguiente cambio.
   absolutos como verdad dura sin rango, disclaimer o nivel de confianza.
 - **Marcar contaminacion:** always-on, promos superpuestas, baseline sucio o
   pocas semanas con venta deben quedar visibles en el resultado.
+- **Experimentos SIEMPRE en proyectos/, nunca en raíz.** Cada experimento/cambio
+  en desarrollo vive en `proyectos/<YYYY-MM-DD>-<slug>/` con estructura
+  obligatoria: `diseno.md` (qué/por qué), `plan.md` (tareas), `*.py` (scripts),
+  `resultados/` (output). Raíz está reservada SOLO para código productivo
+  (Scripts 1-5, helpers confirmados). Sin excepciones. Esto mantiene el repo
+  limpio y la trazabilidad clara.
 
 ## Estructura del repo y orden de ejecucion
 
