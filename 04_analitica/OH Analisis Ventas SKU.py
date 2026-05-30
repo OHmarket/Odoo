@@ -7,8 +7,6 @@
 # Objetivo:
 #   - Persiste venta semanal por (sala, SKU, categoria) en el modelo
 #     x_pos_week_sku_sale con prorating de combos.
-#   - Calcula response_vs_category (crecimiento SKU vs LY - crecimiento
-#     categoria vs LY) y bandas estacionales por ISO week.
 #
 # Reglas vivas (resumen operativo, no cronologia):
 #   - Grano: company + team (local) + week_start + categ_id + product_id.
@@ -18,15 +16,12 @@
 #   - Prorating combos: cada componente recibe qty/revenue prorrateado
 #     segun priced_child_count -> child_rev; weight_sum -> peso por valor;
 #     sino reparto uniforme.
-#   - Bandas estacionales: verano alto / bajo, otono, invierno, primavera,
-#     fiestas (calculadas desde ISO week).
 #   - Feriados: contexto holiday_dates, o lectura desde
 #     x_holiday_occurrence -> x_holiday_master (tipo, irrenunciable, codigo).
 #   - SAFE_EVAL friendly: sin lambdas, sin closures, sin nested functions.
 #     Requiere datetime disponible en Server Action.
 #
 # Campos persistidos clave: x_studio_qty_sold, x_studio_sales_gross,
-# x_studio_response_vs_category_pct, x_studio_seasonal_band,
 # x_studio_iso_week, x_studio_has_holiday.
 #
 # Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
@@ -47,67 +42,17 @@ DEFAULT_FROM = '2025-01-01'
 # ------------------------------------------------------------
 # 1) Semana OH: lunes a domingo, siempre en hora local Chile.
 # 2) week_start: lunes. week_end: domingo.
-# 3) Comparación LY semanal: -364 días = 52 semanas exactas.
-# 4) Bandas estacionales: se calculan desde ISO week de week_start.
-# 5) Backfill: date_from se ajusta al lunes de su semana.
-# 6) Semana ISO 53: se clasifica como FIN_ANIO.
+# 3) Backfill: date_from se ajusta al lunes de su semana.
 # ============================================================
 OH_WEEK_START_DOW = 0       # Python Monday
 OH_WEEK_LENGTH_DAYS = 7
-OH_LY_OFFSET_DAYS = 364
-OH_CALENDAR_VERSION = 'OH_WEEK_MON_SUN_LY_364_v1'
+OH_CALENDAR_VERSION = 'OH_WEEK_MON_SUN_v2'
 
 HOLIDAY_DATE_FIELD = 'x_studio_holiday_date'
 HOLIDAY_MODEL_DEFAULT = 'x_holiday_occurrence'
 HOLIDAY_REF_FIELD = 'x_studio_holiday_id'
 HOLIDAY_MODEL_CTX_KEY = 'holiday_model'
 HOLIDAY_DATES_CTX_KEY = 'holiday_dates'
-
-# ============================================================
-# Bandas estacionales
-# ------------------------------------------------------------
-# Regla entregada por operación OH:
-#   BASE: semanas normales
-#   VERANO_BAJO / MEDIO / ALTO
-#   FIESTAS_PATRIAS
-#   HALLOWEEN
-#   FIN_ANIO
-#
-# Nota: usamos semana ISO calculada sobre week_start.
-# Semana 53, si aparece, queda como FIN_ANIO para no romper
-# comparabilidad en años con semana ISO extra.
-# ============================================================
-
-_SEASONAL_BAND = {}
-for _w in list(range(10, 38)) + list(range(39, 44)) + list(range(45, 49)):
-    _SEASONAL_BAND[_w] = 'BASE'
-_SEASONAL_BAND[1] = 'VERANO_BAJO'
-for _w in [2, 3, 4, 9]:
-    _SEASONAL_BAND[_w] = 'VERANO_MEDIO'
-for _w in [5, 6, 7, 8]:
-    _SEASONAL_BAND[_w] = 'VERANO_ALTO'
-_SEASONAL_BAND[38] = 'FIESTAS_PATRIAS'
-_SEASONAL_BAND[44] = 'HALLOWEEN'
-for _w in [49, 50, 51, 52]:
-    _SEASONAL_BAND[_w] = 'FIN_ANIO'
-
-_BASE_WEEKS_SET = set()
-for _w_num, _w_band in _SEASONAL_BAND.items():
-    if _w_band == 'BASE':
-        _BASE_WEEKS_SET.add(_w_num)
-
-
-def _is_base_week(iso_week):
-    if int(iso_week or 0) == 53:
-        return False
-    return iso_week in _BASE_WEEKS_SET or iso_week not in _SEASONAL_BAND
-
-
-def _seasonal_band(iso_week):
-    if int(iso_week or 0) == 53:
-        return 'FIN_ANIO'
-    return _SEASONAL_BAND.get(iso_week, 'BASE')
-
 
 # Candidatos porque Studio puede crear nombres técnicos distintos según etiqueta.
 MASTER_CODE_FIELDS = [
@@ -198,15 +143,6 @@ def oh_week_end(d):
     return oh_week_start(d) + datetime.timedelta(days=OH_WEEK_LENGTH_DAYS - 1)
 
 
-def oh_ly_week_start(w_start):
-    # LY comparable semanal: misma posición comercial, 52 semanas atrás.
-    return w_start - datetime.timedelta(days=OH_LY_OFFSET_DAYS)
-
-
-def oh_ly_week_end(w_end):
-    return w_end - datetime.timedelta(days=OH_LY_OFFSET_DAYS)
-
-
 def oh_iso_week_from_start(w_start):
     try:
         return int(w_start.isocalendar()[1])
@@ -247,8 +183,6 @@ REQUIRED_FIELDS = [
     'x_studio_product_id',
     'x_studio_qty_sold',
     'x_studio_sales_gross',
-    'x_studio_response_vs_category_pct',
-    'x_studio_seasonal_band',
 ]
 
 missing = []
@@ -259,30 +193,10 @@ if missing:
     raise ValueError('Faltan campos en %s: %s' % (MODEL, ', '.join(missing)))
 
 HAS_CURRENCY = 'x_studio_currency_id' in Fact._fields
-HAS_RESPONSE_FIELD = 'x_studio_response_vs_category_pct' in Fact._fields
-HAS_SEASONAL_BAND = 'x_studio_seasonal_band' in Fact._fields
 HAS_ISO_WEEK = 'x_studio_iso_week' in Fact._fields
-HAS_IS_BASE_WEEK = 'x_studio_is_base_week' in Fact._fields
-HAS_SEASONAL_CONTEXT = 'x_studio_seasonal_context' in Fact._fields
-HAS_HOLIDAY_IN_BAND_KEY = 'x_studio_holiday_in_band_key' in Fact._fields
-HAS_LY_WEEK_START = 'x_studio_ly_week_start' in Fact._fields
-HAS_LY_WEEK_END = 'x_studio_ly_week_end' in Fact._fields
 HAS_CALENDAR_VERSION = 'x_studio_calendar_version' in Fact._fields
-HAS_HOLIDAY_RESPONSE_OLD = 'x_studio_holiday_response_pct' in Fact._fields
-HAS_HAS_VALID_LY_BASE = 'x_studio_has_valid_ly_base' in Fact._fields
-HAS_RESPONSE_GROSS = 'x_studio_response_gross_vs_category_pct' in Fact._fields
-HAS_SKU_GROSS_GROWTH = 'x_studio_sku_growth_gross_pct' in Fact._fields
-HAS_CATEG_GROSS_GROWTH = 'x_studio_categ_growth_gross_pct' in Fact._fields
-HAS_SALES_GROSS_LY = 'x_studio_sales_gross_ly' in Fact._fields
-HAS_CATEG_SALES_GROSS = 'x_studio_categ_sales_gross' in Fact._fields
-HAS_CATEG_SALES_GROSS_LY = 'x_studio_categ_sales_gross_ly' in Fact._fields
 HAS_HAS_HOLIDAY = 'x_studio_has_holiday' in Fact._fields
 HAS_HOLIDAY_DAYS = 'x_studio_holiday_days' in Fact._fields
-HAS_SKU_GROWTH = 'x_studio_sku_growth_qty_pct' in Fact._fields
-HAS_CATEG_GROWTH = 'x_studio_categ_growth_qty_pct' in Fact._fields
-HAS_QTY_LY = 'x_studio_qty_sold_ly' in Fact._fields
-HAS_CATEG_QTY = 'x_studio_categ_qty_sold' in Fact._fields
-HAS_CATEG_QTY_LY = 'x_studio_categ_qty_sold_ly' in Fact._fields
 HAS_HOLIDAY_NAMES = 'x_studio_holiday_names' in Fact._fields
 HAS_HOLIDAY_CODES = 'x_studio_holiday_codes' in Fact._fields
 HAS_HOLIDAY_TYPES = 'x_studio_holiday_types' in Fact._fields
@@ -706,44 +620,13 @@ def fetch_rows(dfrom, dto, team_ids):
     return cr.fetchall()
 
 
-def build_maps(rows):
-    sku_map = {}
-    cat_qty_map = {}
-    cat_gross_map = {}
-
-    for row in rows:
-        team_id, w_start, w_end, categ_id, product_id, qty_sold, sales_gross = row
-        tid = int(team_id or 0)
-        cid = int(categ_id or 0) if categ_id else False
-        pid = int(product_id or 0)
-        qty = float(qty_sold or 0.0)
-        gross = float(sales_gross or 0.0)
-
-        sku_key = (tid, w_start, cid, pid)
-        sku_map[sku_key] = {
-            'week_end': w_end,
-            'qty': qty,
-            'gross': gross,
-        }
-
-        cat_key = (tid, w_start, cid)
-        cat_qty_map[cat_key] = cat_qty_map.get(cat_key, 0.0) + qty
-        cat_gross_map[cat_key] = cat_gross_map.get(cat_key, 0.0) + gross
-
-    return sku_map, cat_qty_map, cat_gross_map
-
-
 def build_vals(rows_global, dfrom, dto, holiday_info_by_week):
     vals_list = []
     currency_id = company.currency_id.id if HAS_CURRENCY else False
 
-    sku_map, cat_qty_map, cat_gross_map = build_maps(rows_global)
-
     for row in rows_global:
         team_id, w_start, w_end, categ_id, product_id, qty_sold, sales_gross = row
 
-        # Solo se crean filas para el rango objetivo actual.
-        # Las filas LY solo alimentan el cálculo.
         if w_start < dfrom or w_start > dto:
             continue
 
@@ -753,35 +636,7 @@ def build_vals(rows_global, dfrom, dto, holiday_info_by_week):
         qty = float(qty_sold or 0.0)
         gross = float(sales_gross or 0.0)
 
-        ly_week = oh_ly_week_start(w_start)
-        sku_ly = sku_map.get((tid, ly_week, cid, pid), {'qty': 0.0, 'gross': 0.0})
-
-        cat_key_ty = (tid, w_start, cid)
-        cat_key_ly = (tid, ly_week, cid)
-        cat_qty_ty = float(cat_qty_map.get(cat_key_ty, 0.0) or 0.0)
-        cat_qty_ly = float(cat_qty_map.get(cat_key_ly, 0.0) or 0.0)
-        cat_gross_ty = float(cat_gross_map.get(cat_key_ty, 0.0) or 0.0)
-        cat_gross_ly = float(cat_gross_map.get(cat_key_ly, 0.0) or 0.0)
-
-        sku_qty_ly = float(sku_ly.get('qty', 0.0) or 0.0)
-        sku_gross_ly = float(sku_ly.get('gross', 0.0) or 0.0)
-
-        has_valid_qty_ly_base = bool(sku_qty_ly and cat_qty_ly)
-        has_valid_gross_ly_base = bool(sku_gross_ly and cat_gross_ly)
-
-        sku_growth_qty = (safe_div(qty, sku_qty_ly) - 1.0) if sku_qty_ly else 0.0
-        categ_growth_qty = (safe_div(cat_qty_ty, cat_qty_ly) - 1.0) if cat_qty_ly else 0.0
-        sku_growth_gross = (safe_div(gross, sku_gross_ly) - 1.0) if sku_gross_ly else 0.0
-        categ_growth_gross = (safe_div(cat_gross_ty, cat_gross_ly) - 1.0) if cat_gross_ly else 0.0
-
-        response_vs_category = (sku_growth_qty - categ_growth_qty) if has_valid_qty_ly_base else 0.0
-        response_gross_vs_category = (sku_growth_gross - categ_growth_gross) if has_valid_gross_ly_base else 0.0
-
-        # Banda estacional desde semana ISO. Esta capa es independiente
-        # del feriado: toda semana queda clasificada en una banda.
         iso_week = oh_iso_week_from_start(w_start)
-        seasonal_band = _seasonal_band(iso_week)
-        is_base_week = _is_base_week(iso_week)
 
         holiday_info = holiday_info_by_week.get(w_start, _empty_holiday_info())
         holiday_days = int(holiday_info.get('days', 0) or 0)
@@ -791,16 +646,6 @@ def build_vals(rows_global, dfrom, dto, holiday_info_by_week):
         holiday_names = ', '.join(holiday_info.get('names', []) or [])
         holiday_codes = ', '.join(holiday_info.get('codes', []) or [])
         holiday_types = ', '.join(holiday_info.get('types', []) or [])
-
-        seasonal_context = seasonal_band + ('|FERIADO' if has_holiday else '|SIN_FERIADO')
-        if has_holiday:
-            holiday_in_band_key = seasonal_band + '|' + (holiday_codes or holiday_names or 'FERIADO')
-        else:
-            holiday_in_band_key = seasonal_band + '|SIN_FERIADO'
-
-        # Compatibilidad con versión anterior:
-        # el campo antiguo de feriado solo se llena en semanas con feriado.
-        holiday_response = response_vs_category if (has_holiday and has_valid_qty_ly_base) else 0.0
 
         vals = {
             'x_name': '%s | %s | local=%s | sku=%s' % (
@@ -817,56 +662,18 @@ def build_vals(rows_global, dfrom, dto, holiday_info_by_week):
             'x_studio_product_id': pid,
             'x_studio_qty_sold': qty,
             'x_studio_sales_gross': gross,
-            'x_studio_response_vs_category_pct': response_vs_category,
-            'x_studio_seasonal_band': seasonal_band,
         }
 
         if HAS_CURRENCY:
             vals['x_studio_currency_id'] = currency_id
         if HAS_ISO_WEEK:
             vals['x_studio_iso_week'] = iso_week
-        if HAS_IS_BASE_WEEK:
-            vals['x_studio_is_base_week'] = is_base_week
-        if HAS_SEASONAL_CONTEXT:
-            vals['x_studio_seasonal_context'] = seasonal_context
-        if HAS_HOLIDAY_IN_BAND_KEY:
-            vals['x_studio_holiday_in_band_key'] = holiday_in_band_key
-        if HAS_LY_WEEK_START:
-            vals['x_studio_ly_week_start'] = ly_week
-        if HAS_LY_WEEK_END:
-            vals['x_studio_ly_week_end'] = oh_ly_week_end(w_end)
         if HAS_CALENDAR_VERSION:
             vals['x_studio_calendar_version'] = OH_CALENDAR_VERSION
-        if HAS_HOLIDAY_RESPONSE_OLD:
-            vals['x_studio_holiday_response_pct'] = holiday_response
-        if HAS_HAS_VALID_LY_BASE:
-            vals['x_studio_has_valid_ly_base'] = has_valid_qty_ly_base
-        if HAS_RESPONSE_GROSS:
-            vals['x_studio_response_gross_vs_category_pct'] = response_gross_vs_category
-        if HAS_SKU_GROSS_GROWTH:
-            vals['x_studio_sku_growth_gross_pct'] = sku_growth_gross
-        if HAS_CATEG_GROSS_GROWTH:
-            vals['x_studio_categ_growth_gross_pct'] = categ_growth_gross
-        if HAS_SALES_GROSS_LY:
-            vals['x_studio_sales_gross_ly'] = sku_gross_ly
-        if HAS_CATEG_SALES_GROSS:
-            vals['x_studio_categ_sales_gross'] = cat_gross_ty
-        if HAS_CATEG_SALES_GROSS_LY:
-            vals['x_studio_categ_sales_gross_ly'] = cat_gross_ly
         if HAS_HAS_HOLIDAY:
             vals['x_studio_has_holiday'] = has_holiday
         if HAS_HOLIDAY_DAYS:
             vals['x_studio_holiday_days'] = holiday_days
-        if HAS_SKU_GROWTH:
-            vals['x_studio_sku_growth_qty_pct'] = sku_growth_qty
-        if HAS_CATEG_GROWTH:
-            vals['x_studio_categ_growth_qty_pct'] = categ_growth_qty
-        if HAS_QTY_LY:
-            vals['x_studio_qty_sold_ly'] = sku_qty_ly
-        if HAS_CATEG_QTY:
-            vals['x_studio_categ_qty_sold'] = cat_qty_ty
-        if HAS_CATEG_QTY_LY:
-            vals['x_studio_categ_qty_sold_ly'] = cat_qty_ly
         if HAS_HOLIDAY_NAMES:
             vals['x_studio_holiday_names'] = holiday_names
         if HAS_HOLIDAY_CODES:
@@ -906,19 +713,14 @@ def rebuild(dfrom, dto, team_ids, dry_run=False, ctx=None):
 
     weeks = iter_week_starts(dfrom, dto)
 
-    # Necesitamos LY para calcular respuesta vs categoría.
-    # La fecha de inicio global usa el estándar OH: -364 días.
-    global_from = oh_ly_week_start(dfrom)
-    global_to = dto
-
-    rows_global = fetch_rows(global_from, global_to, team_ids)
+    rows = fetch_rows(dfrom, dto, team_ids)
     holiday_info_by_week, holiday_source = _holiday_week_counts(dfrom, dto, ctx)
-    vals = build_vals(rows_global, dfrom, dto, holiday_info_by_week)
+    vals = build_vals(rows, dfrom, dto, holiday_info_by_week)
 
     if dry_run:
         return {
             'weeks': len(weeks),
-            'rows_sql_global': len(rows_global),
+            'rows_sql': len(rows),
             'holiday_weeks': len(holiday_info_by_week),
             'holiday_source': holiday_source,
             'deleted': 0,
@@ -934,7 +736,7 @@ def rebuild(dfrom, dto, team_ids, dry_run=False, ctx=None):
 
     return {
         'weeks': len(weeks),
-        'rows_sql_global': len(rows_global),
+        'rows_sql': len(rows),
         'holiday_weeks': len(holiday_info_by_week),
         'holiday_source': holiday_source,
         'deleted': deleted,
@@ -981,6 +783,53 @@ else:
         if run_mode == 'last_closed':
             dfrom = last_closed_start
             dto = last_closed_end
+        elif run_mode == 'backfill_chunked':
+            # Backfill auto-avanzando un chunk por disparo del cron.
+            # Cursor de progreso en ir.config_parameter (clave
+            # 'oh_pos_week_sku.backfill_cursor', formato YYYY-MM-DD).
+            # Idempotente: si cursor alcanza date_to, no hace nada y
+            # notifica COMPLETE. Reset = borrar el parameter en
+            # Settings > Technical > System Parameters.
+            raw_from = parse_date(ctx.get('date_from') or DEFAULT_FROM)
+            raw_to = parse_date(ctx.get('date_to') or last_closed_end)
+            if not raw_from or not raw_to:
+                raise ValueError('backfill_chunked: date_from/date_to inválidos')
+            if raw_from > raw_to:
+                raise ValueError('backfill_chunked: date_from > date_to')
+            backfill_from = oh_week_start(raw_from)
+            backfill_to = oh_week_end(raw_to)
+            chunk_weeks = int(ctx.get('chunk_weeks') or 8)
+
+            CURSOR_KEY = 'oh_pos_week_sku.backfill_cursor'
+            ConfigParam = env['ir.config_parameter'].sudo()
+            cursor_str = ConfigParam.get_param(CURSOR_KEY)
+            cursor_date = parse_date(cursor_str) if cursor_str else None
+
+            if cursor_date is None or cursor_date < backfill_from:
+                dfrom = backfill_from
+            else:
+                dfrom = oh_week_start(cursor_date)
+
+            if dfrom > backfill_to:
+                action = _notify(
+                    'POS Semana SKU',
+                    'BACKFILL COMPLETE | version=%s | cursor=%s | range=%s -> %s' % (
+                        VERSION_ID, cursor_str, backfill_from, backfill_to,
+                    ),
+                    'success',
+                    False,
+                )
+                result = None
+                dto = backfill_to
+            else:
+                dto = min(
+                    dfrom + datetime.timedelta(days=chunk_weeks * OH_WEEK_LENGTH_DAYS - 1),
+                    backfill_to,
+                )
+                result = rebuild(dfrom, dto, team_ids, dry_run=dry_run, ctx=ctx)
+                if not dry_run:
+                    next_cursor = dto + datetime.timedelta(days=1)
+                    ConfigParam.set_param(CURSOR_KEY, next_cursor.isoformat())
         else:
             raw_from = parse_date(ctx.get('date_from') or DEFAULT_FROM)
             raw_to = parse_date(ctx.get('date_to') or last_closed_end)
@@ -990,29 +839,53 @@ else:
                 raise ValueError('date_from > date_to')
             dfrom = oh_week_start(raw_from)
             dto = oh_week_end(raw_to)
+            result = rebuild(dfrom, dto, team_ids, dry_run=dry_run, ctx=ctx)
 
-        result = rebuild(dfrom, dto, team_ids, dry_run=dry_run, ctx=ctx)
-
-        action = _notify(
-            'POS Semana SKU',
-            'OK | mode=%s | from=%s | to=%s | weeks=%s | teams=%s | rows_global=%s | holiday_weeks=%s | holiday_source=%s | seasonal_bands=yes | dry=%s | deleted=%s | created=%s | combo_explode=%s | calendar=%s' % (
-                run_mode,
-                dfrom.isoformat(),
-                dto.isoformat(),
-                result['weeks'],
-                len(team_ids),
-                result['rows_sql_global'],
-                result['holiday_weeks'],
-                result['holiday_source'],
-                'yes' if dry_run else 'no',
-                result['deleted'],
-                result['created'] or result['to_create'],
-                'yes' if HAS_COMBO_PARENT else 'no',
-                OH_CALENDAR_VERSION,
-            ),
-            'success',
-            False,
-        )
+        if run_mode == 'backfill_chunked' and result is not None:
+            pct = 0.0
+            try:
+                total_days = (backfill_to - backfill_from).days + 1
+                done_days = (dto - backfill_from).days + 1
+                pct = (done_days / total_days) * 100.0 if total_days > 0 else 0.0
+            except Exception:
+                pct = 0.0
+            action = _notify(
+                'POS Semana SKU',
+                'OK chunked | from=%s | to=%s | weeks=%s | rows_sql=%s | created=%s | progress=%s -> %s (%.1f%%) | combo_explode=%s' % (
+                    dfrom.isoformat(),
+                    dto.isoformat(),
+                    result['weeks'],
+                    result['rows_sql'],
+                    result['created'] or result['to_create'],
+                    backfill_from,
+                    dto,
+                    pct,
+                    'yes' if HAS_COMBO_PARENT else 'no',
+                ),
+                'success',
+                False,
+            )
+        elif run_mode != 'backfill_chunked':
+            action = _notify(
+                'POS Semana SKU',
+                'OK | mode=%s | from=%s | to=%s | weeks=%s | teams=%s | rows_sql=%s | holiday_weeks=%s | holiday_source=%s | dry=%s | deleted=%s | created=%s | combo_explode=%s | calendar=%s' % (
+                    run_mode,
+                    dfrom.isoformat(),
+                    dto.isoformat(),
+                    result['weeks'],
+                    len(team_ids),
+                    result['rows_sql'],
+                    result['holiday_weeks'],
+                    result['holiday_source'],
+                    'yes' if dry_run else 'no',
+                    result['deleted'],
+                    result['created'] or result['to_create'],
+                    'yes' if HAS_COMBO_PARENT else 'no',
+                    OH_CALENDAR_VERSION,
+                ),
+                'success',
+                False,
+            )
 
     except Exception as e:
         action = _notify('POS Semana SKU', 'ERROR: %s' % str(e)[:300], 'danger', True)

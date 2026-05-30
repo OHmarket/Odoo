@@ -1,0 +1,441 @@
+SKU 9407: 12 teams, 845 filas POS
+
+Historia 8 sem prev: 88 filas
+Target 10 sem:        119 filas
+
+Corriendo baseline para SKU 9407...
+[HM_SI_local] cutoff=2026-03-15  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-16  iso_week=12
+  price_corr context: 583 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 14,887  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 657  categ_global: 65  SKUs: 1,614
+  computando fair_share_ctx...
+    sku_qty_per_sala: 14,916
+    categ_qty_per_sala: 666
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.897  yoy_avg=-10.3%  n=8
+    team 7: factor=0.891  yoy_avg=-10.9%  n=8
+    team 8: factor=1.000  yoy_avg=+2.2%  n=8
+    team 9: factor=1.000  yoy_avg=+6.0%  n=8
+    team 10: factor=1.000  yoy_avg=+10.9%  n=8
+    team 12: factor=1.000  yoy_avg=+6.8%  n=8
+    team 13: factor=0.993  yoy_avg=-0.7%  n=8
+    team 16: factor=1.000  yoy_avg=+5.0%  n=8
+    team 17: factor=0.992  yoy_avg=-0.8%  n=8
+    team 18: factor=1.000  yoy_avg=+35.6%  n=8
+  main loop...
+  forecasts generados: 14,883
+[HM_SI_local] cutoff=2026-03-22  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-23  iso_week=13
+  price_corr context: 584 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 14,826  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 657  categ_global: 65  SKUs: 1,617
+  computando fair_share_ctx...
+    sku_qty_per_sala: 14,910
+    categ_qty_per_sala: 667
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.801  yoy_avg=-19.9%  n=8
+    team 6: factor=0.875  yoy_avg=-12.5%  n=8
+    team 7: factor=0.870  yoy_avg=-13.0%  n=8
+    team 8: factor=0.984  yoy_avg=-1.6%  n=8
+    team 9: factor=1.000  yoy_avg=+3.2%  n=8
+    team 10: factor=1.000  yoy_avg=+9.8%  n=8
+    team 12: factor=1.000  yoy_avg=+2.1%  n=8
+    team 13: factor=0.940  yoy_avg=-6.0%  n=8
+    team 16: factor=1.000  yoy_avg=+2.7%  n=8
+    team 17: factor=0.972  yoy_avg=-2.8%  n=8
+    team 18: factor=1.000  yoy_avg=+32.6%  n=8
+  main loop...
+  forecasts generados: 14,823
+[HM_SI_local] cutoff=2026-03-29  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-30  iso_week=14
+  price_corr context: 586 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,143  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 664  categ_global: 65  SKUs: 1,624
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,186
+    categ_qty_per_sala: 712
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.791  yoy_avg=-20.9%  n=8
+    team 6: factor=0.873  yoy_avg=-12.7%  n=8
+    team 7: factor=0.867  yoy_avg=-13.3%  n=8
+    team 8: factor=0.966  yoy_avg=-3.4%  n=8
+    team 9: factor=1.000  yoy_avg=+1.1%  n=8
+    team 10: factor=1.000  yoy_avg=+9.9%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.979  yoy_avg=-2.1%  n=8
+    team 13: factor=0.923  yoy_avg=-7.7%  n=8
+    team 16: factor=1.000  yoy_avg=+1.6%  n=8
+    team 17: factor=0.968  yoy_avg=-3.2%  n=8
+    team 18: factor=1.000  yoy_avg=+28.9%  n=8
+  main loop...
+  forecasts generados: 15,141
+[HM_SI_local] cutoff=2026-04-05  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-06  iso_week=15
+  price_corr context: 589 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,412  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 682  categ_global: 65  SKUs: 1,630
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,457
+    categ_qty_per_sala: 715
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.896  yoy_avg=-10.4%  n=8
+    team 7: factor=0.891  yoy_avg=-10.9%  n=8
+    team 8: factor=1.000  yoy_avg=+0.6%  n=8
+    team 9: factor=1.000  yoy_avg=+7.5%  n=8
+    team 10: factor=1.000  yoy_avg=+15.4%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=1.000  yoy_avg=+2.0%  n=8
+    team 13: factor=1.000  yoy_avg=+3.4%  n=8
+    team 16: factor=1.000  yoy_avg=+6.8%  n=8
+    team 17: factor=0.973  yoy_avg=-2.7%  n=8
+    team 18: factor=1.000  yoy_avg=+32.2%  n=8
+  main loop...
+  forecasts generados: 15,409
+[HM_SI_local] cutoff=2026-04-12  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-13  iso_week=16
+  price_corr context: 663 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,499  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 684  categ_global: 65  SKUs: 1,635
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,531
+    categ_qty_per_sala: 715
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.851  yoy_avg=-14.9%  n=8
+    team 6: factor=0.884  yoy_avg=-11.6%  n=8
+    team 7: factor=0.878  yoy_avg=-12.2%  n=8
+    team 8: factor=1.000  yoy_avg=+0.8%  n=8
+    team 9: factor=1.000  yoy_avg=+9.0%  n=8
+    team 10: factor=1.000  yoy_avg=+14.3%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.993  yoy_avg=-0.7%  n=8
+    team 13: factor=1.000  yoy_avg=+2.9%  n=8
+    team 16: factor=1.000  yoy_avg=+7.3%  n=8
+    team 17: factor=0.901  yoy_avg=-9.9%  n=8
+    team 18: factor=1.000  yoy_avg=+31.6%  n=8
+  main loop...
+  forecasts generados: 15,496
+[HM_SI_local] cutoff=2026-04-19  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-20  iso_week=17
+  price_corr context: 685 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,551  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 689  categ_global: 65  SKUs: 1,644
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,594
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.836  yoy_avg=-16.4%  n=8
+    team 6: factor=0.867  yoy_avg=-13.3%  n=8
+    team 7: factor=0.822  yoy_avg=-17.8%  n=8
+    team 8: factor=0.996  yoy_avg=-0.4%  n=8
+    team 9: factor=1.000  yoy_avg=+6.2%  n=8
+    team 10: factor=1.000  yoy_avg=+8.4%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.953  yoy_avg=-4.7%  n=8
+    team 13: factor=0.946  yoy_avg=-5.4%  n=8
+    team 16: factor=1.000  yoy_avg=+0.2%  n=8
+    team 17: factor=0.850  yoy_avg=-15.0%  n=8
+    team 18: factor=1.000  yoy_avg=+26.6%  n=8
+  main loop...
+  forecasts generados: 15,546
+[HM_SI_local] cutoff=2026-04-26  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-27  iso_week=18
+  price_corr context: 712 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,586  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 692  categ_global: 65  SKUs: 1,644
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,639
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.819  yoy_avg=-18.1%  n=8
+    team 6: factor=0.843  yoy_avg=-15.7%  n=8
+    team 7: factor=0.813  yoy_avg=-18.7%  n=8
+    team 8: factor=1.000  yoy_avg=+0.1%  n=8
+    team 9: factor=1.000  yoy_avg=+5.1%  n=8
+    team 10: factor=1.000  yoy_avg=+8.7%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.896  yoy_avg=-10.4%  n=8
+    team 13: factor=0.961  yoy_avg=-3.9%  n=8
+    team 16: factor=0.994  yoy_avg=-0.6%  n=8
+    team 17: factor=0.818  yoy_avg=-18.2%  n=8
+    team 18: factor=1.000  yoy_avg=+20.8%  n=8
+  main loop...
+  forecasts generados: 15,580
+[HM_SI_local] cutoff=2026-05-03  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-04  iso_week=19
+  price_corr context: 735 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,630  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 694  categ_global: 65  SKUs: 1,646
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,700
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.814  yoy_avg=-18.6%  n=8
+    team 6: factor=0.825  yoy_avg=-17.5%  n=8
+    team 7: factor=0.788  yoy_avg=-21.2%  n=8
+    team 8: factor=0.958  yoy_avg=-4.2%  n=8
+    team 9: factor=1.000  yoy_avg=+2.3%  n=8
+    team 10: factor=1.000  yoy_avg=+3.3%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.870  yoy_avg=-13.0%  n=8
+    team 13: factor=0.976  yoy_avg=-2.4%  n=8
+    team 16: factor=0.967  yoy_avg=-3.3%  n=8
+    team 17: factor=0.774  yoy_avg=-22.6%  n=8
+    team 18: factor=1.000  yoy_avg=+17.5%  n=8
+  main loop...
+  forecasts generados: 15,625
+[HM_SI_local] cutoff=2026-05-10  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-11  iso_week=20
+  price_corr context: 768 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,619  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 696  categ_global: 65  SKUs: 1,646
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,668
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.813  yoy_avg=-18.7%  n=8
+    team 6: factor=0.802  yoy_avg=-19.8%  n=8
+    team 7: factor=0.763  yoy_avg=-23.7%  n=8
+    team 8: factor=0.959  yoy_avg=-4.1%  n=8
+    team 9: factor=1.000  yoy_avg=+0.2%  n=8
+    team 10: factor=0.999  yoy_avg=-0.1%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.851  yoy_avg=-14.9%  n=8
+    team 13: factor=1.000  yoy_avg=+0.3%  n=8
+    team 16: factor=0.954  yoy_avg=-4.6%  n=8
+    team 17: factor=0.740  yoy_avg=-26.0%  n=8
+    team 18: factor=1.000  yoy_avg=+13.2%  n=8
+  main loop...
+  forecasts generados: 15,613
+[HM_SI_local] cutoff=2026-05-17  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-18  iso_week=21
+  price_corr context: 786 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,695  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 698  categ_global: 65  SKUs: 1,665
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,745
+    categ_qty_per_sala: 718
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.798  yoy_avg=-20.2%  n=8
+    team 7: factor=0.770  yoy_avg=-23.0%  n=8
+    team 8: factor=0.956  yoy_avg=-4.4%  n=8
+    team 9: factor=0.997  yoy_avg=-0.3%  n=8
+    team 10: factor=0.988  yoy_avg=-1.2%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.852  yoy_avg=-14.8%  n=8
+    team 13: factor=1.000  yoy_avg=+5.5%  n=8
+    team 16: factor=0.943  yoy_avg=-5.7%  n=8
+    team 17: factor=0.725  yoy_avg=-27.5%  n=8
+    team 18: factor=1.000  yoy_avg=+10.5%  n=8
+  main loop...
+  forecasts generados: 15,689
+Forecasts generados: 118
+
+  Total real: 10,217
+  Total fcst: 7,448
+  AE: 4,765  WAPE: 46.6%  BIAS: +27.1%
+  dn_censurado: 0 de 118
+  proxy_quiebre: 4 de 118
+
+==================================================================================================================================
+DETALLE SKU 9407 STELLA - mu_week / qty_sold por (team, semana)
+==================================================================================================================================
+
+  fcst regimen=REG-1  abcxyz=AY
+
+--- mu_week (baseline) ---
+target_week      2026-03-16  2026-03-23  2026-03-30  2026-04-06  2026-04-13  2026-04-20  2026-04-27  2026-05-04  2026-05-11  2026-05-18
+team_name                                                                                                                              
+Coñaripe              162.1       151.7       140.6       125.2        91.7        80.4       126.2        98.8        90.5       122.5
+Futrono               105.5        92.5        78.8        51.2        78.5        50.3        46.2        65.7        52.1        46.5
+Lautaro                29.7        26.2        21.5        24.0        31.2        15.2        29.0        15.4        35.9        23.4
+Los Lagos              86.0        52.2        62.7        60.6        50.0        50.3        65.5        84.0        59.2        49.2
+Malalhue               27.8        23.4        12.5        11.1        15.6        12.5        23.8        18.8        18.5        24.5
+Mehuin Express         62.5        39.5        60.6        51.9        89.9        25.9        51.4        48.9        49.9        32.8
+Nueva Imperial         96.5        67.1        86.5        51.9        73.3        31.0        45.3        32.9        33.9        55.8
+Paillaco               79.9        64.3        56.1        39.9        58.6        45.2        44.9        48.3        53.3        45.2
+Panguipulli 645        87.3        96.6       103.6        72.4       116.9        52.0        58.4       100.1        72.8        66.6
+Panguipulli 763        67.8        95.2        92.9        81.4       114.5        79.8       101.2        59.1        59.9        71.7
+Panguipulli 790       127.3       156.4       130.7       117.8       107.7        71.8       109.4       147.5       117.4        91.5
+San Jose                NaN         NaN         0.7         1.1         1.7         4.6         9.5        14.8        20.9        27.5
+
+--- qty_sold (real) ---
+target_week      2026-03-16  2026-03-23  2026-03-30  2026-04-06  2026-04-13  2026-04-20  2026-04-27  2026-05-04  2026-05-11  2026-05-18
+team_name                                                                                                                              
+Coñaripe                 94         103         146         157         123         154         163         123         116         186
+Futrono                  63          66          69          55          33          92         130         175         139         223
+Lautaro                  23          11          47           8          18          28          55          46          26          11
+Los Lagos                38          63          97          72          84          85         115         101         118         151
+Malalhue                 14          10          30          18          45          47          34          38          41         106
+Mehuin Express           33          17         121          57          64          88          61         195         111         141
+Nueva Imperial           57          25          39          34          30          71         111          77          64          28
+Paillaco                 36          20          71          41          52          59         102          55          87         164
+Panguipulli 645         108          70         113          78         120         138          85         163         122         172
+Panguipulli 763          53          70          67          55          87         134         167         169         108         151
+Panguipulli 790          96         140         137         106         142          82         357         180         211         231
+San Jose                  0           0           2           3          18          31          36          49          49          16
+
+--- error = real - fcst ---
+target_week      2026-03-16  2026-03-23  2026-03-30  2026-04-06  2026-04-13  2026-04-20  2026-04-27  2026-05-04  2026-05-11  2026-05-18
+team_name                                                                                                                              
+Coñaripe              -68.1       -48.7         5.4        31.8        31.3        73.6        36.8        24.2        25.5        63.5
+Futrono               -42.5       -26.5        -9.8         3.8       -45.5        41.7        83.8       109.3        86.9       176.5
+Lautaro                -6.7       -15.2        25.5       -16.0       -13.2        12.8        26.0        30.6        -9.9       -12.4
+Los Lagos             -48.0        10.8        34.3        11.4        34.0        34.7        49.5        17.0        58.8       101.8
+Malalhue              -13.8       -13.4        17.5         6.9        29.4        34.5        10.2        19.2        22.5        81.5
+Mehuin Express        -29.5       -22.5        60.4         5.1       -25.9        62.1         9.6       146.1        61.1       108.2
+Nueva Imperial        -39.5       -42.1       -47.5       -17.9       -43.3        40.0        65.7        44.1        30.1       -27.8
+Paillaco              -43.9       -44.3        14.9         1.1        -6.6        13.8        57.1         6.7        33.7       118.8
+Panguipulli 645        20.7       -26.6         9.4         5.6         3.1        86.0        26.6        62.9        49.2       105.4
+Panguipulli 763       -14.8       -25.2       -25.9       -26.4       -27.5        54.2        65.8       109.9        48.1        79.3
+Panguipulli 790       -31.3       -16.4         6.3       -11.8        34.3        10.2       247.6        32.5        93.6       139.5
+San Jose                NaN         NaN         1.3         1.9        16.3        26.4        26.5        34.2        28.1       -11.5
+
+====================================================================================================
+Por team (10 sem agregadas)
+====================================================================================================
+                   real         fcst          ae   n  WAPE  BIAS
+team_name                                                       
+Coñaripe         1365.0  1189.653663  408.791000  10  29.9  12.8
+Futrono          1045.0   667.212790  626.277195  10  59.9  36.2
+Lautaro           273.0   251.392378  168.252057  10  61.6   7.9
+Los Lagos         924.0   619.517759  400.545439  10  43.3  33.0
+Malalhue          383.0   188.438016  248.998158  10  65.0  50.8
+Mehuin Express    888.0   513.255409  530.670477  10  59.8  42.2
+Nueva Imperial    536.0   574.246597  397.949764  10  74.2  -7.1
+Paillaco          687.0   535.779666  340.709510  10  49.6  22.0
+Panguipulli 645  1169.0   826.625749  395.508090  10  33.8  29.3
+Panguipulli 763  1061.0   823.452471  477.182249  10  45.0  22.4
+Panguipulli 790  1682.0  1177.498072  623.556378  10  37.1  30.0
+San Jose          204.0    80.858425  146.237689   8  71.7  60.4
+
+====================================================================================================
+Por semana (12 teams agregados)
+====================================================================================================
+               real        fcst           ae  WAPE  BIAS
+target_week                                             
+2026-03-16    615.0  932.416732   358.723614  58.3 -51.6
+2026-03-23    595.0  865.076349   291.756471  49.0 -45.4
+2026-03-30    939.0  847.256362   258.092703  27.5   9.8
+2026-04-06    684.0  688.367081   139.686724  20.4  -0.6
+2026-04-13    816.0  829.531833   310.400287  38.0  -1.7
+2026-04-20   1009.0  518.897890   490.102110  48.6  48.6
+2026-04-27   1416.0  710.737206   705.262794  49.8  49.8
+2026-05-04   1371.0  734.189235   636.810765  46.4  46.4
+2026-05-11   1192.0  664.227803   547.546654  45.9  44.3
+2026-05-18   1580.0  657.230503  1026.295882  65.0  58.4
+
+====================================================================================================
+Serie completa (18 sem) - venta total Stella todos los teams
+====================================================================================================
+  2026-01-19:   2164  [HIST]
+  2026-01-26:   2237  [HIST]
+  2026-02-02:   1513  [HIST]
+  2026-02-09:   1478  [HIST]
+  2026-02-16:   1627  [HIST]
+  2026-02-23:   1168  [HIST]
+  2026-03-02:   1105  [HIST]
+  2026-03-09:    722  [HIST]
+  2026-03-16:    615  [TARGET]
+  2026-03-23:    599  [TARGET]
+  2026-03-30:    939  [TARGET]
+  2026-04-06:    684  [TARGET]
+  2026-04-13:    816  [TARGET]
+  2026-04-20:   1009  [TARGET]
+  2026-04-27:   1416  [TARGET]
+  2026-05-04:   1371  [TARGET]
+  2026-05-11:   1192  [TARGET]
+  2026-05-18:   1580  [TARGET]
+
+====================================================================================================
+Método elegido por bake-off, por (team, semana)
+====================================================================================================
+target_week                   2026-03-16               2026-03-23                     2026-03-30                     2026-04-06                     2026-04-13               2026-04-20               2026-04-27               2026-05-04            2026-05-11            2026-05-18
+team_name                                                                                                                                                                                                                                                                            
+Coñaripe         blend_down_base_r=0.629   blend_down_base_r=0.64        blend_down_base_r=0.608        blend_down_base_r=0.587        blend_down_base_r=0.645   blend_down_base_r=0.74            croston_a0.10            croston_a0.10         croston_a0.10         croston_a0.10
+Futrono          blend_down_base_r=0.479  blend_down_base_r=0.425        blend_down_base_r=0.432        blend_down_base_r=0.425        blend_down_base_r=0.488   blend_down_base_r=0.52  blend_down_base_r=0.723  sma16_base_hold_r=1.027         croston_a0.10         croston_a0.10
+Lautaro          blend_down_base_r=0.531   blend_down_base_r=0.52        blend_down_base_r=0.492        blend_down_base_r=0.582        blend_down_base_r=0.562  blend_down_base_r=0.606  blend_down_base_r=0.813  sma16_base_hold_r=0.991         croston_a0.10         croston_a0.10
+Los Lagos                      sba_a0.15  blend_down_base_r=0.844        blend_down_base_r=0.856        sma16_base_hold_r=0.905        sma16_base_hold_r=0.924            croston_a0.10            croston_a0.10     sma6_base_up_r=1.155  sma6_base_up_r=1.235  sma6_base_up_r=1.275
+Malalhue         blend_down_base_r=0.543  blend_down_base_r=0.473  sma6_base_collapse_rawr=0.295  sma6_base_collapse_rawr=0.252  sma6_base_collapse_rawr=0.262  blend_down_base_r=0.578  blend_down_base_r=0.888            croston_a0.10         croston_a0.10         croston_a0.10
+Mehuin Express   blend_down_base_r=0.618  blend_down_base_r=0.617        blend_down_base_r=0.575        blend_down_base_r=0.713        blend_down_base_r=0.777  blend_down_base_r=0.718            croston_a0.10     sma6_base_up_r=1.188   sma6_base_up_r=1.55         croston_a0.10
+Nueva Imperial                 sba_a0.15  blend_down_base_r=0.676        blend_down_base_r=0.686        blend_down_base_r=0.653        blend_down_base_r=0.644  blend_down_base_r=0.663  blend_down_base_r=0.818  sma16_base_hold_r=1.023         croston_a0.10         croston_a0.10
+Paillaco                       sba_a0.15                sba_a0.15        blend_down_base_r=0.613        blend_down_base_r=0.603        blend_down_base_r=0.631  blend_down_base_r=0.618    blend_down_base_r=0.7  blend_down_base_r=0.893         croston_a0.10         croston_a0.10
+Panguipulli 645                sba_a0.15                sba_a0.15        blend_down_base_r=0.751         blend_down_base_r=0.73        blend_down_base_r=0.738  blend_down_base_r=0.798  sma16_base_hold_r=0.953            croston_a0.10         croston_a0.10         croston_a0.10
+Panguipulli 763  blend_down_base_r=0.515   blend_down_base_r=0.54        blend_down_base_r=0.524         blend_down_base_r=0.53        blend_down_base_r=0.539  blend_down_base_r=0.632  blend_down_base_r=0.846  sma16_base_hold_r=1.008         croston_a0.10         croston_a0.10
+Panguipulli 790  blend_down_base_r=0.814  blend_down_base_r=0.818         blend_down_base_r=0.76        blend_down_base_r=0.733                      sba_a0.15                sba_a0.15                sba_a0.15  sma16_base_hold_r=0.994         croston_a0.10         croston_a0.10
+San Jose                             NaN                      NaN           sma6_base_up_r=2.667           sma6_base_up_r=2.667           sma6_base_up_r=2.667     sma6_base_up_r=2.667     sma6_base_up_r=2.667     sma6_base_up_r=2.667  sma6_base_up_r=2.559   sma6_base_up_r=2.54
+
+ -> sku_9407_detail.parquet

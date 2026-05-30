@@ -1,7 +1,7 @@
 # HM SI Forecast - Motor de demanda semanal con estacionalidad por nivel
 # ============================================================
 #
-# Version activa: v3.46 (ver CHANGELOG.md para historial completo)
+# Version activa: v3.47 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Calcular mu_week y sigma_week por (sala, SKU) usando heuristica de
@@ -59,11 +59,33 @@
 #     Persistir mu_week float deja al sistema de stock decidir el reorder
 #     point con valor continuo. CONSUMERS downstream (x_analisis_de_stock)
 #     deben leer mu_week como float, no int.
+#   - Categ calibration (v3.47): factor multiplicativo por (categ_id, abc_letter)
+#     calculado mensualmente via SA OH Calc Categ Calib Factors desde el
+#     backtest 10 sem. Captura sesgo estructural del motor por segmento
+#     (Cervezas Premium A sub +22%, Cervezas Tradicionales A over -6%, etc.)
+#     que ni correccion_factor (precio) ni trend_factor (team) capturan.
+#     Clamp simetrico [0.70, 1.30]. Se aplica DESPUES de correccion_factor
+#     (precio) y ANTES de trend_factor (team) para que el ajuste de categoria
+#     opere sobre el forecast ya ajustado por evento de precio, y trend (team)
+#     ajuste despues por la dinamica YoY del local. Modelo Studio:
+#     x_categ_calib_factor. Rollback via context apply_categ_calib=False.
+#   - Bias-outlier correction (v3.48): ULTIMA capa, PROXY in-sample, SIN
+#     backtest. Compara mu ensamblado (post precio/categ/trend) vs venta real
+#     reciente (3 sem) LIMPIA de quiebre (x_stock_balance_daily). Acumula por
+#     SKU en UNIDADES (no %), toma el Pareto-80% del error absoluto (deja la
+#     cola quieta) con guard de persistencia 2/3 (espiritu +++/---), y
+#     aplica+marca un factor multiplicativo GLOBAL por SKU. Clamp ASIMETRICO
+#     [0.65, 4.0]: techo alto (corregir lo corto, error caro) / piso prudente
+#     (cortar suave lo largo). Llena el hueco que trend (capado a 1.0) no cubre
+#     (amplifica SKUs cortos como Stella). Marca x_studio_bias_outlier/_factor/
+#     _delta y persiste mu_week_pre_bias_outlier. Default ON, rollback via
+#     context apply_bias_outlier=False. Costo despreciable: real reusa pull,
+#     quiebre se consulta solo al subset Pareto (~90% cobertura).
 #
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = "FWD_v3_46_REMOVE_ROUNDING"
+VERSION_ID = "FWD_v3_48_BIAS_OUTLIER"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438
@@ -130,6 +152,34 @@ TREND_LOOKBACK_WEEKS_DEFAULT   = 60      # ventana historica para pull POS (>= 5
 TREND_WINDOW_WEEKS_DEFAULT     = 8       # ventana reciente para promediar YoY
 TREND_CLAMP_LOW_DEFAULT        = 0.70
 TREND_CLAMP_HIGH_DEFAULT       = 1.00    # asimetrico: cap a 1.0 (no amplifica)
+
+# v3.47: calibracion por (categ_id, abc_letter). Factor multiplicativo simetrico
+# leido desde x_categ_calib_factor (refrescado mensualmente por SA OH Calc
+# Categ Calib Factors). Captura sesgo estructural por segmento que correccion
+# (precio) y trend (team) no capturan. Default ON. Override via context
+# {'apply_categ_calib': False}.
+APPLY_CATEG_CALIB_DEFAULT      = True
+CATEG_CALIB_MODEL              = 'x_categ_calib_factor'
+# Gate por regimen: ahora vive en el dato (campo x_studio_regimenes_aplicables
+# del registro). El SA escribe el CSV "REG-1,REG-2,REG-4,REG-8" por default
+# (test_L1L2 2026-05-28). Si el campo esta vacio o no existe = aplicar a todos.
+
+
+# ----------------------
+# Bias-outlier correction (v3.48) — ultima capa, PROXY in-sample, sin backtest
+# ----------------------
+# Compara mu ensamblado vs real reciente limpio de quiebre, acumula por SKU en
+# UNIDADES, toma el Pareto-80% del error absoluto (guard de persistencia 2/3) y
+# aplica+marca un factor multiplicativo global por SKU con clamp ASIMETRICO
+# (piso prudente / techo generoso por asimetria de costo: sub-forecast cuesta
+# mas que over-forecast). Default ON. Rollback via context apply_bias_outlier=False.
+APPLY_BIAS_OUTLIER_DEFAULT              = True
+BIAS_OUTLIER_WINDOW_WEEKS_DEFAULT       = 3      # ventana reciente (= real_wk de la watchlist)
+BIAS_OUTLIER_CANDIDATE_COVERAGE_DEFAULT = 0.90   # acota la query de quiebre al subset relevante
+BIAS_OUTLIER_PARETO_DEFAULT             = 0.80   # corrige el 80% de la masa de error
+BIAS_OUTLIER_CLAMP_LOW_DEFAULT          = 0.65   # piso prudente (cortar suave lo largo)
+BIAS_OUTLIER_CLAMP_HIGH_DEFAULT         = 4.00   # techo generoso (corregir lo corto)
+BIAS_OUTLIER_PERSISTENCE_MIN_DEFAULT    = 2      # >= 2 de 3 sem en la direccion del delta
 
 
 # ----------------------
@@ -1036,6 +1086,90 @@ def _load_correccion_context(product_ids, target_date):
     return out
 
 
+def _load_categ_calib_context(target_date):
+    """v3.47: Lee factores de calibracion por (categ_id, abc_letter) desde
+    x_categ_calib_factor. Refrescado mensualmente por SA OH Calc Categ Calib
+    Factors desde el backtest 10 sem.
+
+    Devuelve dict (categ_id, abc_letter) -> {factor, target_week_start,
+    n_real_units}. Si el modelo no existe (initial deploy) o no hay factores
+    activos, retorna {} silenciosamente.
+
+    El motor aplica el factor entre correccion_factor (precio) y trend_factor
+    (team) para capturar sesgo estructural por segmento (Cervezas Premium A
+    sub +22%, etc.) que no es capturable por las otras dos capas.
+    """
+    out = {}
+    if not target_date:
+        return out
+    if not _model_exists(CATEG_CALIB_MODEL):
+        return out
+
+    M = env[CATEG_CALIB_MODEL].sudo()
+    catf = _first_m2o_field(M, ['x_studio_categ_id'], 'product.category')
+    abcf = _first_field(M, ['x_studio_abc_letter'])
+    facf = _first_field(M, ['x_studio_factor_corr'])
+    twf = _first_field(M, ['x_studio_target_week', 'x_studio_target_week_start'])
+    activef = _first_field(M, ['x_studio_active', 'active'])
+    nrf = _first_field(M, ['x_studio_n_real_units'])
+    regf = _first_field(M, ['x_studio_regimenes_aplicables'])
+
+    if not (catf and abcf and facf and twf):
+        return out
+
+    domain = [(twf, '<=', target_date)]
+    if activef:
+        domain.append((activef, '=', True))
+
+    rfields = [catf, abcf, facf, twf]
+    if nrf:
+        rfields.append(nrf)
+    if regf:
+        rfields.append(regf)
+
+    # Savepoint defensivo: si la query falla (modelo recien creado sin tabla,
+    # campos faltantes, etc.), rollback para no abortar la transaccion del
+    # forecast.
+    env.cr.execute('SAVEPOINT categ_calib_lookup')
+    try:
+        rows = M.search(domain, order='%s desc' % twf).read(rfields)
+        env.cr.execute('RELEASE SAVEPOINT categ_calib_lookup')
+    except Exception:
+        env.cr.execute('ROLLBACK TO SAVEPOINT categ_calib_lookup')
+        return out
+
+    for r in rows:
+        cv = r.get(catf)
+        cid = cv[0] if isinstance(cv, (list, tuple)) else _safe_int(cv, 0)
+        letter = _safe_text(r.get(abcf), 1).strip().upper()
+        if not cid or letter not in ('A', 'B', 'C'):
+            continue
+        key = (cid, letter)
+        if key in out:
+            # Ya tenemos el mas reciente (order desc); ignorar superseded.
+            continue
+        # Parse regimenes_aplicables: "REG-1,REG-2,REG-4,REG-8" -> set.
+        # Vacio o NULL = aplicar a TODOS los regimenes (sin gate).
+        regimenes_set = None
+        if regf:
+            reg_str = _safe_text(r.get(regf), 120).strip()
+            if reg_str:
+                regimenes_set = set()
+                for _s in reg_str.split(','):
+                    _s = _s.strip().upper()
+                    if _s:
+                        regimenes_set.add(_s)
+                if not regimenes_set:
+                    regimenes_set = None
+        out[key] = {
+            'factor': _safe_float(r.get(facf), 1.0),
+            'target_week_start': r.get(twf),
+            'n_real_units': _safe_float(r.get(nrf), 0.0) if nrf else 0.0,
+            'regimenes': regimenes_set,
+        }
+    return out
+
+
 def _compute_fair_share(product_id, team_id, categ_id_local,
                         router_ctx, fs_ctx,
                         bias, sigma_cv, min_units,
@@ -1247,6 +1381,290 @@ def _route_forecast_scope(abcxyz, series_type, lifecycle, mu_week):
 # ----------------------
 # Context
 # ----------------------
+# ============================================================
+# v3.48 — Bias-outlier correction (ultima capa)
+# ============================================================
+def _compute_bias_outliers(cells, params):
+    """Core PURO (sin IO; testeado en proyectos/2026-05-29-bias-outlier).
+
+    cells: list de dicts por (team, sku) candidato:
+        {'sku','team','mu','real_weeks':[w0..],'stockout_weeks':set(idx)}
+    params: {'window','pareto','clamp':(lo,hi),'persistence_min'}
+    return: {sku: {'factor','delta','sum_real','sum_mu','n_teams'}}
+
+    Acumula por SKU en unidades (no %), gatea por persistencia 2/3 y Pareto-80%
+    del |delta| total, y devuelve el factor multiplicativo global por SKU con
+    clamp asimetrico. Excluye celdas sin semana limpia y SKUs sin persistencia.
+    """
+    window = int(params['window'])
+    lo, hi = params['clamp']
+    pareto = float(params['pareto'])
+    pmin = int(params['persistence_min'])
+
+    agg = {}
+    for c in cells:
+        sw = c['stockout_weeks']
+        # v3.48 FIX: si CUALQUIER semana tiene quiebre, no usar nada
+        # (33% contaminacion es suficiente para vicias el delta)
+        if sw:
+            continue
+        rweeks = c['real_weeks']
+        clean_sum = sum(rweeks)
+        real_weekly = clean_sum / float(window)
+        sku = c['sku']
+        a = agg.get(sku)
+        if a is None:
+            a = {'sum_real': 0.0, 'sum_mu': 0.0,
+                 'week_real': [0.0] * window, 'week_mu': [0.0] * window,
+                 'week_has': [0] * window}
+            agg[sku] = a
+        a['sum_real'] += real_weekly
+        a['sum_mu'] += c['mu']
+        # Todas las semanas limpias (if sw: continue arriba filtra cualquier quiebre)
+        for i in range(window):
+            a['week_real'][i] += rweeks[i]
+            a['week_mu'][i] += c['mu']
+            a['week_has'][i] = 1
+
+    scored = []
+    for sku, a in agg.items():
+        delta = a['sum_real'] - a['sum_mu']
+        dir_sku = 1 if delta > 0 else (-1 if delta < 0 else 0)
+        n_dir = 0
+        n_weeks = 0
+        for i in range(window):
+            if a['week_has'][i]:
+                n_weeks += 1
+                di = a['week_real'][i] - a['week_mu'][i]
+                if (di > 0 and dir_sku > 0) or (di < 0 and dir_sku < 0):
+                    n_dir += 1
+        a['delta'] = delta
+        a['n_dir'] = n_dir
+        a['n_weeks'] = n_weeks
+        scored.append((sku, a))
+
+    rank = []
+    total_abs = 0.0
+    ri = 0
+    for sku, a in scored:
+        ad = a['delta'] if a['delta'] >= 0 else -a['delta']
+        total_abs += ad
+        rank.append((ad, ri, sku))
+        ri += 1
+    out = {}
+    if total_abs <= 0.0:
+        return out
+    rank.sort(reverse=True)
+    threshold = pareto * total_abs
+    cum = 0.0
+    for ad, _ri, sku in rank:
+        a = agg[sku]
+        prev = cum
+        cum += ad
+        if prev >= threshold:
+            break
+        if a['sum_mu'] <= 0.0:
+            continue
+        if a['n_weeks'] < pmin or a['n_dir'] < pmin:
+            continue
+        # v3.48 FIX: solo corregir sub-forecasts (delta > 0, real > mu).
+        # Over-forecasts (delta < 0) son responsabilidad de trend/caps, no bias-outlier.
+        if a['delta'] <= 0:
+            continue
+        factor = a['sum_real'] / a['sum_mu']
+        factor = max(lo, min(hi, factor))
+        out[sku] = {
+            'factor': factor, 'delta': a['delta'],
+            'sum_real': a['sum_real'], 'sum_mu': a['sum_mu'],
+        }
+    return out
+
+
+def _bias_outlier_layer(data, demand_weeks_list, target_date, team_ids, params):
+    """IO de la capa: lee mu ensamblado (recien escrito) + real reciente desde
+    `data` + quiebre de x_stock_balance_daily, corre el core y aplica+marca via
+    SQL (un UPDATE por SKU outlier). No-op SEGURO si faltan los campos Studio.
+    Devuelve (n_outliers, n_filas_actualizadas).
+    """
+    # Solo los 3 campos de MARCA son obligatorios. mu_week_pre_bias_outlier es
+    # auditoria OPCIONAL: si no existe, la correccion igual se aplica y marca
+    # (no se persiste el valor pre, eso es todo). Un campo de auditoria nunca
+    # debe bloquear la correccion.
+    req_fields = ('x_studio_bias_outlier', 'x_studio_bias_outlier_factor',
+                  'x_studio_bias_outlier_delta')
+    missing = []
+    for f in req_fields:
+        if f not in fwd_fields:
+            missing.append(f)
+    if missing:
+        try:
+            log('BIAS_OUTLIER skip: faltan campos Studio %s' % ','.join(missing), level='warning')
+        except Exception:
+            pass
+        return (0, 0)
+
+    window = int(params['window'])
+    recent_weeks = list(demand_weeks_list[-window:])
+    if not recent_weeks:
+        return (0, 0)
+    week_idx = {}
+    _wi = 0
+    for wk in recent_weeks:
+        week_idx[wk] = _wi
+        _wi += 1
+    tids = list(team_ids)
+
+    # 1. mu ensamblado por (team, pid) de las filas recien escritas
+    env.cr.execute("""
+        SELECT x_studio_product_id, x_studio_team_id, x_studio_mu_week
+        FROM x_hm_si_forecast
+        WHERE x_studio_week_start = %s
+          AND x_studio_team_id = ANY(%s)
+          AND x_studio_product_id IS NOT NULL
+    """, (target_date, tids))
+    mu_by_ts = {}
+    for _pid, _tid, _mu in env.cr.fetchall():
+        if _pid is None or _tid is None:
+            continue
+        mu_by_ts[(int(_tid), int(_pid))] = _safe_float(_mu, 0.0)
+    if not mu_by_ts:
+        return (0, 0)
+
+    # 2. real crudo reciente por (team, pid) desde `data` (ya en memoria)
+    real_by_ts = {}
+    for (tid, pid), wkmap in data.items():
+        vals = []
+        has_sale = False
+        for wk in recent_weeks:
+            row = wkmap.get(wk)
+            q = _safe_float((row and row[1]) or 0.0, 0.0)
+            vals.append(q)
+            if q > 0:
+                has_sale = True
+        if has_sale:
+            real_by_ts[(int(tid), int(pid))] = vals
+
+    # 3. Candidatos: rankear por |delta crudo| por SKU, cubrir ~coverage
+    raw = {}
+    for (tid, pid), mu in mu_by_ts.items():
+        rv = real_by_ts.get((tid, pid))
+        if rv:
+            rw = sum(rv) / float(len(rv))
+        else:
+            rw = 0.0
+        acc = raw.get(pid)
+        if acc is None:
+            acc = [0.0, 0.0]
+            raw[pid] = acc
+        acc[0] += rw
+        acc[1] += mu
+    rank = []
+    total_abs_raw = 0.0
+    for pid in raw:
+        v = raw[pid]
+        ad = v[0] - v[1]
+        if ad < 0:
+            ad = -ad
+        total_abs_raw += ad
+        rank.append((ad, pid))
+    if total_abs_raw <= 0.0:
+        total_abs_raw = 1.0
+    rank.sort(reverse=True)
+    coverage = float(params['candidate_coverage'])
+    candidates = set()
+    cum = 0.0
+    for ad, pid in rank:
+        if cum >= coverage * total_abs_raw:
+            break
+        candidates.add(pid)
+        cum += ad
+    if not candidates:
+        return (0, 0)
+
+    # 4. Quiebre de candidatos en las 3 sem -> set (tid, pid, weekidx)
+    # v3.48 FIX: buscar en x_stock_balance_daily sobre TODO el rango de las 3 ultimas
+    # semanas (no solo hasta 6 dias despues de la ultima semana). Esto asegura que
+    # los quiebres detectados mapeen correctamente a los indices 0, 1, 2 de la ventana.
+    # v3.48 FIX2: expandir el rango a 1 semana ANTES de recent_weeks[0] para capturar
+    # quiebres que empezaron antes del window de analisis (ej. stockout on 2026-05-04
+    # cuando las 3 sem son 05-11, 05-18, 05-25). El gate `if idx is not None` filtra
+    # fechas fuera del window de todas formas.
+    stockout = set()
+    env.cr.execute("""
+        SELECT x_studio_product_id, x_studio_team_id, x_studio_date,
+               x_studio_stockout, x_studio_stockout_partial, x_studio_qty_balance
+        FROM x_stock_balance_daily
+        WHERE x_studio_product_id = ANY(%s)
+          AND x_studio_date >= %s AND x_studio_date < %s
+    """, (list(candidates), recent_weeks[0] - datetime.timedelta(weeks=1), recent_weeks[-1] + datetime.timedelta(days=7)))
+    for _pid, _tid, _dt, _so, _sop, _bal in env.cr.fetchall():
+        if _pid is None or _tid is None or _dt is None:
+            continue
+        if not (bool(_so) or bool(_sop) or _safe_float(_bal, 0.0) <= 0.0):
+            continue
+        ws = _week_start(_dt)
+        idx = week_idx.get(ws)
+        if idx is not None:
+            stockout.add((int(_tid), int(_pid), idx))
+
+    # 5. Celdas candidatas + core
+    cells = []
+    for (tid, pid), mu in mu_by_ts.items():
+        if pid not in candidates:
+            continue
+        rv = real_by_ts.get((tid, pid))
+        if not rv:
+            continue
+        so_weeks = set()
+        for i in range(window):
+            if (tid, pid, i) in stockout:
+                so_weeks.add(i)
+        cells.append({'sku': pid, 'team': tid, 'mu': mu,
+                      'real_weeks': rv, 'stockout_weeks': so_weeks})
+    outliers = _compute_bias_outliers(cells, params)
+    if not outliers:
+        return (0, 0)
+
+    # 6. Aplicar + marcar via SQL (un UPDATE por SKU outlier). El pre-bias se
+    # incluye solo si el campo existe (auditoria opcional).
+    # v3.48: copiar desde x_studio_mu_week_pre_bias (pre-trend) si existe,
+    # sino desde x_studio_mu_week actual.
+    has_pre = 'x_studio_mu_week_pre_bias_outlier' in fwd_fields
+    has_pre_bias = 'x_studio_mu_week_pre_bias' in fwd_fields
+    if has_pre and has_pre_bias:
+        pre_clause = ('x_studio_mu_week_pre_bias_outlier = COALESCE(x_studio_mu_week_pre_bias, x_studio_mu_week), '
+                      )
+    elif has_pre:
+        pre_clause = ('x_studio_mu_week_pre_bias_outlier = x_studio_mu_week, '
+                      )
+    else:
+        pre_clause = ''
+    update_sql = (
+        'UPDATE x_hm_si_forecast SET '
+        + pre_clause +
+        'x_studio_mu_week = x_studio_mu_week * %s, '
+        'x_studio_sigma_week = COALESCE(x_studio_sigma_week, 0.0) * %s, '
+        'x_studio_bias_outlier = TRUE, '
+        'x_studio_bias_outlier_factor = %s, '
+        'x_studio_bias_outlier_delta = %s '
+        'WHERE x_studio_week_start = %s '
+        '  AND x_studio_product_id = %s '
+        '  AND x_studio_team_id = ANY(%s)'
+    )
+    n_rows = 0
+    for sku_id, info in outliers.items():
+        f = float(info['factor'])
+        d = float(info['delta'])
+        env.cr.execute(update_sql, (f, f, f, d, target_date, int(sku_id), tids))
+        n_rows += env.cr.rowcount
+    try:
+        log('BIAS_OUTLIER v3.48 | candidatos=%s | outliers=%s | filas=%s' % (
+            len(candidates), len(outliers), n_rows), level='info')
+    except Exception:
+        pass
+    return (len(outliers), n_rows)
+
+
 CTX = env.context or {}
 
 FWD_MODEL = str(CTX.get('fwd_model', FWD_MODEL_DEFAULT) or FWD_MODEL_DEFAULT)
@@ -1288,6 +1706,20 @@ TREND_LOOKBACK_WEEKS   = int(CTX.get('trend_lookback_weeks', TREND_LOOKBACK_WEEK
 TREND_WINDOW_WEEKS     = int(CTX.get('trend_window_weeks', TREND_WINDOW_WEEKS_DEFAULT))
 TREND_CLAMP_LOW        = float(CTX.get('trend_clamp_low', TREND_CLAMP_LOW_DEFAULT))
 TREND_CLAMP_HIGH       = float(CTX.get('trend_clamp_high', TREND_CLAMP_HIGH_DEFAULT))
+
+# v3.47: categ calibration por (categ_id, abc_letter)
+APPLY_CATEG_CALIB      = bool(CTX.get('apply_categ_calib', APPLY_CATEG_CALIB_DEFAULT))
+
+# v3.48: bias-outlier correction (ultima capa)
+APPLY_BIAS_OUTLIER              = bool(CTX.get('apply_bias_outlier', APPLY_BIAS_OUTLIER_DEFAULT))
+BIAS_OUTLIER_WINDOW_WEEKS       = int(CTX.get('bias_outlier_window_weeks', BIAS_OUTLIER_WINDOW_WEEKS_DEFAULT))
+BIAS_OUTLIER_CANDIDATE_COVERAGE = float(CTX.get('bias_outlier_candidate_coverage', BIAS_OUTLIER_CANDIDATE_COVERAGE_DEFAULT))
+BIAS_OUTLIER_PARETO             = float(CTX.get('bias_outlier_pareto', BIAS_OUTLIER_PARETO_DEFAULT))
+BIAS_OUTLIER_CLAMP              = (
+    float(CTX.get('bias_outlier_clamp_low', BIAS_OUTLIER_CLAMP_LOW_DEFAULT)),
+    float(CTX.get('bias_outlier_clamp_high', BIAS_OUTLIER_CLAMP_HIGH_DEFAULT)),
+)
+BIAS_OUTLIER_PERSISTENCE_MIN    = int(CTX.get('bias_outlier_persistence_min', BIAS_OUTLIER_PERSISTENCE_MIN_DEFAULT))
 
 # v3.40: fair share
 FAIR_SHARE_ENABLED            = bool(CTX.get('fair_share_enabled', FAIR_SHARE_ENABLED_DEFAULT))
@@ -1811,6 +2243,16 @@ else:
                 correccion_applied_count = 0
                 correccion_tipo_counts = {}
 
+                # v3.47: cargar calibracion por (categ_id, abc_letter) desde
+                # x_categ_calib_factor (refrescada mensualmente por SA OH Calc
+                # Categ Calib Factors). 1 query por run; se aplica entre
+                # correccion_factor (precio) y trend_factor (team).
+                if APPLY_CATEG_CALIB:
+                    categ_calib_ctx = _load_categ_calib_context(target_date)
+                else:
+                    categ_calib_ctx = {}
+                categ_calib_applied_count = 0
+
                 # v3.33: contadores distribucion XYZ local por team.
                 # 'global' agrega los casos sin datos locales suficientes que
                 # heredan el XYZ global del producto desde router_ctx.
@@ -2315,6 +2757,49 @@ else:
                                 correccion_tipo_counts.get(correccion_tipo, 0) + 1
 
                     # ============================================================
+                    # v3.47 — Categ calibration multiplicativo por (categ, abc_letter)
+                    # Se aplica DESPUES de correccion_factor (precio) y ANTES de
+                    # trend_factor (team) para que:
+                    #  - El factor de categoria amplifique/recorte sobre el
+                    #    forecast ya ajustado por evento de precio
+                    #  - Trend correction (team) ajuste DESPUES por la dinamica
+                    #    YoY del local
+                    # Captura sesgo estructural del motor por segmento (categ x
+                    # abc) detectado via backtest mensual. Clamp simetrico
+                    # [0.70, 1.30] (a diferencia de trend_factor que es asimetrico
+                    # solo recorta). Refrescado por SA OH Calc Categ Calib Factors.
+                    # ============================================================
+                    mu_week_pre_calib = mu_week
+                    categ_calib_factor = 1.0
+                    categ_calib_meta = ''
+                    # v3.47: gate por regimen leido del registro
+                    # (x_studio_regimenes_aplicables). El SA persiste el string CSV
+                    # con los regimenes donde aplicar. NULL/vacio = aplicar a todos.
+                    # Default actual del SA: 'REG-1,REG-2,REG-4,REG-8' (test_L1L2
+                    # 2026-05-28: REG-7 sufre WAPE +2.9pp, REG-5 ruido n<500).
+                    if APPLY_CATEG_CALIB and categ_calib_ctx and mu_week > 0:
+                        abc_letter_calib = (abcxyz_local or '')[:1].upper() if abcxyz_local else ''
+                        if abc_letter_calib in ('A', 'B', 'C') and categ_id:
+                            cc = categ_calib_ctx.get((int(categ_id), abc_letter_calib))
+                            if cc:
+                                # Gate por regimen — si el registro tiene un set
+                                # de regimenes restringido, validar que el regimen
+                                # del SKU este en ese set. Si no, factor=1 (skip).
+                                regs_allowed = cc.get('regimenes')
+                                gated_out = (regs_allowed is not None
+                                             and regimen_local not in regs_allowed)
+                                if not gated_out:
+                                    categ_calib_factor = _safe_float(cc.get('factor'), 1.0)
+                                    if categ_calib_factor != 1.0:
+                                        mu_week = mu_week * categ_calib_factor
+                                        sigma_week = sigma_week * categ_calib_factor
+                                        categ_calib_applied_count += 1
+                                        categ_calib_meta = (
+                                            'categ=%s|abc=%s|f=%.3f'
+                                            % (int(categ_id), abc_letter_calib, categ_calib_factor)
+                                        )
+
+                    # ============================================================
                     # v3.43 — Trend correction multiplicativo por team
                     # Se aplica DESPUES de correccion_factor (precio) para que:
                     #  - mu_week_pre_bias capture el valor pre-trend
@@ -2370,6 +2855,11 @@ else:
                     _put_field(vals, fwd_fields, 'x_studio_correccion_razon', correccion_razon, 240)
                     _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_corr', mu_week_pre_corr)
 
+                    # v3.47: auditoria capa categ_calib (campos opcionales en Studio)
+                    _put_field(vals, fwd_fields, 'x_studio_categ_calib_factor', categ_calib_factor)
+                    _put_field(vals, fwd_fields, 'x_studio_categ_calib_meta', categ_calib_meta, 60)
+                    _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_calib', mu_week_pre_calib)
+
                     _put_field(vals, fwd_fields, 'x_studio_forecast_zone', forecast_zone, 20)
                     _put_field(vals, fwd_fields, 'x_studio_forecast_scope', forecast_scope, 60)
                     _put_field(vals, fwd_fields, 'x_studio_forecast_model_code', forecast_model_code, 60)
@@ -2407,6 +2897,33 @@ else:
                 if batch:
                     fwd_create(batch)
                     total_created += len(batch)
+
+                # ============================================================
+                # v3.48 — Bias-outlier correction (ULTIMA capa, post-write)
+                # Corre sobre las filas ya escritas (mu ensamblado), aplica+marca
+                # el set Pareto-80% limpio de quiebre. Envuelto en try: un fallo
+                # de esta capa NUNCA debe romper el forecast productivo.
+                # ============================================================
+                bias_outlier_n = 0
+                bias_outlier_rows = 0
+                if APPLY_BIAS_OUTLIER and total_created:
+                    try:
+                        bias_outlier_n, bias_outlier_rows = _bias_outlier_layer(
+                            data, demand_weeks_list, target_date, TEAM_IDS,
+                            {
+                                'window': BIAS_OUTLIER_WINDOW_WEEKS,
+                                'candidate_coverage': BIAS_OUTLIER_CANDIDATE_COVERAGE,
+                                'pareto': BIAS_OUTLIER_PARETO,
+                                'clamp': BIAS_OUTLIER_CLAMP,
+                                'persistence_min': BIAS_OUTLIER_PERSISTENCE_MIN,
+                            },
+                        )
+                    except Exception as _bias_e:
+                        try:
+                            log('BIAS_OUTLIER error (forecast intacto): %s' % _bias_e,
+                                level='warning')
+                        except Exception:
+                            pass
 
                 _xyz_missing_msg = (
                     ' | xyz_local_missing=' + ','.join(_xyz_local_missing)
@@ -2454,6 +2971,8 @@ else:
                             ' | xyz_local: X=%s Y=%s Z=%s global=%s%s'
                             ' | norm_overlay=%s (hits=%s)'
                             ' | trend=%s [%s]'
+                            ' | categ_calib=%s clusters=%s applied=%s'
+                            ' | bias_outlier=%s (rows=%s)'
                         ) % (
                             total_created,
                             len(local_pairs),
@@ -2467,6 +2986,11 @@ else:
                             norm_overlay_hits,
                             'ON' if APPLY_TREND_CORRECTION else 'OFF',
                             ' '.join(trend_factor_log) if APPLY_TREND_CORRECTION else '',
+                            'ON' if APPLY_CATEG_CALIB else 'OFF',
+                            len(categ_calib_ctx),
+                            categ_calib_applied_count,
+                            bias_outlier_n,
+                            bias_outlier_rows,
                         ),
                         'sticky': True,
                         'type': _notif_type,

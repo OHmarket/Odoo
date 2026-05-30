@@ -1,0 +1,371 @@
+Top 50 SKUs: 50
+
+Corriendo baseline 10 sem con detalle por (sku, sem)...
+  cutoff 2026-03-15
+[HM_SI_local] cutoff=2026-03-15  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-16  iso_week=12
+  price_corr context: 583 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 14,887  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 657  categ_global: 65  SKUs: 1,614
+  computando fair_share_ctx...
+    sku_qty_per_sala: 14,916
+    categ_qty_per_sala: 666
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.897  yoy_avg=-10.3%  n=8
+    team 7: factor=0.891  yoy_avg=-10.9%  n=8
+    team 8: factor=1.000  yoy_avg=+2.2%  n=8
+    team 9: factor=1.000  yoy_avg=+6.0%  n=8
+    team 10: factor=1.000  yoy_avg=+10.9%  n=8
+    team 12: factor=1.000  yoy_avg=+6.8%  n=8
+    team 13: factor=0.993  yoy_avg=-0.7%  n=8
+    team 16: factor=1.000  yoy_avg=+5.0%  n=8
+    team 17: factor=0.992  yoy_avg=-0.8%  n=8
+    team 18: factor=1.000  yoy_avg=+35.6%  n=8
+  main loop...
+  forecasts generados: 14,883
+  cutoff 2026-03-22
+[HM_SI_local] cutoff=2026-03-22  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-23  iso_week=13
+  price_corr context: 584 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 14,826  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 657  categ_global: 65  SKUs: 1,617
+  computando fair_share_ctx...
+    sku_qty_per_sala: 14,910
+    categ_qty_per_sala: 667
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.801  yoy_avg=-19.9%  n=8
+    team 6: factor=0.875  yoy_avg=-12.5%  n=8
+    team 7: factor=0.870  yoy_avg=-13.0%  n=8
+    team 8: factor=0.984  yoy_avg=-1.6%  n=8
+    team 9: factor=1.000  yoy_avg=+3.2%  n=8
+    team 10: factor=1.000  yoy_avg=+9.8%  n=8
+    team 12: factor=1.000  yoy_avg=+2.1%  n=8
+    team 13: factor=0.940  yoy_avg=-6.0%  n=8
+    team 16: factor=1.000  yoy_avg=+2.7%  n=8
+    team 17: factor=0.972  yoy_avg=-2.8%  n=8
+    team 18: factor=1.000  yoy_avg=+32.6%  n=8
+  main loop...
+  forecasts generados: 14,823
+  cutoff 2026-03-29
+[HM_SI_local] cutoff=2026-03-29  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-30  iso_week=14
+  price_corr context: 586 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,143  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 664  categ_global: 65  SKUs: 1,624
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,186
+    categ_qty_per_sala: 712
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.791  yoy_avg=-20.9%  n=8
+    team 6: factor=0.873  yoy_avg=-12.7%  n=8
+    team 7: factor=0.867  yoy_avg=-13.3%  n=8
+    team 8: factor=0.966  yoy_avg=-3.4%  n=8
+    team 9: factor=1.000  yoy_avg=+1.1%  n=8
+    team 10: factor=1.000  yoy_avg=+9.9%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.979  yoy_avg=-2.1%  n=8
+    team 13: factor=0.923  yoy_avg=-7.7%  n=8
+    team 16: factor=1.000  yoy_avg=+1.6%  n=8
+    team 17: factor=0.968  yoy_avg=-3.2%  n=8
+    team 18: factor=1.000  yoy_avg=+28.9%  n=8
+  main loop...
+  forecasts generados: 15,141
+  cutoff 2026-04-05
+[HM_SI_local] cutoff=2026-04-05  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-06  iso_week=15
+  price_corr context: 589 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,412  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 682  categ_global: 65  SKUs: 1,630
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,457
+    categ_qty_per_sala: 715
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.896  yoy_avg=-10.4%  n=8
+    team 7: factor=0.891  yoy_avg=-10.9%  n=8
+    team 8: factor=1.000  yoy_avg=+0.6%  n=8
+    team 9: factor=1.000  yoy_avg=+7.5%  n=8
+    team 10: factor=1.000  yoy_avg=+15.4%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=1.000  yoy_avg=+2.0%  n=8
+    team 13: factor=1.000  yoy_avg=+3.4%  n=8
+    team 16: factor=1.000  yoy_avg=+6.8%  n=8
+    team 17: factor=0.973  yoy_avg=-2.7%  n=8
+    team 18: factor=1.000  yoy_avg=+32.2%  n=8
+  main loop...
+  forecasts generados: 15,409
+  cutoff 2026-04-12
+[HM_SI_local] cutoff=2026-04-12  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-13  iso_week=16
+  price_corr context: 663 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,499  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 684  categ_global: 65  SKUs: 1,635
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,531
+    categ_qty_per_sala: 715
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.851  yoy_avg=-14.9%  n=8
+    team 6: factor=0.884  yoy_avg=-11.6%  n=8
+    team 7: factor=0.878  yoy_avg=-12.2%  n=8
+    team 8: factor=1.000  yoy_avg=+0.8%  n=8
+    team 9: factor=1.000  yoy_avg=+9.0%  n=8
+    team 10: factor=1.000  yoy_avg=+14.3%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.993  yoy_avg=-0.7%  n=8
+    team 13: factor=1.000  yoy_avg=+2.9%  n=8
+    team 16: factor=1.000  yoy_avg=+7.3%  n=8
+    team 17: factor=0.901  yoy_avg=-9.9%  n=8
+    team 18: factor=1.000  yoy_avg=+31.6%  n=8
+  main loop...
+  forecasts generados: 15,496
+  cutoff 2026-04-19
+[HM_SI_local] cutoff=2026-04-19  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-20  iso_week=17
+  price_corr context: 685 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,551  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 689  categ_global: 65  SKUs: 1,644
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,594
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.836  yoy_avg=-16.4%  n=8
+    team 6: factor=0.867  yoy_avg=-13.3%  n=8
+    team 7: factor=0.822  yoy_avg=-17.8%  n=8
+    team 8: factor=0.996  yoy_avg=-0.4%  n=8
+    team 9: factor=1.000  yoy_avg=+6.2%  n=8
+    team 10: factor=1.000  yoy_avg=+8.4%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.953  yoy_avg=-4.7%  n=8
+    team 13: factor=0.946  yoy_avg=-5.4%  n=8
+    team 16: factor=1.000  yoy_avg=+0.2%  n=8
+    team 17: factor=0.850  yoy_avg=-15.0%  n=8
+    team 18: factor=1.000  yoy_avg=+26.6%  n=8
+  main loop...
+  forecasts generados: 15,546
+  cutoff 2026-04-26
+[HM_SI_local] cutoff=2026-04-26  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-27  iso_week=18
+  price_corr context: 712 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,586  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 692  categ_global: 65  SKUs: 1,644
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,639
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.819  yoy_avg=-18.1%  n=8
+    team 6: factor=0.843  yoy_avg=-15.7%  n=8
+    team 7: factor=0.813  yoy_avg=-18.7%  n=8
+    team 8: factor=1.000  yoy_avg=+0.1%  n=8
+    team 9: factor=1.000  yoy_avg=+5.1%  n=8
+    team 10: factor=1.000  yoy_avg=+8.7%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.896  yoy_avg=-10.4%  n=8
+    team 13: factor=0.961  yoy_avg=-3.9%  n=8
+    team 16: factor=0.994  yoy_avg=-0.6%  n=8
+    team 17: factor=0.818  yoy_avg=-18.2%  n=8
+    team 18: factor=1.000  yoy_avg=+20.8%  n=8
+  main loop...
+  forecasts generados: 15,580
+  cutoff 2026-05-03
+[HM_SI_local] cutoff=2026-05-03  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-04  iso_week=19
+  price_corr context: 735 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,630  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 694  categ_global: 65  SKUs: 1,646
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,700
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.814  yoy_avg=-18.6%  n=8
+    team 6: factor=0.825  yoy_avg=-17.5%  n=8
+    team 7: factor=0.788  yoy_avg=-21.2%  n=8
+    team 8: factor=0.958  yoy_avg=-4.2%  n=8
+    team 9: factor=1.000  yoy_avg=+2.3%  n=8
+    team 10: factor=1.000  yoy_avg=+3.3%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.870  yoy_avg=-13.0%  n=8
+    team 13: factor=0.976  yoy_avg=-2.4%  n=8
+    team 16: factor=0.967  yoy_avg=-3.3%  n=8
+    team 17: factor=0.774  yoy_avg=-22.6%  n=8
+    team 18: factor=1.000  yoy_avg=+17.5%  n=8
+  main loop...
+  forecasts generados: 15,625
+  cutoff 2026-05-10
+[HM_SI_local] cutoff=2026-05-10  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-11  iso_week=20
+  price_corr context: 768 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,619  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 696  categ_global: 65  SKUs: 1,646
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,668
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.813  yoy_avg=-18.7%  n=8
+    team 6: factor=0.802  yoy_avg=-19.8%  n=8
+    team 7: factor=0.763  yoy_avg=-23.7%  n=8
+    team 8: factor=0.959  yoy_avg=-4.1%  n=8
+    team 9: factor=1.000  yoy_avg=+0.2%  n=8
+    team 10: factor=0.999  yoy_avg=-0.1%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.851  yoy_avg=-14.9%  n=8
+    team 13: factor=1.000  yoy_avg=+0.3%  n=8
+    team 16: factor=0.954  yoy_avg=-4.6%  n=8
+    team 17: factor=0.740  yoy_avg=-26.0%  n=8
+    team 18: factor=1.000  yoy_avg=+13.2%  n=8
+  main loop...
+  forecasts generados: 15,613
+  cutoff 2026-05-17
+[HM_SI_local] cutoff=2026-05-17  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde C:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-18  iso_week=21
+  price_corr context: 786 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,695  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 698  categ_global: 65  SKUs: 1,665
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,745
+    categ_qty_per_sala: 718
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.798  yoy_avg=-20.2%  n=8
+    team 7: factor=0.770  yoy_avg=-23.0%  n=8
+    team 8: factor=0.956  yoy_avg=-4.4%  n=8
+    team 9: factor=0.997  yoy_avg=-0.3%  n=8
+    team 10: factor=0.988  yoy_avg=-1.2%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.852  yoy_avg=-14.8%  n=8
+    team 13: factor=1.000  yoy_avg=+5.5%  n=8
+    team 16: factor=0.943  yoy_avg=-5.7%  n=8
+    team 17: factor=0.725  yoy_avg=-27.5%  n=8
+    team 18: factor=1.000  yoy_avg=+10.5%  n=8
+  main loop...
+  forecasts generados: 15,689
+
+Filas top 50 × 10 sem: 5,929
+
+====================================================================================================
+Distribución de modelos del bake-off en top 50 (10 sem × ~12 teams)
+====================================================================================================
+model_family
+sma_heur    4234
+sba         1045
+croston      650
+
+====================================================================================================
+Modelos por categoría (cervezas) y BIAS direccional
+====================================================================================================
+
+Filas cervezas: 3,217
+
+(categ, model_family) en cervezas - top 50:
+           categ_short model_family    n          ae          err    real         fcst  WAPE  BIAS
+Cervezas Tradicionales     sma_heur 1211 7941.528000 -1275.365505 14010.0 15285.365505  56.7  -9.1
+   Cervezas Importadas     sma_heur  177 6245.038308  3259.032578 14906.0 11646.967422  41.9  21.9
+      Cervezas Premium     sma_heur  319 5917.434242  2794.070722 12855.0 10060.929278  46.0  21.7
+  Cervezas Artesanales     sma_heur  581 3254.300659  -609.681667  6435.0  7044.681667  50.6  -9.5
+      Cervezas Premium      croston   72 2695.050149  2431.596351  5797.0  3365.403649  46.5  41.9
+Cervezas Tradicionales      croston  228 1573.461973  -530.863357  2779.0  3309.863357  56.6 -19.1
+Cervezas Tradicionales          sba  291 1557.595059  -175.978035  3143.0  3318.978035  49.6  -5.6
+      Cervezas Premium          sba   72 1408.679387   225.875984  3226.0  3000.124016  43.7   7.0
+  Cervezas Artesanales          sba  178 1113.583514  -221.870639  2142.0  2363.870639  52.0 -10.4
+   Cervezas Importadas          sba   17 1010.003446   692.070111  2832.0  2139.929889  35.7  24.4
+  Cervezas Artesanales      croston   66  488.048945  -126.265465   893.0  1019.265465  54.7 -14.1
+   Cervezas Importadas      croston    5  317.018060   316.910336   802.0   485.089664  39.5  39.5
+
+====================================================================================================
+Detalle: cervezas con BIAS+ promedio
+====================================================================================================
+
+SKUs en top 50 con BIAS > +10: 11
+                 n        ae   bias
+model_family                       
+croston        162   3788.33  18.92
+sba            179   3214.48   7.99
+sma_heur      1001  17096.64   9.01
+
+====================================================================================================
+Distribución de error por semana en top 50 (sumando todos)
+====================================================================================================
+               n     real          fcst           ae          err  WAPE  BIAS
+target_week                                                                  
+2026-03-16   546   9455.0  12206.977581  4933.458689 -2751.977581  52.2 -29.1
+2026-03-23   546  10315.0  11581.556433  4190.545054 -1266.556433  40.6 -12.3
+2026-03-30   588  15357.0  11587.555796  6191.534037  3769.444204  40.3  24.5
+2026-04-06   605  11029.0  10681.777097  4788.681018   347.222903  43.4   3.1
+2026-04-13   609  11671.0  12514.400799  5853.042418  -843.400799  50.2  -7.2
+2026-04-20   605  10926.0   8850.993772  4739.943324  2075.006228  43.4  19.0
+2026-04-27   605  14280.0  10914.989085  6031.463068  3365.010915  42.2  23.6
+2026-05-04   608  11139.0   9839.520557  4374.299820  1299.479443  39.3  11.7
+2026-05-11   609   9907.0   9127.619830  3963.407837   779.380170  40.0   7.9
+2026-05-18   608  12350.0   8889.232662  5176.084454  3460.767338  41.9  28.0
+
+ -> top50_methods_detail.parquet

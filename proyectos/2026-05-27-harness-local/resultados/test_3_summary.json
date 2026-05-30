@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "method": "Tracking Signal canon SAP IBP",
+    "ventana_N": 6,
+    "threshold_TS": 3.75,
+    "min_obs_valid": 4,
+    "mad_min": 0.5,
+    "clamp": [
+      0.7,
+      1.3
+    ],
+    "window_start": "2026-03-16",
+    "window_end": "2026-05-18"
+  }
+}

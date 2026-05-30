@@ -1,0 +1,72 @@
+==================================================================================================================================
+ANALISIS: a que nivel los BIAS son SIMILARES o DISTINTOS
+Universo: 195,429 filas baseline v3.46 (sin cigarros/snack/impulso)
+Global BIAS = +3.86% (referencia)
+==================================================================================================================================
+
+PARTE 1: dispersion INTER-cluster del BIAS por nivel
+----------------------------------------------------------------------------------------------------------------------------------
+  Std alto entre clusters -> nivel DISCRIMINA (calibrar aqui aporta)
+  Std bajo entre clusters -> nivel REDUNDANTE (todos los clusters tienen BIAS similar)
+
+  nivel                            | n_total n_robust(>=500) pct_rob mean_|BIAS|  std_BIAS  p25_BIAS  p75_BIAS spread_p75-p25
+  team                             |      12              12  100.0%       7.18%    10.71    -0.19%    +6.60%          6.79pp
+  L1 (super-cat)                   |       4               4  100.0%      14.15%    24.93    -3.67%   +12.86%         16.53pp
+  L2 (familia)                     |      14              14  100.0%      14.74%    25.67    -2.97%    +9.92%         12.89pp
+  L3 (sub-fam)                     |      40              37   92.5%      12.94%    20.36    -3.09%   +10.61%         13.70pp
+  abc                              |       3               3  100.0%      36.52%    60.52    -4.78%   +48.42%         53.20pp
+  xyz                              |       3               3  100.0%      25.61%    43.22    -1.85%   +36.51%         38.36pp
+  (L2, abc)                        |      39              36   92.3%      37.60%    52.15    -7.69%  +100.00%        107.69pp
+  (L2, xyz)                        |      36              31   86.1%      19.41%    29.24    -5.40%   +15.72%         21.12pp
+  (L3, abc) Test2_actual           |     104              66   63.5%      21.88%    38.03   -12.01%    +3.03%         15.04pp
+  (L3, xyz)                        |      99              64   64.6%      14.17%    23.27    -6.09%    +9.39%         15.48pp
+  (team, xyz)                      |      36              35   97.2%      28.77%    36.26    -4.14%   +68.28%         72.43pp
+  (team, L2, xyz)                  |     429             231   53.8%      17.77%    28.94    -7.20%   +10.94%         18.14pp
+  (team, L3, xyz)                  |    1161             300   25.8%      17.09%    27.08   -10.72%    +9.24%         19.96pp
+  (L2, abc, xyz)                   |      84              58   69.0%      29.07%    44.44   -13.94%   +11.66%         25.61pp
+  (team, L2, abc)                  |     462             187   40.5%      18.77%    32.80   -10.16%    +5.55%         15.71pp
+
+==================================================================================================================================
+PARTE 2: dispersion INTRA-cluster (cuanto varia el BIAS al BAJAR un nivel)
+----------------------------------------------------------------------------------------------------------------------------------
+  spread_alto -> el outer NO captura todo (necesita inner para discriminar)
+  spread_bajo -> el outer ya captura bien (no necesita inner)
+
+  outer                        inner        | n_outer avg_n_sub avg_intra_std avg_intra_spread p75_intra_spread
+  team                         L2           |      12      12.5        26.73pp          110.50pp          127.53pp
+  team                         L3           |      12      22.3        22.00pp          112.71pp          127.53pp
+  L2 (familia)                 team         |      13      11.4        13.08pp           45.34pp           51.82pp
+  L3 (sub-fam)                 team         |      25      10.6        11.95pp           41.17pp           52.78pp
+  (L2, abc)                    team         |      18       9.9        11.64pp           37.69pp           49.14pp
+  (L2, xyz)                    team         |      21      10.7        11.22pp           38.05pp           51.10pp
+  (L3, xyz)                    team         |      31       9.2        11.82pp           37.90pp           49.74pp
+  (categ_id, abc) Test2        team         |      22       9.9        12.29pp           41.34pp           53.48pp
+  xyz                          team         |       3      11.7        10.26pp           37.74pp           48.24pp
+  xyz                          L2           |       3      10.3        23.26pp           80.47pp          107.20pp
+  (team, L2)                   L3           |      12       4.0        13.33pp           30.57pp           42.64pp
+
+==================================================================================================================================
+INTERPRETACION
+----------------------------------------------------------------------------------------------------------------------------------
+  Nivel mas DISCRIMINANTE (std inter-cluster mas alto):
+    -> abc                             std_BIAS=60.52%  n_robust=3
+    -> (L2, abc)                       std_BIAS=52.15%  n_robust=36
+    -> (L2, abc, xyz)                  std_BIAS=44.44%  n_robust=58
+  Nivel mas HOMOGENEO (std inter-cluster mas bajo, redundante para calibrar):
+    -> team                            std_BIAS=10.71%  n_robust=12
+    -> L3 (sub-fam)                    std_BIAS=20.36%  n_robust=37
+    -> (L3, xyz)                       std_BIAS=23.27%  n_robust=64
+
+  ABC vs XYZ como discriminador del BIAS:
+    ABC solo: std=60.52%  spread_p75-p25=53.20pp
+    XYZ solo: std=43.22%  spread_p75-p25=38.36pp
+    -> ABC discrimina MAS que XYZ. El sesgo se predice por volumen del SKU.
+
+  Combinaciones ordenadas por discriminacion (std_BIAS desc):
+    -> (L2, abc)               std=52.15%  n_robust=  36/  39 ( 92.3%)
+    -> (L2, abc, xyz)          std=44.44%  n_robust=  58/  84 ( 69.0%)
+    -> (team, L2, abc)         std=32.80%  n_robust= 187/ 462 ( 40.5%)
+    -> (L2, xyz)               std=29.24%  n_robust=  31/  36 ( 86.1%)
+    -> (team, L2, xyz)         std=28.94%  n_robust= 231/ 429 ( 53.8%)
+    -> (L3, xyz)               std=23.27%  n_robust=  64/  99 ( 64.6%)
+==================================================================================================================================

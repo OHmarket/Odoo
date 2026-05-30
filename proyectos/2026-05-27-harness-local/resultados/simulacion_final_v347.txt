@@ -1,0 +1,87 @@
+============================================================================================================================================
+SIMULACION FINAL v3.47 - matriz 2x2 (hyperparams Test1 x categ_calib)
+Ventana: 2026-03-16 .. 2026-05-18  (10 sem)
+Factores categ_calib aplicados: 50 (calibracion 2026-05-27, fuente test_2_categ_factors.json)
+Quiebres en target_week: 86,702 pares (excluidos del error)
+Universo limpio total: 63,409 filas (sin cig/snack/impulso)
+Cobertura factor: 81,759 filas (51.0% del raw)
+============================================================================================================================================
+
+CONFIGS COMPARADAS:
+  A = baseline v3.46          (motor productivo actual, sin ajustes)
+  B = Test 1 tuning           (12 hyperparams retunes Fase 1..4)
+  C = v3.47 categ_calib       (baseline + factor (categ_id x abc_letter))
+  D = combo Test 1 + calib    (tuning hyperparams + categ_calib)
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL (sin cig/snack, sin quiebres)
+--------------------------------------------------------------------------------------------------------------------------------------------
+  metrica                            | A WAPE= 48.65 BIAS= +22.93 | B WAPE= 49.29 BIAS= +24.32 | C WAPE= 48.69 BIAS= +10.66 | D WAPE= 49.20 BIAS= +12.19
+  d_B-A (tuning vs baseline)         |                                   | d_WAPE= +0.64 d_BIAS=  +1.39  (WAPE 48.65 -> 49.29,  BIAS +22.93 -> +24.32)
+  d_C-A (calib vs baseline)          |                                   | d_WAPE= +0.04 d_BIAS= -12.27  (WAPE 48.65 -> 48.69,  BIAS +22.93 -> +10.66)
+  d_D-A (combo vs baseline)          |                                   | d_WAPE= +0.55 d_BIAS= -10.74  (WAPE 48.65 -> 49.20,  BIAS +22.93 -> +12.19)
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+CERVEZAS
+--------------------------------------------------------------------------------------------------------------------------------------------
+  metrica                            | A WAPE= 45.70 BIAS= +18.46 | B WAPE= 45.60 BIAS= +20.40 | C WAPE= 45.06 BIAS=  +4.01 | D WAPE= 44.54 BIAS=  +6.20
+  d_B-A (tuning vs baseline)         |                                   | d_WAPE= -0.10 d_BIAS=  +1.94  (WAPE 45.70 -> 45.60,  BIAS +18.46 -> +20.40)
+  d_C-A (calib vs baseline)          |                                   | d_WAPE= -0.64 d_BIAS= -14.45  (WAPE 45.70 -> 45.06,  BIAS +18.46 -> +4.01)
+  d_D-A (combo vs baseline)          |                                   | d_WAPE= -1.16 d_BIAS= -12.26  (WAPE 45.70 -> 44.54,  BIAS +18.46 -> +6.20)
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+SKU 9407 Stella (testigo lag)
+--------------------------------------------------------------------------------------------------------------------------------------------
+  metrica                            | A WAPE= 45.96 BIAS= +28.22 | B WAPE= 43.92 BIAS= +35.94 | C WAPE= 44.87 BIAS=  +6.69 | D WAPE= 36.61 BIAS= +16.73
+  d_B-A (tuning vs baseline)         |                                   | d_WAPE= -2.04 d_BIAS=  +7.72  (WAPE 45.96 -> 43.92,  BIAS +28.22 -> +35.94)
+  d_C-A (calib vs baseline)          |                                   | d_WAPE= -1.09 d_BIAS= -21.53  (WAPE 45.96 -> 44.87,  BIAS +28.22 -> +6.69)
+  d_D-A (combo vs baseline)          |                                   | d_WAPE= -9.35 d_BIAS= -11.49  (WAPE 45.96 -> 36.61,  BIAS +28.22 -> +16.73)
+
+============================================================================================================================================
+EFECTO POR SEMANA (universo limpio total)
+--------------------------------------------------------------------------------------------------------------------------------------------
+  semana       |           A baseline |              B test1 |              C calib |              D combo
+  2026-03-16   | WAPE=49.33 BIAS= -0.03 | WAPE=49.11 BIAS= +1.24 | WAPE=55.56 BIAS=-16.62 | WAPE=55.06 BIAS=-14.96
+  2026-03-23   | WAPE=45.93 BIAS=+12.77 | WAPE=45.72 BIAS=+16.66 | WAPE=48.12 BIAS= -1.89 | WAPE=46.82 BIAS= +2.76
+  2026-03-30   | WAPE=49.34 BIAS=+36.08 | WAPE=51.27 BIAS=+39.87 | WAPE=45.93 BIAS=+25.28 | WAPE=47.49 BIAS=+29.76
+  2026-04-06   | WAPE=46.78 BIAS=+21.54 | WAPE=47.54 BIAS=+24.04 | WAPE=46.76 BIAS= +8.10 | WAPE=46.58 BIAS=+10.98
+  2026-04-13   | WAPE=54.04 BIAS= +8.15 | WAPE=53.71 BIAS=+10.08 | WAPE=58.54 BIAS= -5.77 | WAPE=57.65 BIAS= -3.68
+  2026-04-20   | WAPE=48.64 BIAS=+29.33 | WAPE=50.04 BIAS=+28.25 | WAPE=46.56 BIAS=+18.74 | WAPE=48.51 BIAS=+17.34
+  2026-04-27   | WAPE=49.17 BIAS=+31.72 | WAPE=49.77 BIAS=+31.02 | WAPE=46.77 BIAS=+21.59 | WAPE=47.96 BIAS=+20.53
+  2026-05-04   | WAPE=46.85 BIAS=+25.04 | WAPE=47.84 BIAS=+26.67 | WAPE=47.00 BIAS=+13.43 | WAPE=48.29 BIAS=+14.97
+  2026-05-11   | WAPE=47.38 BIAS=+22.94 | WAPE=48.38 BIAS=+23.25 | WAPE=47.17 BIAS=+11.33 | WAPE=48.26 BIAS=+11.45
+  2026-05-18   | WAPE=48.79 BIAS=+33.60 | WAPE=48.80 BIAS=+32.50 | WAPE=46.47 BIAS=+23.45 | WAPE=47.10 BIAS=+22.03
+
+============================================================================================================================================
+EFECTO POR CATEGORIA TOP 20 (orden por unidades reales)
+--------------------------------------------------------------------------------------------------------------------------------------------
+    cat name                                           real |  A WAPE   A BIAS |  B WAPE   B BIAS |  C WAPE   C BIAS |  D WAPE   D BIAS
+   1625 Bebidas Alcohólicas / Cervezas / Cervezas    36,842 |   50.23   +10.45 |   50.24   +12.11 |   51.95    +3.18 |   51.77    +4.90
+   1624 Bebidas Alcohólicas / Cervezas / Cervezas    35,162 |   41.61   +26.41 |   41.06   +30.67 |   38.77    +4.54 |   35.56   +10.08
+   1618 Bebidas No Alcohólicas / Bebidas Gaseosas    23,062 |   33.17    +7.90 |   33.90    +8.71 |   33.91    +0.49 |   34.66    +1.38
+   1623 Bebidas Alcohólicas / Cervezas / Cervezas    22,661 |   42.67   +24.90 |   42.33   +21.76 |   41.23    +2.37 |   43.26    -1.71
+   1631 Bebidas Alcohólicas / Cócteles y Licores /   16,005 |   52.48   +30.07 |   53.10   +29.21 |   53.06    +9.09 |   54.71    +7.97
+   1619 Bebidas No Alcohólicas / Isotónicas y Ener   14,009 |   41.19    +4.74 |   41.81    +6.74 |   41.19    +4.74 |   41.81    +6.74
+   1622 Bebidas Alcohólicas / Cervezas / Cervezas    13,302 |   48.18    +6.96 |   49.04   +12.12 |   48.21    +5.95 |   49.07   +11.11
+   1711 Esenciales Hogar / Aseo y Otros / Limpieza   11,535 |   91.44   +84.57 |   91.44   +84.91 |   91.22   +85.37 |   91.26   +85.69
+   1652 Bebidas Alcohólicas / Vinos / Formatos Eco   10,456 |   49.31   +14.03 |   51.21   +16.06 |   51.33    +1.55 |   53.13    +3.88
+   1666 Congelados / Hielo                            8,655 |   28.57   +16.56 |   28.61   +16.48 |   27.48    -0.00 |   27.39    -0.09
+   1617 Bebidas No Alcohólicas / Bebidas Gaseosas     6,713 |   42.56   +21.72 |   43.79   +21.84 |   43.71    +3.98 |   45.29    +4.13
+   1615 Bebidas No Alcohólicas / Bebidas Gaseosas     6,661 |   41.89   +11.99 |   43.29   +13.71 |   43.71    +0.35 |   44.65    +2.31
+   1637 Bebidas Alcohólicas / Destilados / Pisco      4,960 |   44.60   +19.83 |   45.62   +21.28 |   44.66    +4.81 |   45.48    +6.45
+   1693 Esenciales Hogar / Panadería / Queques y M    4,741 |   57.15   +40.74 |   54.94   +36.60 |   53.77   +22.96 |   52.01   +17.58
+   1608 Bebidas No Alcohólicas / Aguas / Agua Mine    4,678 |   42.16   +16.53 |   45.08   +16.94 |   44.47    +1.30 |   47.50    +1.79
+   1668 Esenciales Hogar / Despensa / Despensa        4,393 |   67.69   +12.06 |   70.96   +17.44 |   64.95   +18.96 |   68.95   +23.88
+   1650 Bebidas Alcohólicas / Vinos / Formato Está    3,798 |   68.13   +50.41 |   69.30   +51.45 |   68.60   +35.54 |   69.48   +36.88
+   1643 Bebidas No Alcohólicas / Jugos / Jugos Col    3,701 |   46.61   +18.20 |   48.36   +19.25 |   48.59    +0.27 |   50.67    +1.55
+   1641 Bebidas Alcohólicas / Destilados / Whisky     3,698 |   52.02   +18.00 |   54.06   +20.12 |   53.16    +6.17 |   54.49    +8.70
+   1665 Congelados / Helados                          3,582 |   60.91   +44.24 |   63.03   +47.00 |   60.37   +27.51 |   62.15   +31.10
+
+============================================================================================================================================
+INTERPRETACION RAPIDA
+--------------------------------------------------------------------------------------------------------------------------------------------
+  Total WAPE: A=48.65  B=49.29  C=48.69  D=49.20
+  Total BIAS: A=+22.93 B=+24.32 C=+10.66 D=+12.19
+  Mejor WAPE: config A (48.65)
+  Mejor BIAS magnitud: config C (|BIAS|=10.66)
+============================================================================================================================================

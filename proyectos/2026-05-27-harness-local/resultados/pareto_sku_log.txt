@@ -1,0 +1,390 @@
+Backtest baseline v3.46 sobre 10 semanas (DETALLE por SKU)...
+  cutoff 2026-03-15
+[HM_SI_local] cutoff=2026-03-15  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-16  iso_week=12
+  price_corr context: 583 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 14,887  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 657  categ_global: 65  SKUs: 1,614
+  computando fair_share_ctx...
+    sku_qty_per_sala: 14,916
+    categ_qty_per_sala: 666
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.897  yoy_avg=-10.3%  n=8
+    team 7: factor=0.891  yoy_avg=-10.9%  n=8
+    team 8: factor=1.000  yoy_avg=+2.2%  n=8
+    team 9: factor=1.000  yoy_avg=+6.0%  n=8
+    team 10: factor=1.000  yoy_avg=+10.9%  n=8
+    team 12: factor=1.000  yoy_avg=+6.8%  n=8
+    team 13: factor=0.993  yoy_avg=-0.7%  n=8
+    team 16: factor=1.000  yoy_avg=+5.0%  n=8
+    team 17: factor=0.992  yoy_avg=-0.8%  n=8
+    team 18: factor=1.000  yoy_avg=+35.6%  n=8
+  main loop...
+  forecasts generados: 14,883
+  cutoff 2026-03-22
+[HM_SI_local] cutoff=2026-03-22  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-23  iso_week=13
+  price_corr context: 584 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 14,826  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 657  categ_global: 65  SKUs: 1,617
+  computando fair_share_ctx...
+    sku_qty_per_sala: 14,910
+    categ_qty_per_sala: 667
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.801  yoy_avg=-19.9%  n=8
+    team 6: factor=0.875  yoy_avg=-12.5%  n=8
+    team 7: factor=0.870  yoy_avg=-13.0%  n=8
+    team 8: factor=0.984  yoy_avg=-1.6%  n=8
+    team 9: factor=1.000  yoy_avg=+3.2%  n=8
+    team 10: factor=1.000  yoy_avg=+9.8%  n=8
+    team 12: factor=1.000  yoy_avg=+2.1%  n=8
+    team 13: factor=0.940  yoy_avg=-6.0%  n=8
+    team 16: factor=1.000  yoy_avg=+2.7%  n=8
+    team 17: factor=0.972  yoy_avg=-2.8%  n=8
+    team 18: factor=1.000  yoy_avg=+32.6%  n=8
+  main loop...
+  forecasts generados: 14,823
+  cutoff 2026-03-29
+[HM_SI_local] cutoff=2026-03-29  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-03-30  iso_week=14
+  price_corr context: 586 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,143  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 664  categ_global: 65  SKUs: 1,624
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,186
+    categ_qty_per_sala: 712
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.791  yoy_avg=-20.9%  n=8
+    team 6: factor=0.873  yoy_avg=-12.7%  n=8
+    team 7: factor=0.867  yoy_avg=-13.3%  n=8
+    team 8: factor=0.966  yoy_avg=-3.4%  n=8
+    team 9: factor=1.000  yoy_avg=+1.1%  n=8
+    team 10: factor=1.000  yoy_avg=+9.9%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.979  yoy_avg=-2.1%  n=8
+    team 13: factor=0.923  yoy_avg=-7.7%  n=8
+    team 16: factor=1.000  yoy_avg=+1.6%  n=8
+    team 17: factor=0.968  yoy_avg=-3.2%  n=8
+    team 18: factor=1.000  yoy_avg=+28.9%  n=8
+  main loop...
+  forecasts generados: 15,141
+  cutoff 2026-04-05
+[HM_SI_local] cutoff=2026-04-05  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-06  iso_week=15
+  price_corr context: 589 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,412  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 682  categ_global: 65  SKUs: 1,630
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,457
+    categ_qty_per_sala: 715
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.896  yoy_avg=-10.4%  n=8
+    team 7: factor=0.891  yoy_avg=-10.9%  n=8
+    team 8: factor=1.000  yoy_avg=+0.6%  n=8
+    team 9: factor=1.000  yoy_avg=+7.5%  n=8
+    team 10: factor=1.000  yoy_avg=+15.4%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=1.000  yoy_avg=+2.0%  n=8
+    team 13: factor=1.000  yoy_avg=+3.4%  n=8
+    team 16: factor=1.000  yoy_avg=+6.8%  n=8
+    team 17: factor=0.973  yoy_avg=-2.7%  n=8
+    team 18: factor=1.000  yoy_avg=+32.2%  n=8
+  main loop...
+  forecasts generados: 15,409
+  cutoff 2026-04-12
+[HM_SI_local] cutoff=2026-04-12  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-13  iso_week=16
+  price_corr context: 663 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,499  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 684  categ_global: 65  SKUs: 1,635
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,531
+    categ_qty_per_sala: 715
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.851  yoy_avg=-14.9%  n=8
+    team 6: factor=0.884  yoy_avg=-11.6%  n=8
+    team 7: factor=0.878  yoy_avg=-12.2%  n=8
+    team 8: factor=1.000  yoy_avg=+0.8%  n=8
+    team 9: factor=1.000  yoy_avg=+9.0%  n=8
+    team 10: factor=1.000  yoy_avg=+14.3%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.993  yoy_avg=-0.7%  n=8
+    team 13: factor=1.000  yoy_avg=+2.9%  n=8
+    team 16: factor=1.000  yoy_avg=+7.3%  n=8
+    team 17: factor=0.901  yoy_avg=-9.9%  n=8
+    team 18: factor=1.000  yoy_avg=+31.6%  n=8
+  main loop...
+  forecasts generados: 15,496
+  cutoff 2026-04-19
+[HM_SI_local] cutoff=2026-04-19  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-20  iso_week=17
+  price_corr context: 685 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,551  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 689  categ_global: 65  SKUs: 1,644
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,594
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.836  yoy_avg=-16.4%  n=8
+    team 6: factor=0.867  yoy_avg=-13.3%  n=8
+    team 7: factor=0.822  yoy_avg=-17.8%  n=8
+    team 8: factor=0.996  yoy_avg=-0.4%  n=8
+    team 9: factor=1.000  yoy_avg=+6.2%  n=8
+    team 10: factor=1.000  yoy_avg=+8.4%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.953  yoy_avg=-4.7%  n=8
+    team 13: factor=0.946  yoy_avg=-5.4%  n=8
+    team 16: factor=1.000  yoy_avg=+0.2%  n=8
+    team 17: factor=0.850  yoy_avg=-15.0%  n=8
+    team 18: factor=1.000  yoy_avg=+26.6%  n=8
+  main loop...
+  forecasts generados: 15,546
+  cutoff 2026-04-26
+[HM_SI_local] cutoff=2026-04-26  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-04-27  iso_week=18
+  price_corr context: 712 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,586  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 692  categ_global: 65  SKUs: 1,644
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,639
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.819  yoy_avg=-18.1%  n=8
+    team 6: factor=0.843  yoy_avg=-15.7%  n=8
+    team 7: factor=0.813  yoy_avg=-18.7%  n=8
+    team 8: factor=1.000  yoy_avg=+0.1%  n=8
+    team 9: factor=1.000  yoy_avg=+5.1%  n=8
+    team 10: factor=1.000  yoy_avg=+8.7%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.896  yoy_avg=-10.4%  n=8
+    team 13: factor=0.961  yoy_avg=-3.9%  n=8
+    team 16: factor=0.994  yoy_avg=-0.6%  n=8
+    team 17: factor=0.818  yoy_avg=-18.2%  n=8
+    team 18: factor=1.000  yoy_avg=+20.8%  n=8
+  main loop...
+  forecasts generados: 15,580
+  cutoff 2026-05-03
+[HM_SI_local] cutoff=2026-05-03  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-04  iso_week=19
+  price_corr context: 735 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,630  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 694  categ_global: 65  SKUs: 1,646
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,700
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.814  yoy_avg=-18.6%  n=8
+    team 6: factor=0.825  yoy_avg=-17.5%  n=8
+    team 7: factor=0.788  yoy_avg=-21.2%  n=8
+    team 8: factor=0.958  yoy_avg=-4.2%  n=8
+    team 9: factor=1.000  yoy_avg=+2.3%  n=8
+    team 10: factor=1.000  yoy_avg=+3.3%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.870  yoy_avg=-13.0%  n=8
+    team 13: factor=0.976  yoy_avg=-2.4%  n=8
+    team 16: factor=0.967  yoy_avg=-3.3%  n=8
+    team 17: factor=0.774  yoy_avg=-22.6%  n=8
+    team 18: factor=1.000  yoy_avg=+17.5%  n=8
+  main loop...
+  forecasts generados: 15,625
+  cutoff 2026-05-10
+[HM_SI_local] cutoff=2026-05-10  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-11  iso_week=20
+  price_corr context: 768 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,619  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 696  categ_global: 65  SKUs: 1,646
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,668
+    categ_qty_per_sala: 716
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.813  yoy_avg=-18.7%  n=8
+    team 6: factor=0.802  yoy_avg=-19.8%  n=8
+    team 7: factor=0.763  yoy_avg=-23.7%  n=8
+    team 8: factor=0.959  yoy_avg=-4.1%  n=8
+    team 9: factor=1.000  yoy_avg=+0.2%  n=8
+    team 10: factor=0.999  yoy_avg=-0.1%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.851  yoy_avg=-14.9%  n=8
+    team 13: factor=1.000  yoy_avg=+0.3%  n=8
+    team 16: factor=0.954  yoy_avg=-4.6%  n=8
+    team 17: factor=0.740  yoy_avg=-26.0%  n=8
+    team 18: factor=1.000  yoy_avg=+13.2%  n=8
+  main loop...
+  forecasts generados: 15,613
+  cutoff 2026-05-17
+[HM_SI_local] cutoff=2026-05-17  version=HM_SI_LOCAL_v3_46_MIRROR_v0_1
+  cargando cache desde c:\Users\sanhu\Odoo\proyectos\2026-05-27-harness-local\cache...
+  ABCXYZ context: 2,029 SKUs
+  filas POS: 581,848
+  target_week=2026-05-18  iso_week=21
+  price_corr context: 786 productos con factor
+  construyendo series weekly (window corta SMA)...
+  pares (team, sku): 15,695  semanas: 26
+  construyendo series weekly (window larga para lifecycle)...
+  semanas largas: 104
+  construyendo SI dicts...
+  SI local_categ (team,categ): 698  categ_global: 65  SKUs: 1,665
+  computando fair_share_ctx...
+    sku_qty_per_sala: 15,745
+    categ_qty_per_sala: 718
+  computando trend factors por team (YoY asimetrico)...
+    team 5: factor=0.832  yoy_avg=-16.8%  n=8
+    team 6: factor=0.798  yoy_avg=-20.2%  n=8
+    team 7: factor=0.770  yoy_avg=-23.0%  n=8
+    team 8: factor=0.956  yoy_avg=-4.4%  n=8
+    team 9: factor=0.997  yoy_avg=-0.3%  n=8
+    team 10: factor=0.988  yoy_avg=-1.2%  n=8
+    team 11: factor=1.000  yoy_avg=+0.0%  n=0
+    team 12: factor=0.852  yoy_avg=-14.8%  n=8
+    team 13: factor=1.000  yoy_avg=+5.5%  n=8
+    team 16: factor=0.943  yoy_avg=-5.7%  n=8
+    team 17: factor=0.725  yoy_avg=-27.5%  n=8
+    team 18: factor=1.000  yoy_avg=+10.5%  n=8
+  main loop...
+  forecasts generados: 15,689
+
+Filas: 160,332
+Sin censura: 149,583
+
+==================================================================================================================================
+PARETO POR SKU (AE total = 227,009)
+==================================================================================================================================
+
+  Cumulative pct alcanzado:
+    25% AE alcanzado en SKU #  29  (1.8% del universo)
+    50% AE alcanzado en SKU # 153  (9.5% del universo)
+    75% AE alcanzado en SKU # 409  (25.3% del universo)
+    90% AE alcanzado en SKU # 681  (42.1% del universo)
+
+  Total SKUs: 1,617
+  Total real (10 sem, sin censura): 316,292
+  Total fcst: 336,003
+  WAPE global: 71.77%
+
+==================================================================================================================================
+TOP 30 SKUs por AE
+==================================================================================================================================
+        default_code                        product_name                     categ_name abcxyz_eff    real         fcst          ae  contrib_pct  cumul_pct  WAPE   BIAS
+              451500 CERVEZA ROYAL GUARD GOLDEN LAGER LA Bebidas Alcohólicas / Cervezas         AY 12948.0 15369.209447 9776.373076         4.31       4.31  75.5  -18.7
+                9430  CERVEZA QUILMES LATA UNIDAD 710 CC Bebidas Alcohólicas / Cervezas         AX 16003.0 12728.516956 5830.415234         2.57       6.88  36.4   20.5
+                9407 CERVEZA STELLA ARTOIS BOTELLA UNIDA Bebidas Alcohólicas / Cervezas         AY 10217.0  7447.930994 4764.678006         2.10       8.98  46.6   27.1
+                9413 CERVEZA BUDWEISER LATA UNIDAD 710 C Bebidas Alcohólicas / Cervezas         AY  9097.0  6695.552366 3958.226913         1.74      10.72  43.5   26.4
+                8005               VASO COCA-COLA 350 CC Esenciales Hogar / Despensa /          AY  3467.0  5467.407162 3597.294185         1.58      12.30 103.8  -57.7
+                9958 CERVEZA CUSQUEÑA GOLDEN LAGER LATA  Bebidas Alcohólicas / Cervezas         AY  5197.0  4252.112798 3344.486613         1.47      13.77  64.4   18.2
+              451548 CERVEZA CRISTAL ULTRA LATA UNIDAD 7 Bebidas Alcohólicas / Cervezas         AZ  4184.0  1922.171803 2482.338361         1.09      14.86  59.3   54.1
+HIELO GOURMET 1 KILO                    HIELO HDOSO 1 KG             Congelados / Hielo         AY  7504.0  6300.665479 2093.425486         0.92      15.78  27.9   16.0
+                9843 CERVEZA CORONA BOTELLA UNIDAD 330 C Bebidas Alcohólicas / Cervezas         AX  2223.0  1344.414282 1573.421156         0.69      16.47  70.8   39.5
+                9639     COCTEL CAPEL ICE BERRIES 275 CC Bebidas Alcohólicas / Cócteles         AY  1656.0  1333.655840 1218.499336         0.54      17.01  73.6   19.5
+                1726 CERVEZA MICHELOB ULTRA LATA UNIDAD  Bebidas Alcohólicas / Cervezas         AY  1654.0   943.394748 1213.633822         0.53      17.54  73.4   43.0
+              450607   CERVEZA CRISTAL BOTELLA RET 1.2 L Bebidas Alcohólicas / Cervezas         AY  1971.0  2534.495045 1195.847052         0.53      18.07  60.7  -28.6
+              451381 CERVEZA ESCUDO SILVER LATA UNIDAD 7 Bebidas Alcohólicas / Cervezas         AX  1973.0  2575.816471 1168.025741         0.51      18.58  59.2  -30.6
+          AZ25-50000         ENCENDEDOR RONSON CLEARLITE Cigarrillos y Tabacos / Acceso         AX  1878.0  1995.391997 1162.887306         0.51      19.09  61.9   -6.3
+                9640       COCTEL CAPEL ICE APPLE 275 CC Bebidas Alcohólicas / Cócteles         AX  2135.0  2030.545607 1153.137592         0.51      19.60  54.0    4.9
+                0136          BEBIDA COCA COLA DES 1.5 L Bebidas No Alcohólicas / Bebid         AX  4975.0  4708.216789 1086.919494         0.48      20.08  21.8    5.4
+                0143          BEBIDA COCA COLA DES 2.5 L Bebidas No Alcohólicas / Bebid         AX  3578.0  3146.539420  996.816492         0.44      20.52  27.9   12.1
+              450237       CERVEZA CRISTAL LATA 6X470 CC Bebidas Alcohólicas / Cervezas         AX  2413.0  2541.714790  978.356083         0.43      20.95  40.5   -5.3
+              450850  CERVEZA PATAGONIA RED LAGER 470 CC Bebidas Alcohólicas / Cervezas         AX  1791.0  2008.965735  975.154504         0.43      21.38  54.4  -12.2
+                9414   CERVEZA BECKER LATA UNIDAD 710 CC Bebidas Alcohólicas / Cervezas         AX  1728.0  2067.925337  969.772504         0.43      21.81  56.1  -19.7
+             5115316               CHICLE BIGTIME STRONG Impulso / Chocolates y Dulces          AY   376.0   897.025948  953.349843         0.42      22.23 253.6 -138.6
+              450604    CERVEZA ESCUDO BOTELLA RET 1.2 L Bebidas Alcohólicas / Cervezas         AX  1615.0  1905.854872  944.050854         0.42      22.65  58.5  -18.0
+             5115317               CHICLE BIGTIME SANDIA Impulso / Chocolates y Dulces          AY   516.0   798.664271  906.393961         0.40      23.05 175.7  -54.8
+              450851 CERVEZA PATAGONIA HOPPY LAGER 470 C Bebidas Alcohólicas / Cervezas         AX  1653.0  1777.762959  779.007115         0.34      23.39  47.1   -7.5
+            78012523            PALL MALL AZUL 20 BLANDO Cigarrillos y Tabacos / Cigarr         AX  2751.0  2737.490519  764.818663         0.34      23.73  27.8    0.5
+        798190253701     ENERGETICA SCORE GORILLA 473 CC Bebidas No Alcohólicas / Isotó         AX  1757.0  1903.319247  732.553869         0.32      24.05  41.7   -8.3
+             5115315                CHICLE BIGTIME MENTA Impulso / Chocolates y Dulces          AY   335.0   703.688057  727.746970         0.32      24.37 217.2 -110.1
+                9646      COCTEL CAPEL ICE SANDÍA 275 CC Bebidas Alcohólicas / Cócteles         AY  1241.0   970.553442  727.736490         0.32      24.69  58.6   21.8
+                1963    ENERGETICA MONSTER ENERGY 473 CC Bebidas No Alcohólicas / Isotó         AX  2241.0  2336.789168  723.303031         0.32      25.01  32.3   -4.3
+             5115318          CHICLE BIGTIME REFRESCANTE Impulso / Chocolates y Dulces          BY   374.0   683.547971  722.109292         0.32      25.33 193.1  -82.8
+
+==================================================================================================================================
+TOP 15 CATEGORIAS por AE
+==================================================================================================================================
+ categ_id                                         categ_name  n_skus    real         fcst           ae          err  WAPE   BIAS  contrib_pct  cumul_pct
+   1625.0 Bebidas Alcohólicas / Cervezas / Cervezas Tradicio      95 38630.0 40828.421093 25560.344278 -2198.421093  66.2   -5.7        11.26      11.26
+   1624.0  Bebidas Alcohólicas / Cervezas / Cervezas Premium      17 36196.0 33240.498238 20984.340143  2955.501762  58.0    8.2         9.24      20.50
+   1628.0                   Cigarrillos y Tabacos / Cigarros      35 22754.0 28631.100297 13779.987721 -5877.100297  60.6  -25.8         6.07      26.57
+   1631.0 Bebidas Alcohólicas / Cócteles y Licores / Cóctele      37 16410.0 14656.751401 11526.471427  1753.248599  70.2   10.7         5.08      31.65
+   1623.0 Bebidas Alcohólicas / Cervezas / Cervezas Importad       3 22854.0 17924.024502 10388.535670  4929.975498  45.5   21.6         4.58      36.23
+   1618.0 Bebidas No Alcohólicas / Bebidas Gaseosas / Bebida      48 23407.0 23555.864444  9623.220928  -148.864444  41.1   -0.6         4.24      40.47
+   1622.0 Bebidas Alcohólicas / Cervezas / Cervezas Artesana      42 13830.0 15800.226443  9323.962500 -1970.226443  67.4  -14.2         4.11      44.58
+   1676.0     Snack y Cóctel / Snack y Cóctel / Otros Snacks      64  9151.0  9497.652036  8753.200956  -346.652036  95.7   -3.8         3.86      48.44
+   1619.0 Bebidas No Alcohólicas / Isotónicas y Energéticas       28 14385.0 15700.788632  7772.836688 -1315.788632  54.0   -9.1         3.42      51.86
+   1656.0   Impulso / Chocolates y Dulces / Bombones y otros      37  4926.0  6518.223930  7699.048164 -1592.223930 156.3  -32.3         3.39      55.25
+   1652.0  Bebidas Alcohólicas / Vinos / Formatos Económicos      70 10494.0 11327.821439  7463.446551  -833.821439  71.1   -7.9         3.29      58.54
+   1677.0     Snack y Cóctel / Snack y Cóctel / Papas Fritas      56  4638.0  6379.250827  6408.136246 -1741.250827 138.2  -37.5         2.82      61.36
+   1658.0 Impulso / Chocolates y Dulces / Chicles y Mentitas      20  2689.0  5486.014353  5842.591825 -2797.014353 217.3 -104.0         2.57      63.93
+   1668.0             Esenciales Hogar / Despensa / Despensa      48  4623.0  6716.732019  5634.351662 -2093.732019 121.9  -45.3         2.48      66.41
+   1650.0     Bebidas Alcohólicas / Vinos / Formato Estándar     121  3839.0  3748.964290  4419.212687    90.035710 115.1    2.3         1.95      68.36
+
+==================================================================================================================================
+CASOS ESPECIFICOS
+==================================================================================================================================
+  SKU 9407 Stella 660cc:  rank #3  AE=4765  contrib=2.10%  WAPE=46.6%  BIAS=+27.1%
+
+ -> resultados/pareto_sku_10w.parquet (1,617 SKUs)
+ -> resultados/pareto_categ_10w.parquet (61 categs)

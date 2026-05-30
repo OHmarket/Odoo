@@ -1,0 +1,55 @@
+============================================================================================================================================
+TEST IDEA MARCO - nivel_actual / nivel_largo por (categ, abc)
+Target window: 2026-03-16 .. 2026-05-18  (10 sem)
+Cutoff calculo factor: 2026-03-09  (data ANTES del target window)
+============================================================================================================================================
+
+CONFIGS:
+  A  = baseline v3.46 sin factor
+  B  = canon Test 2: factor = real_target / fcst_target por (categ, abc)  [usa target window]
+  M1 = MARCO: factor = avg(real ultimas 10 sem) / avg(real ultimas 26 sem) por (categ, abc)
+  M2 = MARCO: factor = avg(real ultimas 4 sem) / avg(real ultimas 16 sem)  [mas reactivo]
+  M3 = MARCO: factor = avg(real ultimas 10 sem) / avg(LY mismas 10 sem)    [vs ano anterior]
+
+  Universo limpio (sin cig/snack, sin quiebres): 63,409 filas
+
+METRICAS:
+--------------------------------------------------------------------------------------------------------------------------------------------
+  config                       |  TOTAL WAPE  TOTAL BIAS |  CERV WAPE  CERV BIAS |  d_WAPE  d_BIAS
+  A baseline                   |      48.65      +22.93  |      45.70      +18.46  |   +0.00   +0.00
+  B (categ,abc) Test2 canon    |      48.69      +10.66  |      45.06       +4.01  |   +0.04  -12.27
+  M1 (10vs26 avg)              |      51.46       +3.12  |      47.02       -1.34  |   +2.81  -19.81
+  M2 (4vs16 avg)               |      49.91      +15.77  |      47.10      +15.10  |   +1.26   -7.16
+  M3 (10vs LY10)               |      48.42      +19.78  |      44.18      +15.08  |   -0.23   -3.15
+
+============================================================================================================================================
+DIAGNOSTICO - factores Marco vs canon Test 2 para mismos clusters
+--------------------------------------------------------------------------------------------------------------------------------------------
+    cat abc name                                     |  B canon M1 10/26  M2 4/16    M3 LY
+   1625   B Bebidas Alcohólicas / Cervezas / Cerveza |    1.300    1.117    1.053    1.107
+   1693   B Esenciales Hogar / Panadería / Queques y |    1.300    1.300    1.300    1.000
+   1650   C Bebidas Alcohólicas / Vinos / Formato Es |    1.300    1.300    1.300    1.000
+   1631   A Bebidas Alcohólicas / Cócteles y Licores |    1.300    1.300    1.272    1.300
+   1631   B Bebidas Alcohólicas / Cócteles y Licores |    1.300    0.892    1.300    0.700
+   1624   A Bebidas Alcohólicas / Cervezas / Cerveza |    1.300    1.300    0.877    1.300
+   1637   B Bebidas Alcohólicas / Destilados / Pisco |    1.300    1.289    1.300    1.099
+   1632   A Bebidas Alcohólicas / Cócteles y Licores |    1.300    1.123    1.000    1.000
+   1665   A Congelados / Helados                     |    1.300    1.300    1.000    1.054
+   1698   A Bebidas Alcohólicas / Vinos / Sangría y  |    1.300    1.214    1.150    1.137
+   1650   B Bebidas Alcohólicas / Vinos / Formato Es |    1.300    1.265    1.197    1.000
+   1632   B Bebidas Alcohólicas / Cócteles y Licores |    1.300    1.300    1.000    1.000
+   1649   A Bebidas Alcohólicas / Espumantes / Espum |    1.300    1.300    1.000    1.113
+   1693   A Esenciales Hogar / Panadería / Queques y |    1.300    1.258    1.300    0.700
+   1612   B Bebidas No Alcohólicas / Aguas / Aguas S |    1.300    1.300    1.000    1.162
+   1691   B Bebidas No Alcohólicas / Jugos / Jugos y |    1.300    1.211    1.000    0.780
+   1626   A Bebidas Alcohólicas / Cervezas / Cerveza |    1.300    1.300    0.937    1.000
+   1711   C Esenciales Hogar / Aseo y Otros / Limpie |    1.300    1.000    1.000    1.000
+   1622   B Bebidas Alcohólicas / Cervezas / Cerveza |    1.300    1.300    1.000    0.700
+   1625   C Bebidas Alcohólicas / Cervezas / Cerveza |    1.300    1.300    1.159    0.769
+   1617   B Bebidas No Alcohólicas / Bebidas Gaseosa |    1.300    1.300    1.175    0.700
+   1652   B Bebidas Alcohólicas / Vinos / Formatos E |    1.300    1.000    1.000    1.000
+   1650   A Bebidas Alcohólicas / Vinos / Formato Es |    1.300    1.296    1.147    0.922
+   1631   C Bebidas Alcohólicas / Cócteles y Licores |    1.300    1.300    1.300    1.111
+   1623   A Bebidas Alcohólicas / Cervezas / Cerveza |    1.300    1.300    1.300    1.300
+
+============================================================================================================================================

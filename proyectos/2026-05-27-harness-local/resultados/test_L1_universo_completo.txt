@@ -1,0 +1,82 @@
+============================================================================================================================================
+TEST L1 - universo de calibracion: incluir o excluir cigarros/snack?
+Hipotesis: quiebres son circunstanciales; el filtro de quiebre en target_week es suficiente.
+============================================================================================================================================
+
+FACTORES CALCULADOS:
+  V1 (actual, sin cig/snack/impulso, min_real=500): 50 clusters
+  V2 (completo, min_real=500):                       68 clusters
+  V3 (completo, snack min_real=1000):                60 clusters
+
+METRICAS POR SUBSET (universo sin quiebres en target_week):
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL (incluye cig/snack)    (n=71,451  real=314,526)
+  BASELINE                 | WAPE= 48.11  BIAS= +22.92
+  V1 (excluye cig/snack)   | WAPE= 48.15  BIAS= +12.54   d_WAPE=+0.04  d_BIAS=-10.38
+  V2 (incluye cig/snack)   | WAPE= 48.11  BIAS= +10.93   d_WAPE=+0.00  d_BIAS=-11.99
+  V3 (snack min=1000)      | WAPE= 48.12  BIAS= +11.17   d_WAPE=+0.01  d_BIAS=-11.75
+--------------------------------------------------------------------------------------------------------------------------------------------
+SIN cigarros/snack/impulso (reporte oficial)    (n=60,878  real=260,201)
+  BASELINE                 | WAPE= 47.92  BIAS= +21.87
+  V1 (excluye cig/snack)   | WAPE= 47.97  BIAS=  +9.32   d_WAPE=+0.05  d_BIAS=-12.55
+  V2 (incluye cig/snack)   | WAPE= 47.97  BIAS=  +9.32   d_WAPE=+0.05  d_BIAS=-12.55
+  V3 (snack min=1000)      | WAPE= 47.97  BIAS=  +9.32   d_WAPE=+0.05  d_BIAS=-12.55
+--------------------------------------------------------------------------------------------------------------------------------------------
+SOLO Cigarrillos/Tabaco    (n=2,200  real=25,687)
+  BASELINE                 | WAPE= 34.09  BIAS=  +8.98
+  V1 (excluye cig/snack)   | WAPE= 34.09  BIAS=  +8.98   d_WAPE=+0.00  d_BIAS= +0.00
+  V2 (incluye cig/snack)   | WAPE= 34.56  BIAS=  +6.21   d_WAPE=+0.47  d_BIAS= -2.77
+  V3 (snack min=1000)      | WAPE= 34.56  BIAS=  +6.21   d_WAPE=+0.47  d_BIAS= -2.77
+--------------------------------------------------------------------------------------------------------------------------------------------
+SOLO Snack/Impulso    (n=8,373  real=28,638)
+  BASELINE                 | WAPE= 62.38  BIAS= +44.97
+  V1 (excluye cig/snack)   | WAPE= 62.38  BIAS= +44.97   d_WAPE=+0.00  d_BIAS= +0.00
+  V2 (incluye cig/snack)   | WAPE= 61.56  BIAS= +29.72   d_WAPE=-0.82  d_BIAS=-15.25
+  V3 (snack min=1000)      | WAPE= 61.70  BIAS= +32.37   d_WAPE=-0.68  d_BIAS=-12.60
+--------------------------------------------------------------------------------------------------------------------------------------------
+SOLO Cervezas (foco)    (n=10,523  real=109,126)
+  BASELINE                 | WAPE= 45.70  BIAS= +18.46
+  V1 (excluye cig/snack)   | WAPE= 45.06  BIAS=  +4.01   d_WAPE=-0.64  d_BIAS=-14.45
+  V2 (incluye cig/snack)   | WAPE= 45.06  BIAS=  +4.01   d_WAPE=-0.64  d_BIAS=-14.45
+  V3 (snack min=1000)      | WAPE= 45.06  BIAS=  +4.01   d_WAPE=-0.64  d_BIAS=-14.45
+
+============================================================================================================================================
+DIFF DE FACTORES V1 vs V2 (que clusters NUEVOS aparecen al incluir cig/snack?)
+--------------------------------------------------------------------------------------------------------------------------------------------
+  Clusters nuevos en V2 (no estaban en V1): 18
+    cat= 1694 abc=A  factor=1.247  Cigarrillos y Tabacos / Accesorios
+    cat= 1628 abc=B  factor=1.166  Cigarrillos y Tabacos / Cigarros
+    cat= 1708 abc=C  factor=1.300  Cigarrillos y Tabacos / Electrónicos
+    cat= 1656 abc=A  factor=1.300  Impulso / Chocolates y Dulces / Bombones y otros
+    cat= 1656 abc=B  factor=1.300  Impulso / Chocolates y Dulces / Bombones y otros
+    cat= 1656 abc=C  factor=1.300  Impulso / Chocolates y Dulces / Bombones y otros
+    cat= 1657 abc=B  factor=1.300  Impulso / Chocolates y Dulces / Caramelos Duros
+    cat= 1658 abc=A  factor=1.300  Impulso / Chocolates y Dulces / Chicles y Mentitas
+    cat= 1658 abc=B  factor=1.300  Impulso / Chocolates y Dulces / Chicles y Mentitas
+    cat= 1690 abc=A  factor=1.300  Snack y Cóctel / Galletas y Colaciones / Alfajores
+    cat= 1692 abc=A  factor=1.300  Snack y Cóctel / Galletas y Colaciones / Galletas Dulce
+    cat= 1695 abc=B  factor=1.300  Snack y Cóctel / Galletas y Colaciones / Galletas Salad
+    cat= 1674 abc=A  factor=1.300  Snack y Cóctel / Snack y Cóctel / Maní
+    cat= 1676 abc=A  factor=1.300  Snack y Cóctel / Snack y Cóctel / Otros Snacks
+    cat= 1676 abc=B  factor=1.300  Snack y Cóctel / Snack y Cóctel / Otros Snacks
+    cat= 1676 abc=C  factor=1.300  Snack y Cóctel / Snack y Cóctel / Otros Snacks
+    cat= 1677 abc=A  factor=1.300  Snack y Cóctel / Snack y Cóctel / Papas Fritas
+    cat= 1677 abc=B  factor=1.300  Snack y Cóctel / Snack y Cóctel / Papas Fritas
+  Clusters perdidos (estaban en V1 y no en V2): 0
+
+============================================================================================================================================
+RECOMENDACION
+--------------------------------------------------------------------------------------------------------------------------------------------
+  Sobre TOTAL (sin quiebres, incluye cig/snack para evaluar):
+    Baseline:     WAPE= 48.11  BIAS= +22.92
+    V1 (excluye): WAPE= 48.15  BIAS= +12.54  d_BIAS=-10.38
+    V2 (incluye): WAPE= 48.11  BIAS= +10.93  d_BIAS=-11.99
+    V3 (snack defensivo): WAPE= 48.12  BIAS= +11.17  d_BIAS=-11.75
+
+  Mejor en |BIAS| (con WAPE controlado): V2
+  Si quieres tambien medir 'sin cig/snack' como reporte oficial:
+    V1: WAPE= 47.97 BIAS=  +9.32
+    V2: WAPE= 47.97 BIAS=  +9.32  (debe ser ~igual V1 si los factores nuevos son solo de cig/snack)
+    V3: WAPE= 47.97 BIAS=  +9.32
+============================================================================================================================================

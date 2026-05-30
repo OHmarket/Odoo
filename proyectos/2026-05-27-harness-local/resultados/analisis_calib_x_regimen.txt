@@ -1,0 +1,76 @@
+==================================================================================================================================
+ANALISIS: categ_calib_factor (v3.47) x regimen del motor
+Universo limpio: 60,878 filas (baseline v3.46, sin cig/snack, sin quiebres)
+==================================================================================================================================
+
+PARTE 1: BIAS baseline por regimen (donde esta el sesgo?)
+----------------------------------------------------------------------------------------------------------------------------------
+  regimen     n_filas      real pct_cov | WAPE_base BIAS_base | WAPE_calib BIAS_calib |  d_WAPE  d_BIAS
+  REG-1        28,477   196,540   86.3% |     42.52   +12.94  |      43.01     +0.46  |   +0.49  -12.48  <- MEJORA
+  REG-2        11,755    22,002   78.0% |     58.03   +32.31  |      58.88    +16.17  |   +0.85  -16.14  
+  REG-4         1,739    19,088   64.9% |     43.23   +30.49  |      37.49    +10.21  |   -5.74  -20.28  <- MEJORA
+  REG-0         5,517    10,037   79.3% |    100.00  +100.00  |     100.00   +100.00  |   +0.00   +0.00  
+  REG-8         2,276     5,147   44.4% |     64.35   +58.72  |      62.95    +55.01  |   -1.40   -3.71  <- MEJORA
+  REG-7         6,731     3,428   24.4% |     80.03   +52.95  |      82.97    +39.81  |   +2.94  -13.14  <- EMPEORA WAPE
+  REG-3         3,362     3,422   58.1% |    100.00  +100.00  |     100.00   +100.00  |   +0.00   +0.00  
+  REG-5           312       326   51.6% |    115.31   +14.98  |     124.94     -5.40  |   +9.63  -20.38  <- EMPEORA WAPE
+  REG-6           709       211   36.0% |    100.00  +100.00  |     100.00   +100.00  |   +0.00   +0.00  
+
+==================================================================================================================================
+PARTE 2: mix de regimenes dentro de cada (categ_id, abc_letter)
+----------------------------------------------------------------------------------------------------------------------------------
+  Si un cluster tiene multiples regimenes -> el factor uniforme NO puede ser optimo.
+  Mide: n_regimenes presentes y la dispersion del BIAS baseline entre regimenes.
+
+    cat name                                   abc    real factor n_regs regs_signal  BIAS_std BIAS_range  regimenes
+   1624 Bebidas Alcohólicas / Cervezas / Cerve   A  34,711   1.30      3           2     0.22pp      0.32pp  REG-1,REG-4,REG-8
+   1625 Bebidas Alcohólicas / Cervezas / Cerve   A  33,650   1.07      2           2    38.91pp     55.03pp  REG-1,REG-8
+   1623 Bebidas Alcohólicas / Cervezas / Cerve   A  22,661   1.30      3           3    11.08pp     22.15pp  REG-1,REG-4,REG-7
+   1618 Bebidas No Alcohólicas / Bebidas Gaseo   A  22,348   1.08      1           1        --      0.00pp  REG-1
+   1631 Bebidas Alcohólicas / Cócteles y Licor   A  14,325   1.30      3           2    11.78pp     16.67pp  REG-1,REG-5,REG-7
+   1711 Esenciales Hogar / Aseo y Otros / Limp   C   9,847   1.30      1           1        --      0.00pp  REG-0
+   1666 Congelados / Hielo                       A   8,655   1.20      1           1        --      0.00pp  REG-1
+   1652 Bebidas Alcohólicas / Vinos / Formatos   A   8,575   1.12      1           1        --      0.00pp  REG-1
+   1617 Bebidas No Alcohólicas / Bebidas Gaseo   A   5,900   1.22      2           2    34.75pp     49.14pp  REG-1,REG-8
+   1615 Bebidas No Alcohólicas / Bebidas Gaseo   A   5,844   1.12      1           1        --      0.00pp  REG-1
+   1608 Bebidas No Alcohólicas / Aguas / Agua    A   4,463   1.19      1           1        --      0.00pp  REG-1
+   1637 Bebidas Alcohólicas / Destilados / Pis   A   4,026   1.17      1           1        --      0.00pp  REG-1
+   1668 Esenciales Hogar / Despensa / Despensa   A   3,255   0.91      1           1        --      0.00pp  REG-1
+   1641 Bebidas Alcohólicas / Destilados / Whi   A   3,143   1.16      3           1        --      0.00pp  REG-1,REG-4,REG-7
+   1693 Esenciales Hogar / Panadería / Queques   A   2,957   1.30      1           1        --      0.00pp  REG-1
+   1609 Bebidas No Alcohólicas / Aguas / Agua    A   2,820   1.29      1           1        --      0.00pp  REG-1
+   1643 Bebidas No Alcohólicas / Jugos / Jugos   B   2,644   1.24      1           1        --      0.00pp  REG-2
+   1665 Congelados / Helados                     B   2,571   1.30      2           2     0.48pp      0.68pp  REG-2,REG-4
+   1625 Bebidas Alcohólicas / Cervezas / Cerve   B   2,269   1.30      2           2     3.43pp      4.85pp  REG-2,REG-7
+   1616 Bebidas No Alcohólicas / Isotónicas y    A   2,165   1.14      1           1        --      0.00pp  REG-1
+
+==================================================================================================================================
+PARTE 3: BIAS baseline por (regimen x abc) - donde concentra el sesgo del motor
+----------------------------------------------------------------------------------------------------------------------------------
+  BIAS% baseline:
+  regimen    |          A          B          C |  real_total
+  REG-0      |         --         --    +100.0% |      10,037
+  REG-1      |     +12.9%         --         -- |     196,540
+  REG-2      |         --     +32.3%         -- |      22,002
+  REG-3      |         --         --    +100.0% |       3,422
+  REG-4      |     +28.0%     +40.5%    +100.0% |      19,088
+  REG-5      |      +0.7%     +16.9%         -- |         326
+  REG-6      |         --         --    +100.0% |         211
+  REG-7      |     +39.3%     +36.7%    +100.0% |       3,428
+  REG-8      |     +54.6%     +45.9%    +100.0% |       5,147
+
+==================================================================================================================================
+CONCLUSION OPERATIVA
+----------------------------------------------------------------------------------------------------------------------------------
+  Regimenes con BIAS baseline > +10% (sub-forecast sistemico - calib MEJORA):
+    -> REG-1    real= 196,540  BIAS=+12.9%  d_BIAS calib=-12.5pp  d_WAPE= +0.5pp
+    -> REG-2    real=  22,002  BIAS=+32.3%  d_BIAS calib=-16.1pp  d_WAPE= +0.8pp
+    -> REG-4    real=  19,088  BIAS=+30.5%  d_BIAS calib=-20.3pp  d_WAPE= -5.7pp
+    -> REG-0    real=  10,037  BIAS=+100.0%  d_BIAS calib= +0.0pp  d_WAPE= +0.0pp
+    -> REG-8    real=   5,147  BIAS=+58.7%  d_BIAS calib= -3.7pp  d_WAPE= -1.4pp
+    -> REG-7    real=   3,428  BIAS=+53.0%  d_BIAS calib=-13.1pp  d_WAPE= +2.9pp
+    -> REG-3    real=   3,422  BIAS=+100.0%  d_BIAS calib= +0.0pp  d_WAPE= +0.0pp
+    -> REG-5    real=     326  BIAS=+15.0%  d_BIAS calib=-20.4pp  d_WAPE= +9.6pp
+    -> REG-6    real=     211  BIAS=+100.0%  d_BIAS calib= +0.0pp  d_WAPE= +0.0pp
+  Regimenes con BIAS baseline ~0 (calib puede SOBRE-corregir):
+==================================================================================================================================
