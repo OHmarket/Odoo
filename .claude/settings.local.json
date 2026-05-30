@@ -105,7 +105,8 @@
       "Bash(PYTHONIOENCODING=utf-8 python \"proyectos/2026-05-27-harness-local/test_3_tracking_signal.py\")",
       "Bash(xargs grep -l \"v3.4[6-8]\")",
       "Bash(cd /tmp)",
-      "Bash(python3)"
+      "Bash(python3)",
+      "PowerShell(\"Carpeta resultados/ creada\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\sanhu\\Odoo"
