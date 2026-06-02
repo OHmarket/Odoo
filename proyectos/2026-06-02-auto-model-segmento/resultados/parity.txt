@@ -1,0 +1,1 @@
+pares=40107 diff_max=0.000000 corr=1.000000 pct_lt_0.001=100.00 OK=True
