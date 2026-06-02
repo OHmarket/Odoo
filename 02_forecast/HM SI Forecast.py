@@ -1,7 +1,20 @@
 # HM SI Forecast - Motor de demanda semanal con estacionalidad por nivel
 # ============================================================
 #
-# Version activa: v3.47 (ver CHANGELOG.md para historial completo)
+# Version activa: v3.49 — SMA(4) SIMPLE (ver CHANGELOG.md para historial completo)
+#
+# v3.49 (2026-06-01): el motor se SIMPLIFICA a SMA(4) por defecto tras el FVA
+#   mostrar que un promedio movil de 4 semanas le gana a toda la maquinaria
+#   (FVA -3.9% full / -10.7% en mayo; el over-forecast vivia en el roundtrip de
+#   SI, las capas de correccion y la de-censura de quiebre, no en la ventana).
+#   Se apagan por DEFAULT: SI (si_enabled=False), trend, categ_calib,
+#   bias_outlier, y normalizacion de demanda (use_demand_normalization=False:
+#   la de-censura inflaba el bias a +21.8% vs +8% del SMA4 sobre venta cruda);
+#   ventana base short=long=4 -> SMA(4) puro. NO se borro codigo: todas las capas siguen
+#   disponibles via context (apply_*, si_enabled=True, service_base_*_weeks)
+#   para A/B o rollback. I/O, modelo de salida (x_hm_si_forecast.x_studio_mu_week)
+#   y contrato con el reabastecimiento INTACTOS. Routing (min_stock/fair_share)
+#   y correccion de PRECIO siguen activos. Detalle: proyectos/2026-06-01-fva-vs-sma4/.
 #
 # Objetivo:
 #   - Calcular mu_week y sigma_week por (sala, SKU) usando heuristica de
@@ -85,7 +98,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = "FWD_v3_48_BIAS_OUTLIER"
+VERSION_ID = "FWD_v3_49_SMA4_SIMPLE"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438
@@ -108,14 +121,14 @@ BATCH_SIZE = 500
 # corrige censura de quiebre. Default TRUE durante el backtest comparativo
 # (no productivo). Una vez validado, queda como default permanente. Para
 # desactivar temporalmente, pasar context use_demand_normalization=False.
-USE_DEMAND_NORMALIZATION_DEFAULT = True
+USE_DEMAND_NORMALIZATION_DEFAULT = False  # v3.49: SMA(4) sobre venta cruda (clon del campeon FVA). La de-censura inflaba el bias a +21.8% vs +8% del SMA4 crudo
 DEMAND_NORMALIZATION_MODEL       = 'x_demanda_normalizada'
 
 
 # ----------------------
 # Parametros HM-SI
 # ----------------------
-SI_ENABLED_DEFAULT              = True
+SI_ENABLED_DEFAULT              = False  # v3.49: SMA(4). Apagado el roundtrip de SI (metia ruido per-celda; ver FVA 2026-06-01)
 SI_HISTORY_MONTHS_DEFAULT      = 36
 SI_TARGET_WEEKS_DEFAULT        = 1
 SI_SKU_ADJ_ALPHA_LOW_DEFAULT   = 0.15
@@ -129,8 +142,8 @@ SI_CEIL_DEFAULT                = 5.00
 # ----------------------
 # Parametros demanda base
 # ----------------------
-SERVICE_BASE_SHORT_WEEKS_DEFAULT = 6
-SERVICE_BASE_LONG_WEEKS_DEFAULT  = 16
+SERVICE_BASE_SHORT_WEEKS_DEFAULT = 4   # v3.49: SMA(4) puro
+SERVICE_BASE_LONG_WEEKS_DEFAULT  = 4   # v3.49: short==long==4 -> ratio=1.0 -> hold -> SMA(4)
 SERVICE_RATIO_UP_DEFAULT         = 1.15
 SERVICE_RATIO_HOLD_DEFAULT       = 0.90
 SERVICE_RATIO_COLLAPSE_DEFAULT   = 0.30
@@ -147,7 +160,7 @@ SERVICE_CORR_VALIDATION_THRESHOLD_DEFAULT  = 0.15
 # nivel ya estimado por SMA en el motor. Asimetrico (cap_high=1.00) por
 # diseno: NO amplifica teams en alza (que ya estan over-forecast por otras
 # razones - SI suave en bebidas/verano). Solo recorta cuando hay deterioro.
-APPLY_TREND_CORRECTION_DEFAULT = True
+APPLY_TREND_CORRECTION_DEFAULT = False  # v3.49: SMA(4) sin capas de correccion
 TREND_LOOKBACK_WEEKS_DEFAULT   = 60      # ventana historica para pull POS (>= 52 + window)
 TREND_WINDOW_WEEKS_DEFAULT     = 8       # ventana reciente para promediar YoY
 TREND_CLAMP_LOW_DEFAULT        = 0.70
@@ -158,7 +171,7 @@ TREND_CLAMP_HIGH_DEFAULT       = 1.00    # asimetrico: cap a 1.0 (no amplifica)
 # Categ Calib Factors). Captura sesgo estructural por segmento que correccion
 # (precio) y trend (team) no capturan. Default ON. Override via context
 # {'apply_categ_calib': False}.
-APPLY_CATEG_CALIB_DEFAULT      = True
+APPLY_CATEG_CALIB_DEFAULT      = False  # v3.49: SMA(4) sin capas de correccion
 CATEG_CALIB_MODEL              = 'x_categ_calib_factor'
 # Gate por regimen: ahora vive en el dato (campo x_studio_regimenes_aplicables
 # del registro). El SA escribe el CSV "REG-1,REG-2,REG-4,REG-8" por default
@@ -173,7 +186,7 @@ CATEG_CALIB_MODEL              = 'x_categ_calib_factor'
 # aplica+marca un factor multiplicativo global por SKU con clamp ASIMETRICO
 # (piso prudente / techo generoso por asimetria de costo: sub-forecast cuesta
 # mas que over-forecast). Default ON. Rollback via context apply_bias_outlier=False.
-APPLY_BIAS_OUTLIER_DEFAULT              = True
+APPLY_BIAS_OUTLIER_DEFAULT              = False  # v3.49: SMA(4) sin capas de correccion
 BIAS_OUTLIER_WINDOW_WEEKS_DEFAULT       = 3      # ventana reciente (= real_wk de la watchlist)
 BIAS_OUTLIER_CANDIDATE_COVERAGE_DEFAULT = 0.90   # acota la query de quiebre al subset relevante
 BIAS_OUTLIER_PARETO_DEFAULT             = 0.80   # corrige el 80% de la masa de error
@@ -1657,6 +1670,16 @@ def _bias_outlier_layer(data, demand_weeks_list, target_date, team_ids, params):
         d = float(info['delta'])
         env.cr.execute(update_sql, (f, f, f, d, target_date, int(sku_id), tids))
         n_rows += env.cr.rowcount
+    # FIX cache (post-v3.48): el UPDATE via SQL crudo modifica la TABLA pero NO el
+    # cache del ORM. Un consumidor que lea mu_week/sigma_week con ORM en la MISMA
+    # transaccion (OH Forecast Backtest corre el motor via _run_forecast_action y
+    # luego lee con model.search()+rec[field]) ve el valor PRE-factor que fwd_create
+    # dejo cacheado, no el corregido en la tabla. Por eso el backtest no reflejaba la
+    # capa aunque el export directo de x_hm_si_forecast si. invalidate_all fuerza la
+    # relectura desde la DB. El productivo no lee mu_week con ORM despues de esta capa,
+    # asi que el costo es nulo fuera del backtest.
+    if n_rows:
+        env.invalidate_all()
     try:
         log('BIAS_OUTLIER v3.48 | candidatos=%s | outliers=%s | filas=%s' % (
             len(candidates), len(outliers), n_rows), level='info')

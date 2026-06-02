@@ -33,7 +33,7 @@ LOCK_KEY = 99009490
 BACKTEST_MODEL_DEFAULT = 'x_forecast_backtest'
 HM_SI_MODEL_DEFAULT = 'x_hm_si_forecast'
 
-HM_SI_ACTION_ID_DEFAULT = 1553
+HM_SI_ACTION_ID_DEFAULT = 1576   # v3.49: SMA4 Forecast (era 1553 = motor HM-SI). Override via context hm_si_action_id=1553 para backtestear el motor viejo.
 # OLD legacy (x_forecast_weekly_data + OH Forecast Semanal SA 1527) eliminado
 # del backtest el 2026-05-27. La data residual y el SA inexistente generaban
 # contaminacion. Toda la clasificacion (series_type, lifecycle, etc.) ahora
@@ -494,9 +494,11 @@ HM_SI_MODEL = str(CTX.get('hm_si_model', HM_SI_MODEL_DEFAULT) or HM_SI_MODEL_DEF
 HM_SI_ACTION_ID = _safe_int(CTX.get('hm_si_action_id', HM_SI_ACTION_ID_DEFAULT), HM_SI_ACTION_ID_DEFAULT)
 
 # Propaga el flag de normalizacion de demanda al HM-SI Action invocado.
-# Default TRUE durante el backtest comparativo (no productivo). Para desactivar
-# temporalmente, pasar context use_demand_normalization=False.
-USE_DEMAND_NORMALIZATION = bool(CTX.get('use_demand_normalization', True))
+# v3.49 (2026-06-01): default FALSE para alinear con el motor SMA(4). La de-censura
+# (rellenar quiebre hacia arriba) inflaba el bias del backtest a +21.8% vs +8% del
+# SMA4 sobre venta cruda. El backtest mide contra real_qty censurado, asi que el
+# forecast debe ser sobre la misma base cruda. Para re-activar: context use_demand_normalization=True.
+USE_DEMAND_NORMALIZATION = bool(CTX.get('use_demand_normalization', False))
 BACKTEST_WEEKS = _safe_int(CTX.get('backtest_weeks', BACKTEST_WEEKS_DEFAULT), BACKTEST_WEEKS_DEFAULT)
 WEEK_OFFSET = _safe_int(CTX.get('week_offset', WEEK_OFFSET_DEFAULT), WEEK_OFFSET_DEFAULT)
 
