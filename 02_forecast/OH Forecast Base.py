@@ -36,8 +36,9 @@
 #   semanas CON stock previas, pero SOLO LEVANTA (venta <= demanda; nunca recorta, no
 #   castiga quiebre parcial que vendio bien). Asi el estimador (SES/SMA/Mediana) corre
 #   sobre demanda NO restringida y no persigue hacia abajo la venta suprimida -> rompe
-#   el circulo vicioso de sub-compra. Escanea TODO el periodo (x_stock_balance_daily va
-#   hasta abr-2025) -> recupera supresion de meses sin factor a dedo. Fuente: stockout /
+#   el circulo vicioso de sub-compra. Escanea las ultimas CLEANSE_LOOKBACK_WEEKS sem
+#   (default 16; el SMA6/SES no usan mas atras) -> acota el peso del query sobre
+#   x_stock_balance_daily. Fuente: stockout /
 #   stockout_partial / qty_balance<=0 (criterio motor v3.48). El backtest contra venta
 #   censurada mostrara MAS error y es esperado (demanda no satisfecha, no defecto del
 #   modelo). Se apaga con context decensor_stockout=False (para medir crudo vs limpio).
