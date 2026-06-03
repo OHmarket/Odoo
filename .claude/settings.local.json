@@ -106,10 +106,20 @@
       "Bash(xargs grep -l \"v3.4[6-8]\")",
       "Bash(cd /tmp)",
       "Bash(python3)",
-      "PowerShell(\"Carpeta resultados/ creada\")"
+      "PowerShell(\"Carpeta resultados/ creada\")",
+      "Bash(python exp_damped_top50.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python \"proyectos/2026-05-31-top-errores/backtest_ancla_10sem.py\")",
+      "Bash(python gate_produccion.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('02_forecast/OH Price Correccion.py',encoding='utf-8'\\).read\\(\\)\\); print\\('SYNTAX OK'\\)\")",
+      "Bash(cd \"/d/Desarrollo/Odoo\" && ls -la \"OH Forecast Backtest \\(x_forecast_backtest\\) \\(4\\).csv\" 2>/dev/null && echo \"--- encontrado en repo root ---\" *)",
+      "Read(//c/Users/sanhu/Downloads/**)",
+      "Bash(ls -la proyectos/2026-06-01-fva-vs-sma4/resultados/ventas_semanal.csv)",
+      "Bash(python -c \"import pandas as pd; d=pd.read_csv\\('proyectos/2026-06-01-fva-vs-sma4/resultados/ventas_semanal.csv'\\); print\\('semanas:', d.semana.min\\(\\),'->',d.semana.max\\(\\),'|',d.semana.nunique\\(\\),'sem'\\)\")",
+      "Bash(ls -la \"OH Forecast Backtest \\(x_forecast_backtest\\) 2026-06-01 SMA4 P.csv\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\sanhu\\Odoo"
     ]
-  }
+  },
+  "model": "claude-opus-4-8"
 }

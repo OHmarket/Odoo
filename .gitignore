@@ -57,6 +57,8 @@ env/
 # --- IDE / editor ---
 .vscode/
 .idea/
+# Claude Code: config local de la maquina (permisos, overrides). No se versiona.
+.claude/settings.local.json
 *.swp
 *.swo
 *~
