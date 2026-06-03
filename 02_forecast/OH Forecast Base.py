@@ -1,8 +1,10 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version activa: v1.1 (2026-06-02)  [reemplaza OH SMA4 Forecast v1.0]
-#   v1.1: + de-censura de entrada (etapa 2): combo con quiebre -> SMA(12).
+# Version activa: v1.2 (2026-06-02)  [reemplaza OH SMA4 Forecast v1.0]
+#   v1.1: de-censura por combo con quiebre -> SMA. v1.2: CLEANSING por SEMANA
+#         (reemplaza la venta suprimida de cada semana de quiebre por el promedio
+#         in-stock, solo-levanta) sobre TODO el periodo + cola SMA(6).
 #
 # Que hace (modelo base AUTO, validado en proyectos/2026-06-02-auto-model-segmento):
 #   Por (sala=crm.team, SKU=product.product) clasifica la serie LOCALMENTE
@@ -11,7 +13,11 @@
 #       series_type smooth  + ABC=A           -> SES(alfa=0.5)
 #       series_type smooth  + ABC=B/C         -> SES(alfa=0.6)
 #       series_type erratic                   -> SES(alfa=0.7)
-#       series_type lumpy/intermittent/no_sig -> Mediana(4)
+#       series_type intermittent / lumpy      -> SMA(SMA_TAIL_WEEKS=6)
+#       series_type no_signal                 -> Mediana(4)   (casi-muerto, ~0 correcto)
+#   La cola intermittent/lumpy usa SMA (no Mediana): la Mediana(4) da 0 en demanda
+#   esporadica (>=3 de 4 sem en cero) -> sub-stockea lo que rota cada tanto. El SMA
+#   captura la tasa media. no_signal queda en Mediana (vende casi nunca -> 0 es correcto).
 #
 #   ABC se lee GLOBAL de x_calculo_abc_xyz (x_studio_abcxyz, por producto).
 #   El regimen persistido es GLOBAL (team_id=False); por eso NO se lee: la forma
@@ -24,16 +30,17 @@
 #   SKUs sin venta en DEMAND_WINDOW_WEEKS=26 sem se omiten (dead). El control de
 #   muertos vive aguas abajo (dummy de control + minimo por ABC en Analisis Stock).
 #
-#   DE-CENSURA DE ENTRADA (v1.1, etapa 2): un combo (SKU,sala) con QUIEBRE en el
-#   periodo usa SMA(SMA_LONG_WEEKS=12) en vez del estimador corto. El promedio largo
-#   alcanza la venta normal PRE-quiebre y diluye los ceros censurados -> el forecast
-#   estima demanda NO restringida y no persigue hacia abajo la venta suprimida por
-#   falta de stock (circulo vicioso de sub-compra), sin dejar ceros (problema de la
-#   Mediana en intermitentes). Fuente del quiebre: x_stock_balance_daily (stockout /
-#   stockout_partial / qty_balance<=0, criterio motor v3.48). Solo combos con quiebre
-#   real -> la baja estacional queda intacta. El backtest contra venta censurada
-#   mostrara MAS error y es esperado (demanda no satisfecha, no defecto del modelo).
-#   Se apaga con context decensor_stockout=False (para medir base vs de-censurado).
+#   CLEANSING DE ENTRADA (v1.2, etapa 2 / demand unconstraining, canon SAP IBP):
+#   ANTES de clasificar/estimar, en cada SEMANA con quiebre (>= CLEANSE_MIN_DAYS dias
+#   sin stock) se reemplaza la venta suprimida por el promedio de las CLEANSE_BASE_WEEKS
+#   semanas CON stock previas, pero SOLO LEVANTA (venta <= demanda; nunca recorta, no
+#   castiga quiebre parcial que vendio bien). Asi el estimador (SES/SMA/Mediana) corre
+#   sobre demanda NO restringida y no persigue hacia abajo la venta suprimida -> rompe
+#   el circulo vicioso de sub-compra. Escanea TODO el periodo (x_stock_balance_daily va
+#   hasta abr-2025) -> recupera supresion de meses sin factor a dedo. Fuente: stockout /
+#   stockout_partial / qty_balance<=0 (criterio motor v3.48). El backtest contra venta
+#   censurada mostrara MAS error y es esperado (demanda no satisfecha, no defecto del
+#   modelo). Se apaga con context decensor_stockout=False (para medir crudo vs limpio).
 #
 #   Escribe a x_hm_si_forecast con el MISMO contrato:
 #     x_studio_mu_week, x_studio_sigma_week, x_studio_product_id (m2o product.product),
@@ -42,14 +49,15 @@
 #
 # Contexto soportado (backtest/overrides): date_to (cutoff), team_ids, hard_reset,
 #   fwd_model, demand_window_weeks, decensor_stockout (default True; False = input
-#   crudo), min_quiebre_days (default 7; min de dias totales con quiebre para gatillar
-#   el SMA largo). Overrides de modelo: force_alpha (fuerza SES con ese alfa a TODO),
+#   crudo, sin cleansing), cleanse_min_days (default 1; dias/sem para marcar quiebre),
+#   cleanse_base_weeks (default 6; semanas in-stock del baseline), sma_tail_weeks
+#   (default 6). Overrides de modelo: force_alpha (fuerza SES con ese alfa a TODO),
 #   force_median (True -> Mediana(4) a todo). Solo para diagnostico.
 #
 # No toca stock, compras, transferencias ni OC. Solo escribe el forecast.
 # ============================================================
 
-VERSION_ID = "OH_FORECAST_BASE_v1_1"
+VERSION_ID = "OH_FORECAST_BASE_v1_2"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438          # mismo lock que el forecast HM-SI/SMA4: mutuamente excluyentes
@@ -61,11 +69,16 @@ HARD_RESET_DEFAULT = True
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 DEMAND_WINDOW_WEEKS_DEFAULT = 26     # ventana para clasificar + universo activo
 MEDIAN_K = 4                         # Mediana(4) y ventana de sigma
-SMA_LONG_WEEKS = 12                  # SMA largo para combos con quiebre (etapa 2)
-MIN_QUIEBRE_DAYS_DEFAULT = 7        # min de DIAS totales de quiebre en la ventana para
-                                     # gatillar SMA largo (=1 semana acumulada sin stock).
-                                     # 1-2 dias aislados NO bastan: el 75% de los combos
-                                     # con quiebre tienen 1 solo dia (blips), no stockout real.
+SMA_TAIL_WEEKS_DEFAULT = 6           # SMA para la cola intermittent/lumpy (reemplaza la
+                                     # Mediana, que daba ceros en demanda esporadica)
+# Cleansing de entrada por quiebre (etapa 2): reemplaza la venta de las SEMANAS con
+# quiebre por el promedio de las CLEANSE_BASE_WEEKS semanas CON stock previas (solo-
+# levanta). Asi el forecast estima demanda no restringida sobre TODO el periodo (no
+# solo combos con mucho quiebre). Data-driven, sin factor a dedo.
+CLEANSE_MIN_DAYS_DEFAULT = 1          # una semana cuenta como quiebre si >= N dias sin stock
+CLEANSE_BASE_WEEKS_DEFAULT = 6        # baseline = promedio de las 6 sem con stock previas
+CLEANSE_LOOKBACK_WEEKS_DEFAULT = 16   # solo escanea quiebre en las ultimas N sem (el SMA6/
+                                     # SES no usan mas atras) -> acota el peso del query
 # Clasificacion Syntetos-Boylan
 ADI_THRESHOLD = 1.32
 CV2_THRESHOLD = 0.49
@@ -211,6 +224,36 @@ def _median(seq):
     return s[k // 2] if (k % 2) else (s[k // 2 - 1] + s[k // 2]) / 2.0
 
 
+def _cleanse_stockout(raw_vals, weeks_list, tid, pid, qweek, min_days, base_k):
+    """Cleansing de entrada por quiebre (etapa 2 / demand unconstraining). En cada
+    semana con quiebre (>= min_days dias sin stock) reemplaza la venta suprimida por
+    el promedio de las base_k semanas CON stock previas, pero SOLO LEVANTA: venta <=
+    demanda, nunca recorta (no castiga semanas de quiebre parcial que vendieron bien).
+    Asi el estimador no persigue hacia abajo la venta suprimida. Loop explicito (sin
+    comprehension que capture locales) por el safe_eval de Odoo.
+    Retorna (vector_limpio, n_semanas_levantadas)."""
+    out = []
+    instock = []
+    n_lift = 0
+    for i in range(len(weeks_list)):
+        w = weeks_list[i]
+        y = raw_vals[i]
+        nd = qweek.get((tid, pid, w), 0)
+        if nd >= min_days and instock:
+            recent = instock[-base_k:]
+            base = sum(recent) / len(recent)     # promedio in-stock trailing
+            if base > y:
+                out.append(base)
+                n_lift += 1
+            else:
+                out.append(y)                    # vendio >= baseline -> no suprimido
+        else:
+            out.append(y)
+            if nd < min_days:
+                instock.append(y)                # referencia limpia = semanas con stock
+    return out, n_lift
+
+
 # ----------------------
 # Contexto
 # ----------------------
@@ -220,8 +263,11 @@ HARD_RESET = bool(CTX.get('hard_reset', HARD_RESET_DEFAULT))
 DEMAND_WINDOW_WEEKS = int(CTX.get('demand_window_weeks', DEMAND_WINDOW_WEEKS_DEFAULT))
 FORCE_ALPHA = CTX.get('force_alpha')          # diagnostico: SES(alpha) a todo
 FORCE_MEDIAN = bool(CTX.get('force_median'))  # diagnostico: Mediana(4) a todo
-DECENSOR = bool(CTX.get('decensor_stockout', True))  # etapa 2: de-censura entrada (default ON)
-MIN_QUIEBRE_DAYS = max(1, int(CTX.get('min_quiebre_days', MIN_QUIEBRE_DAYS_DEFAULT)))
+DECENSOR = bool(CTX.get('decensor_stockout', True))  # etapa 2: cleansing de entrada (default ON)
+CLEANSE_MIN_DAYS = max(1, int(CTX.get('cleanse_min_days', CLEANSE_MIN_DAYS_DEFAULT)))
+CLEANSE_BASE_WEEKS = max(1, int(CTX.get('cleanse_base_weeks', CLEANSE_BASE_WEEKS_DEFAULT)))
+CLEANSE_LOOKBACK_WEEKS = max(1, int(CTX.get('cleanse_lookback_weeks', CLEANSE_LOOKBACK_WEEKS_DEFAULT)))
+SMA_TAIL_WEEKS = max(1, int(CTX.get('sma_tail_weeks', SMA_TAIL_WEEKS_DEFAULT)))
 
 TEAM_IDS = _to_int_list(CTX.get('team_ids')) or list(FILTERED_TEAM_IDS_DEFAULT)
 company = env.company
@@ -383,26 +429,28 @@ else:
                 abc_letter = {}   # sin ABC -> smooth usa alfa 0.6 (no-A)
 
             # ----------------------
-            # Combos con quiebre MATERIAL EN EL PERIODO (etapa 2). Un dia es quiebre si
-            # stockout OR stockout_partial OR qty_balance<=0 (criterio motor v3.48). Se
-            # cuentan DIAS distintos con quiebre y solo se gatilla el SMA largo si
-            # >= MIN_QUIEBRE_DAYS (=1 semana acumulada sin stock). 1-2 dias aislados NO
-            # bastan (el 75% de los combos con quiebre tienen 1 solo dia). El SMA largo
-            # alcanza la venta normal pre-quiebre y diluye los ceros censurados, sin
-            # perseguir hacia abajo la venta suprimida.
+            # Quiebre por (combo, SEMANA) sobre TODO el periodo, para cleansing de entrada
+            # (etapa 2). Un dia es quiebre si stockout OR stockout_partial OR qty_balance<=0
+            # (criterio motor v3.48). Se cuentan dias de quiebre por semana (date_trunc).
+            # En cada semana con quiebre se reemplaza la venta suprimida por el promedio
+            # in-stock (solo-levanta) -> demand unconstraining. Escanea solo las ultimas
+            # CLEANSE_LOOKBACK_WEEKS sem (el SMA6/SES no usan mas atras) -> acota el peso
+            # del query sobre x_stock_balance_daily. qweek = {(tid, pid, semana_lunes): dias}.
             # ----------------------
-            stockout_combos = set()
+            qweek = {}
             if DECENSOR and pids:
                 try:
                     env[SB_MODEL]          # valida que el modelo exista (KeyError si no)
+                    cl_from = last_closed_monday - datetime.timedelta(weeks=max(CLEANSE_LOOKBACK_WEEKS - 1, 0))
                     team_clause = ''
-                    so_params = {'pids': pids, 'date_from': window_from, 'date_to': date_to,
-                                 'min_days': MIN_QUIEBRE_DAYS}
+                    so_params = {'pids': pids, 'date_from': cl_from, 'date_to': date_to}
                     if TEAM_IDS:
                         team_clause = ' AND x_studio_team_id = ANY(%(team_ids)s) '
                         so_params['team_ids'] = TEAM_IDS
                     so_sql = ("""
-                        SELECT x_studio_product_id, x_studio_team_id
+                        SELECT x_studio_product_id, x_studio_team_id,
+                               date_trunc('week', x_studio_date)::date AS wk,
+                               COUNT(DISTINCT x_studio_date) AS ndays
                         FROM x_stock_balance_daily
                         WHERE x_studio_product_id = ANY(%(pids)s)
                           AND x_studio_date >= %(date_from)s AND x_studio_date <= %(date_to)s
@@ -410,16 +458,15 @@ else:
                                OR COALESCE(x_studio_stockout_partial, FALSE) = TRUE
                                OR COALESCE(x_studio_qty_balance, 0.0) <= 0.0)
                         """ + team_clause + """
-                        GROUP BY x_studio_product_id, x_studio_team_id
-                        HAVING COUNT(DISTINCT x_studio_date) >= %(min_days)s
+                        GROUP BY x_studio_product_id, x_studio_team_id, 3
                     """)
                     env.cr.execute(so_sql, so_params)
-                    for _pid, _tid in env.cr.fetchall():
-                        if _pid is None or _tid is None:
+                    for _pid, _tid, _wk, _nd in env.cr.fetchall():
+                        if _pid is None or _tid is None or _wk is None:
                             continue
-                        stockout_combos.add((int(_tid), int(_pid)))
+                        qweek[(int(_tid), int(_pid), _wk)] = int(_nd or 0)
                 except Exception:
-                    stockout_combos = set()   # modelo/campos ausentes -> sin override (modelo base)
+                    qweek = {}   # modelo/campos ausentes -> sin cleansing (input crudo)
 
             # ----------------------
             # Purga + escritura
@@ -437,26 +484,26 @@ else:
             n_created = 0
             n_nonzero = 0
             mu_total = 0.0
-            n_decensored = 0          # combos con quiebre en el periodo -> SMA largo
+            n_cleansed = 0            # combos con >=1 semana levantada por cleansing
             model_counts = {}
             for (tid, pid), wkmap in sales.items():
-                vals = [_safe_float(wkmap.get(w, 0.0), 0.0) for w in window_weeks]   # vector crudo
+                raw_vals = [_safe_float(wkmap.get(w, 0.0), 0.0) for w in window_weeks]   # crudo
+                # etapa 2: cleansing por semana (reemplaza venta suprimida por quiebre)
+                if DECENSOR and qweek:
+                    vals, n_lift = _cleanse_stockout(raw_vals, window_weeks, tid, pid,
+                                                     qweek, CLEANSE_MIN_DAYS, CLEANSE_BASE_WEEKS)
+                    if n_lift > 0:
+                        n_cleansed += 1
+                else:
+                    vals = raw_vals
                 last4 = vals[-MEDIAN_K:] if len(vals) >= MEDIAN_K else vals
                 mean4 = sum(last4) / len(last4) if last4 else 0.0
 
                 stype = _classify_series_type(vals)
                 abc = abc_letter.get(pid, '')
-                is_quiebre = DECENSOR and ((tid, pid) in stockout_combos)
 
-                # --- seleccion de modelo ---
-                if is_quiebre:
-                    # etapa 2: combo con quiebre en el periodo -> SMA largo. Recupera la
-                    # venta normal pre-quiebre y no deja ceros (promedio de SMA_LONG_WEEKS).
-                    long_vals = vals[-SMA_LONG_WEEKS:] if len(vals) >= 1 else vals
-                    model_code = 'sma%d_q' % SMA_LONG_WEEKS
-                    mu = (sum(long_vals) / len(long_vals)) if long_vals else 0.0
-                    n_decensored += 1
-                elif FORCE_MEDIAN:
+                # --- seleccion de modelo (sobre la serie YA limpia) ---
+                if FORCE_MEDIAN:
                     model_code = 'median4'; mu = _median(last4)
                 elif FORCE_ALPHA is not None:
                     a = _safe_float(FORCE_ALPHA, 0.6); model_code = 'ses_a%.2f' % a; mu = _ses_level(vals, a)
@@ -465,8 +512,15 @@ else:
                     model_code = 'ses_a%.2f' % a; mu = _ses_level(vals, a)
                 elif stype == 'erratic':
                     a = ALPHA_ERRATIC; model_code = 'ses_a%.2f' % a; mu = _ses_level(vals, a)
-                else:   # lumpy / intermittent / no_signal
+                elif stype == 'no_signal':
+                    # casi-muerto (vende muy pocas semanas) -> Mediana ~0 es lo correcto;
+                    # no inflar con SMA (sobre-stock de muerto, el dummy de control lo cubre)
                     model_code = 'median4'; mu = _median(last4)
+                else:   # intermittent / lumpy -> SMA(SMA_TAIL_WEEKS): la Mediana(4) da 0 en
+                    # demanda esporadica (>=3 de 4 sem en cero). El SMA captura la TASA media.
+                    tail_vals = vals[-SMA_TAIL_WEEKS:] if len(vals) >= 1 else vals
+                    model_code = 'sma%d' % SMA_TAIL_WEEKS
+                    mu = (sum(tail_vals) / len(tail_vals)) if tail_vals else 0.0
 
                 if mu < 0.0:
                     mu = 0.0
@@ -504,7 +558,7 @@ else:
 
             try:
                 mc = ' '.join('%s=%s' % (k, v) for k, v in sorted(model_counts.items()))
-                dec = ('ON quiebre_combos=%s sma%s min%sd' % (len(stockout_combos), SMA_LONG_WEEKS, MIN_QUIEBRE_DAYS)) if DECENSOR else 'OFF'
+                dec = ('ON cleansed_combos=%s base%sw min%sd qsem=%s' % (n_cleansed, CLEANSE_BASE_WEEKS, CLEANSE_MIN_DAYS, len(qweek))) if DECENSOR else 'OFF'
                 log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | teams=%s' % (
                     VERSION_ID, target_date, window_weeks[0], window_weeks[-1],
                     purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, len(TEAM_IDS)), level='info')
@@ -512,10 +566,10 @@ else:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-                'title': 'Forecast Base v1.1',
-                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | decensor=%s' % (
+                'title': 'Forecast Base v1.2',
+                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s' % (
                     target_date, n_created, n_nonzero, round(mu_total, 0),
-                    ('%s combos' % n_decensored) if DECENSOR else 'off'),
+                    ('%s combos' % n_cleansed) if DECENSOR else 'off'),
                 'type': 'success', 'sticky': True}}
     finally:
         env.cr.execute('SELECT pg_advisory_unlock(%s)', (LOCK_KEY,))

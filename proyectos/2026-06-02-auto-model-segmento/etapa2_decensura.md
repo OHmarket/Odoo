@@ -4,39 +4,53 @@
 **Estado:** IMPLEMENTADO en `02_forecast/OH Forecast Base.py` v1.1 (pendiente validar en Odoo).
 **Depende de:** etapa 1 (modelo base AUTO).
 
-## RESOLUCIÓN FINAL (supera todo lo de abajo)
+## RESOLUCIÓN FINAL — CLEANSING POR SEMANA (v1.2, validado en producción)
 
-**Enfoque elegido: combo con quiebre MATERIAL → SMA(12).** NO LOCF.
+**Enfoque: demand unconstraining canónico (SAP IBP) — cleansing por SEMANA del input,
+NO override por combo.** El override por combo (SMA12) solo tocaba combos con mucho
+quiebre (21 cigarros), pero la contaminación es pervasiva (96% del volumen de cigarros
+en combos con quiebre, mayoría smooth con quiebre de 1-6 días que el SMA12 no agarraba).
 
 ```
-combo con ≥ MIN_QUIEBRE_DAYS (default 7) días de quiebre en la ventana → mu = SMA(12)
-resto → modelo base (SES/Mediana por series_type)
+ANTES de clasificar/estimar, para cada combo y cada SEMANA:
+  semana con quiebre (>= cleanse_min_days=1 día sin stock) →
+       venta = max(promedio cleanse_base_weeks=6 sem in-stock previas, venta observada)
+       (SOLO LEVANTA: venta <= demanda, nunca recorta -> respeta quiebre parcial que vendió bien)
+luego modelo base sobre la serie LIMPIA:
+  smooth → SES | erratic → SES(0.7) | intermittent/lumpy → SMA(6) | no_signal → Mediana(4)
 ```
 
 - **Fuente quiebre:** `x_stock_balance_daily` (stockout OR stockout_partial OR
-  qty_balance<=0, criterio motor v3.48). Query con `GROUP BY ... HAVING
-  COUNT(DISTINCT x_studio_date) >= min_days`.
-- **Trigger por DÍAS, no semanas:** el 75% de combos con quiebre tienen 1 solo día
-  (blips). ≥7 días = 1 semana acumulada sin stock. ≥1 día flagueaba 6.079 combos
-  (22%); ≥7 días → 174 combos. Tunable: `min_quiebre_days`.
-- **Por qué SMA(12) y no LOCF:** el LOCF rellena solo las semanas de quiebre pero deja
-  la Mediana(4) → que igual da 0 en sparse no-quiebre. El SMA largo NO da ceros y
-  recupera el nivel pre-quiebre. Es la base larga del motor (SMA-16) re-aplicada.
-- **Efecto:** cigarros con quiebre material recuperan nivel sin ceros; WAPE global sube
-  (esperado, real censurado).
+  qty_balance<=0). Query por (combo, semana) con `COUNT(DISTINCT date)`, escanea solo
+  las últimas `cleanse_lookback_weeks=16` sem (acota el peso; el SMA6/SES no usan más atrás).
+- **Data-driven, sin factor a dedo:** el cleansing recupera la supresión desde el dato
+  de stock. El stock va hasta abr-2025 → recupera meses de supresión solo.
+- **El WAPE sube vs crudo y es ESPERADO** (real censurado, no defecto del modelo).
+  No se juzga esta capa por WAPE — es para reabastecer la demanda real.
 
-## PENDIENTE (decisión próxima sesión)
+## VALIDACIÓN EN PRODUCCIÓN (cigarros)
 
-Los **ceros estructurales de la cola intermitente SIN quiebre** siguen (Mediana(4) da 0
-en intermittent/no_signal con o sin stock). Medido: cola → SMA(8) baja ceros intermittent
-48%→8%, PERO infla no_signal (casi-muerto) +260%. Diseño correcto si se ataca:
-intermittent/lumpy → SMA(8), no_signal → Mediana(4). Marco decidió dejarlo fuera por ahora
-y quedarse SOLO con productos con quiebre. Artefacto: `cola_sma_largo.py`,
-`estimador_intermitente.py`.
+- Compra de cigarros: **9M → 14M** (cae en el rango realista 2025-limpio × 0.75 ≈ 14-16M).
+- mu_total: 2.706 → 3.198 u/sem. El lift vino de los **smooth de alta rotación**
+  (ses_a0.50: 1.551 → 2.713, +75%) — los que tenían quiebre pervasivo y el SES seguía
+  hacia abajo. En valor pesan más (premium) → por eso saltó 9M→14M.
+- Diagnóstico previo: 2026 cigarros al 36% del nivel limpio 2025 (may), por debajo del
+  piso de invierno — supresión de meses (espiral de sub-compra), no estacionalidad.
+  Confirmado: 78% combos / 96% volumen con quiebre reciente.
+
+## Descartado en el camino
+
+- **Factor YoY a dedo (2025 × 0.75):** Marco lo descartó ("poner a dedo") → mejor que
+  fluya con el cleansing data-driven.
+- **Override por combo (SMA12, ≥7 días):** muy grueso, no agarraba la contaminación pervasiva.
+- **Mediana(4) en la cola:** daba ceros estructurales (≥3 de 4 sem en cero) → sub-stock.
+  Reemplazada por SMA(6) en intermittent/lumpy; no_signal queda en Mediana (~0 correcto,
+  no inflar casi-muertos). Artefactos: `cola_sma_largo.py`, `estimador_intermitente.py`,
+  `cleansing_estimadores.py`, `nivel_forecast_cigarros.py`.
 
 ---
 
-## (Histórico — diseño LOCF, reemplazado por SMA12 arriba)
+## (Histórico — diseños LOCF y SMA12-por-combo, reemplazados por el cleansing por semana)
 
 ## Problema (Fase 0)
 

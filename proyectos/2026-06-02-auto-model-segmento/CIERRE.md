@@ -101,20 +101,24 @@ smooth+A→SES(0.5) / smooth+B,C→SES(0.6) / erratic→SES(0.7) / lumpy,interm,
   SIN `demand_history_months` (obsoleta).
 - **OH SMA4 Forecast.py:** superseded por Base (queda como referencia/rollback).
 
-## ETAPA 2 — IMPLEMENTADA (de-censura por quiebre con SMA12), pendiente validar en Odoo
+## ETAPA 2 — RESUELTA y VALIDADA EN PRODUCCIÓN (v1.2, cleansing por semana)
 
-`OH Forecast Base.py` v1.1: **combo con ≥7 días de quiebre en la ventana → mu = SMA(12)**
-(no LOCF — el LOCF dejaba ceros porque la Mediana sigue dando 0 en sparse). El SMA largo
-recupera el nivel pre-quiebre sin ceros (es la base larga del motor re-aplicada). Fuente:
-`x_stock_balance_daily` (GROUP BY ... HAVING COUNT(DISTINCT date) >= min_quiebre_days).
-Trigger por DÍAS, no semanas (75% de combos con quiebre tienen 1 solo día = blip). ≥7 días
-→ 174 combos. Tunable: `min_quiebre_days`. El WAPE sube vs base y es ESPERADO (real
-censurado). Apagable con `decensor_stockout=False`.
+`OH Forecast Base.py` v1.2: **demand unconstraining canónico (SAP IBP) — cleansing por
+SEMANA del input.** Para cada combo y cada semana con quiebre (≥1 día sin stock), la venta
+suprimida se reemplaza por el promedio de las 6 sem in-stock previas, **solo-levanta**
+(venta ≤ demanda). Luego el modelo base corre sobre la serie limpia (smooth→SES,
+intermittent/lumpy→**SMA(6)**, no_signal→Mediana). Fuente: `x_stock_balance_daily`, escanea
+las últimas `cleanse_lookback_weeks=16` sem (acota peso). **Data-driven, sin factor a dedo.**
 
-**PENDIENTE próxima sesión:** los ceros estructurales de la cola intermitente SIN quiebre
-(Mediana(4) da 0). Diseño medido: intermittent/lumpy → SMA(8), no_signal → Mediana (NO
-aplicar SMA al no_signal, infla casi-muertos +260%). Marco lo dejó fuera por ahora.
-Detalle en `etapa2_decensura.md`.
+**Validación en producción (cigarros):** compra **9M → 14M** (rango realista 2025×0.75).
+El lift vino de los smooth de alta rotación (ses_a0.50: 1.551→2.713 u, +75%) que tenían
+quiebre pervasivo y el SES seguía hacia abajo. Diagnóstico: 2026 cigarros al 36% del nivel
+limpio 2025, supresión de meses (espiral de sub-compra), 78% combos / 96% volumen con quiebre.
+
+**El WAPE sube vs crudo y es ESPERADO** (real censurado) — no se juzga esta capa por WAPE.
+Apagable con `decensor_stockout=False`. Por qué NO override-por-combo (SMA12): muy grueso,
+no agarraba la contaminación pervasiva (combos smooth con quiebre 1-6 días). Por qué NO
+factor YoY a dedo: Marco lo descartó, mejor data-driven. Detalle en `etapa2_decensura.md`.
 
 ## ARTEFACTOS
 
