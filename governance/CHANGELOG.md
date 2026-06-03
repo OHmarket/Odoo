@@ -355,6 +355,29 @@ Cambios activos:
 
 ---
 
+## 02_forecast / OH Forecast Base.py
+
+### v1.4 — no_signal vivo via SMA(6) en vez de Mediana(4) (2026-06-02)
+
+La rama `no_signal` pasa de `Mediana(4)` a `SMA(SMA_TAIL_WEEKS=6)` con `model_code='sma6_ns'`. Ataca el sub-forecast de los intermitentes lentos VIVOS sin inflar los obsoletos.
+
+- **Diagnostico (backtest W20-W22)**: de 12.379 filas `median4`, 10.641 estaban OK en cero (muertos reales), pero ~1.230 combos vendian esporadico (2.017 u medidas) y recibian forecast 0 — caian en `no_signal` por `MIN_ACTIVE_WEEKS=4` (vendio en <4 de 26 sem) → Mediana(4)=0. BIAS de la clase: **+74.9%** (sub severo).
+- **Por que SMA(6) y no recencia explicita**: el SMA(6) ya da 0 a quien no vendio en las ultimas 6 sem (muerto real) y >0 al que vendio reciente (vivo) → la recencia se auto-regula, sin parametro extra. Canon: proxy de **TSB (Teunter-Syntetos-Babai)**, el modelo de intermitente con obsolescencia. Decidido NO implementar TSB completo (mas codigo; memoria previa de SBA con alpha bajo fue negativa).
+- `model_code='sma6_ns'` distinto del intermittent `sma6` para auditar el corte por separado en el backtest.
+- **Casos canonicos**: (a) SKU con 3 ventas en 26 sem, ultima ≤6 sem → mu>0 (antes 0); (b) muerto real sin venta en 6 sem → SMA(6)=0 (sigue 0, no se infla); (c) SKU que vendio al inicio y nada en ult. 6 sem → SMA(6)=0 (no revive).
+- Sin tocar el resto de ramas (smooth/erratic/intermittent/lumpy) ni la de-censura.
+
+---
+
+### v1.3 — Persiste series_type para auditoria (2026-06-02)
+
+Persiste `x_studio_series_type` en `x_hm_si_forecast` junto al `forecast_model_code`. El motor ya clasificaba la forma de serie LOCAL (Syntetos-Boylan) para elegir el modelo; ahora la escribe en vez de descartarla. Sin cambio de `mu_week`/`sigma_week` ni de la seleccion de modelo: es solo metadato.
+
+- **Motivo**: el backtest agrupaba por `series_type` y salia vacio (0 de 18.058 filas) porque el motor Base no lo persistia — solo lo hacia el HM-SI v4.3+. Recupera el desglose smooth/erratic/intermittent/lumpy/no_signal en el backtest sin tocar el forecast.
+- `forecast_zone` / `regimen` siguen sin escribirse: el Base clasifica por `series_type` local, no por el regimen REG-X global (decision de diseno documentada en el header).
+
+---
+
 ## 02_forecast / OH Forecast Backtest.py
 
 ### v11.2 — Limpieza de código muerto post-OLD (2026-06-02)

@@ -1,10 +1,15 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version activa: v1.2 (2026-06-02)  [reemplaza OH SMA4 Forecast v1.0]
+# Version activa: v1.4 (2026-06-02)  [reemplaza OH SMA4 Forecast v1.0]
 #   v1.1: de-censura por combo con quiebre -> SMA. v1.2: CLEANSING por SEMANA
 #         (reemplaza la venta suprimida de cada semana de quiebre por el promedio
 #         in-stock, solo-levanta) sobre TODO el periodo + cola SMA(6).
+#   v1.3: persiste x_studio_series_type (auditoria; ya se calculaba). Sin cambio
+#         de mu/sigma ni de seleccion de modelo.
+#   v1.4: no_signal pasa de Mediana(4) a SMA(6) [model_code sma6_ns]. Recupera el
+#         intermitente lento vivo (forecast 0 -> tasa media); el SMA da 0 al muerto
+#         real, no infla obsoletos. Proxy de TSB.
 #
 # Que hace (modelo base AUTO, validado en proyectos/2026-06-02-auto-model-segmento):
 #   Por (sala=crm.team, SKU=product.product) clasifica la serie LOCALMENTE
@@ -14,10 +19,11 @@
 #       series_type smooth  + ABC=B/C         -> SES(alfa=0.6)
 #       series_type erratic                   -> SES(alfa=0.7)
 #       series_type intermittent / lumpy      -> SMA(SMA_TAIL_WEEKS=6)
-#       series_type no_signal                 -> Mediana(4)   (casi-muerto, ~0 correcto)
-#   La cola intermittent/lumpy usa SMA (no Mediana): la Mediana(4) da 0 en demanda
-#   esporadica (>=3 de 4 sem en cero) -> sub-stockea lo que rota cada tanto. El SMA
-#   captura la tasa media. no_signal queda en Mediana (vende casi nunca -> 0 es correcto).
+#       series_type no_signal                 -> SMA(6) [model_code sma6_ns]   (v1.4)
+#   La cola intermittent/lumpy/no_signal usa SMA (no Mediana): la Mediana(4) da 0 en
+#   demanda esporadica (>=3 de 4 sem en cero) -> sub-stockea lo que rota cada tanto. El
+#   SMA captura la tasa media y a la vez da 0 a los muertos reales (sin venta en la cola
+#   SMA) -> recupera el intermitente lento VIVO sin inflar el obsoleto. Proxy de TSB.
 #
 #   ABC se lee GLOBAL de x_calculo_abc_xyz (x_studio_abcxyz, por producto).
 #   El regimen persistido es GLOBAL (team_id=False); por eso NO se lee: la forma
@@ -46,7 +52,9 @@
 #   Escribe a x_hm_si_forecast con el MISMO contrato:
 #     x_studio_mu_week, x_studio_sigma_week, x_studio_product_id (m2o product.product),
 #     x_studio_team_id (m2o crm.team), x_studio_week_start (date),
-#     x_studio_forecast_model_code (el modelo elegido, para auditoria).
+#     x_studio_forecast_model_code (el modelo elegido, para auditoria),
+#     x_studio_series_type (la forma de serie LOCAL clasificada, para auditoria;
+#       v1.3: el motor ya la calculaba para elegir el modelo, ahora la persiste).
 #
 # Contexto soportado (backtest/overrides): date_to (cutoff), team_ids, hard_reset,
 #   fwd_model, demand_window_weeks, decensor_stockout (default True; False = input
@@ -58,7 +66,7 @@
 # No toca stock, compras, transferencias ni OC. Solo escribe el forecast.
 # ============================================================
 
-VERSION_ID = "OH_FORECAST_BASE_v1_2"
+VERSION_ID = "OH_FORECAST_BASE_v1_4"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438          # mismo lock que el forecast HM-SI/SMA4: mutuamente excluyentes
@@ -514,9 +522,14 @@ else:
                 elif stype == 'erratic':
                     a = ALPHA_ERRATIC; model_code = 'ses_a%.2f' % a; mu = _ses_level(vals, a)
                 elif stype == 'no_signal':
-                    # casi-muerto (vende muy pocas semanas) -> Mediana ~0 es lo correcto;
-                    # no inflar con SMA (sobre-stock de muerto, el dummy de control lo cubre)
-                    model_code = 'median4'; mu = _median(last4)
+                    # casi-muerto: <4 sem con venta en 26. v1.4: antes Mediana(4)=0 sub-stockeaba
+                    # los intermitentes lentos VIVOS (venta esporadica reciente). SMA(SMA_TAIL_WEEKS)
+                    # los recupera y a la vez da 0 a los muertos reales (sin venta en la cola SMA),
+                    # asi NO infla obsoletos. Proxy de TSB (intermitente con obsolescencia). model_code
+                    # 'sma6_ns' distinto del intermittent para auditar el corte en el backtest.
+                    tail_vals = vals[-SMA_TAIL_WEEKS:] if len(vals) >= 1 else vals
+                    model_code = 'sma%d_ns' % SMA_TAIL_WEEKS
+                    mu = (sum(tail_vals) / len(tail_vals)) if tail_vals else 0.0
                 else:   # intermittent / lumpy -> SMA(SMA_TAIL_WEEKS): la Mediana(4) da 0 en
                     # demanda esporadica (>=3 de 4 sem en cero). El SMA captura la TASA media.
                     tail_vals = vals[-SMA_TAIL_WEEKS:] if len(vals) >= 1 else vals
@@ -547,6 +560,7 @@ else:
                 _put_field(vals_w, fwd_fields, 'x_studio_sigma_week', sigma)
                 _put_field(vals_w, fwd_fields, 'x_studio_mu_week_pre_bias', mu)
                 _put_field(vals_w, fwd_fields, 'x_studio_forecast_model_code', model_code, 60)
+                _put_field(vals_w, fwd_fields, 'x_studio_series_type', stype, 20)   # auditoria: tipo de serie LOCAL que eligio el modelo
                 batch.append(vals_w)
 
                 if len(batch) >= BATCH_SIZE:
@@ -567,7 +581,7 @@ else:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-                'title': 'Forecast Base v1.2',
+                'title': 'Forecast Base v1.4',
                 'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s' % (
                     target_date, n_created, n_nonzero, round(mu_total, 0),
                     ('%s combos' % n_cleansed) if DECENSOR else 'off'),
