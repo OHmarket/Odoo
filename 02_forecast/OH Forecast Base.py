@@ -1,7 +1,8 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version activa: v1.0 (2026-06-02)  [reemplaza OH SMA4 Forecast v1.0]
+# Version activa: v1.1 (2026-06-02)  [reemplaza OH SMA4 Forecast v1.0]
+#   v1.1: + de-censura de entrada (etapa 2): combo con quiebre -> SMA(12).
 #
 # Que hace (modelo base AUTO, validado en proyectos/2026-06-02-auto-model-segmento):
 #   Por (sala=crm.team, SKU=product.product) clasifica la serie LOCALMENTE
@@ -23,29 +24,48 @@
 #   SKUs sin venta en DEMAND_WINDOW_WEEKS=26 sem se omiten (dead). El control de
 #   muertos vive aguas abajo (dummy de control + minimo por ABC en Analisis Stock).
 #
+#   DE-CENSURA DE ENTRADA (v1.1, etapa 2): un combo (SKU,sala) con QUIEBRE en el
+#   periodo usa SMA(SMA_LONG_WEEKS=12) en vez del estimador corto. El promedio largo
+#   alcanza la venta normal PRE-quiebre y diluye los ceros censurados -> el forecast
+#   estima demanda NO restringida y no persigue hacia abajo la venta suprimida por
+#   falta de stock (circulo vicioso de sub-compra), sin dejar ceros (problema de la
+#   Mediana en intermitentes). Fuente del quiebre: x_stock_balance_daily (stockout /
+#   stockout_partial / qty_balance<=0, criterio motor v3.48). Solo combos con quiebre
+#   real -> la baja estacional queda intacta. El backtest contra venta censurada
+#   mostrara MAS error y es esperado (demanda no satisfecha, no defecto del modelo).
+#   Se apaga con context decensor_stockout=False (para medir base vs de-censurado).
+#
 #   Escribe a x_hm_si_forecast con el MISMO contrato:
 #     x_studio_mu_week, x_studio_sigma_week, x_studio_product_id (m2o product.product),
 #     x_studio_team_id (m2o crm.team), x_studio_week_start (date),
 #     x_studio_forecast_model_code (el modelo elegido, para auditoria).
 #
 # Contexto soportado (backtest/overrides): date_to (cutoff), team_ids, hard_reset,
-#   fwd_model, demand_window_weeks. Overrides de modelo: force_alpha (fuerza SES con
-#   ese alfa a TODO), force_median (True -> Mediana(4) a todo). Solo para diagnostico.
+#   fwd_model, demand_window_weeks, decensor_stockout (default True; False = input
+#   crudo), min_quiebre_days (default 7; min de dias totales con quiebre para gatillar
+#   el SMA largo). Overrides de modelo: force_alpha (fuerza SES con ese alfa a TODO),
+#   force_median (True -> Mediana(4) a todo). Solo para diagnostico.
 #
 # No toca stock, compras, transferencias ni OC. Solo escribe el forecast.
 # ============================================================
 
-VERSION_ID = "OH_FORECAST_BASE_v1_0"
+VERSION_ID = "OH_FORECAST_BASE_v1_1"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438          # mismo lock que el forecast HM-SI/SMA4: mutuamente excluyentes
 
 FWD_MODEL_DEFAULT = 'x_hm_si_forecast'
 SEG_MODEL = 'x_calculo_abc_xyz'      # fuente del ABC global
+SB_MODEL = 'x_stock_balance_daily'   # fuente del quiebre (de-censura de entrada, etapa 2)
 HARD_RESET_DEFAULT = True
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 DEMAND_WINDOW_WEEKS_DEFAULT = 26     # ventana para clasificar + universo activo
 MEDIAN_K = 4                         # Mediana(4) y ventana de sigma
+SMA_LONG_WEEKS = 12                  # SMA largo para combos con quiebre (etapa 2)
+MIN_QUIEBRE_DAYS_DEFAULT = 7        # min de DIAS totales de quiebre en la ventana para
+                                     # gatillar SMA largo (=1 semana acumulada sin stock).
+                                     # 1-2 dias aislados NO bastan: el 75% de los combos
+                                     # con quiebre tienen 1 solo dia (blips), no stockout real.
 # Clasificacion Syntetos-Boylan
 ADI_THRESHOLD = 1.32
 CV2_THRESHOLD = 0.49
@@ -200,6 +220,8 @@ HARD_RESET = bool(CTX.get('hard_reset', HARD_RESET_DEFAULT))
 DEMAND_WINDOW_WEEKS = int(CTX.get('demand_window_weeks', DEMAND_WINDOW_WEEKS_DEFAULT))
 FORCE_ALPHA = CTX.get('force_alpha')          # diagnostico: SES(alpha) a todo
 FORCE_MEDIAN = bool(CTX.get('force_median'))  # diagnostico: Mediana(4) a todo
+DECENSOR = bool(CTX.get('decensor_stockout', True))  # etapa 2: de-censura entrada (default ON)
+MIN_QUIEBRE_DAYS = max(1, int(CTX.get('min_quiebre_days', MIN_QUIEBRE_DAYS_DEFAULT)))
 
 TEAM_IDS = _to_int_list(CTX.get('team_ids')) or list(FILTERED_TEAM_IDS_DEFAULT)
 company = env.company
@@ -361,6 +383,45 @@ else:
                 abc_letter = {}   # sin ABC -> smooth usa alfa 0.6 (no-A)
 
             # ----------------------
+            # Combos con quiebre MATERIAL EN EL PERIODO (etapa 2). Un dia es quiebre si
+            # stockout OR stockout_partial OR qty_balance<=0 (criterio motor v3.48). Se
+            # cuentan DIAS distintos con quiebre y solo se gatilla el SMA largo si
+            # >= MIN_QUIEBRE_DAYS (=1 semana acumulada sin stock). 1-2 dias aislados NO
+            # bastan (el 75% de los combos con quiebre tienen 1 solo dia). El SMA largo
+            # alcanza la venta normal pre-quiebre y diluye los ceros censurados, sin
+            # perseguir hacia abajo la venta suprimida.
+            # ----------------------
+            stockout_combos = set()
+            if DECENSOR and pids:
+                try:
+                    env[SB_MODEL]          # valida que el modelo exista (KeyError si no)
+                    team_clause = ''
+                    so_params = {'pids': pids, 'date_from': window_from, 'date_to': date_to,
+                                 'min_days': MIN_QUIEBRE_DAYS}
+                    if TEAM_IDS:
+                        team_clause = ' AND x_studio_team_id = ANY(%(team_ids)s) '
+                        so_params['team_ids'] = TEAM_IDS
+                    so_sql = ("""
+                        SELECT x_studio_product_id, x_studio_team_id
+                        FROM x_stock_balance_daily
+                        WHERE x_studio_product_id = ANY(%(pids)s)
+                          AND x_studio_date >= %(date_from)s AND x_studio_date <= %(date_to)s
+                          AND (COALESCE(x_studio_stockout, FALSE) = TRUE
+                               OR COALESCE(x_studio_stockout_partial, FALSE) = TRUE
+                               OR COALESCE(x_studio_qty_balance, 0.0) <= 0.0)
+                        """ + team_clause + """
+                        GROUP BY x_studio_product_id, x_studio_team_id
+                        HAVING COUNT(DISTINCT x_studio_date) >= %(min_days)s
+                    """)
+                    env.cr.execute(so_sql, so_params)
+                    for _pid, _tid in env.cr.fetchall():
+                        if _pid is None or _tid is None:
+                            continue
+                        stockout_combos.add((int(_tid), int(_pid)))
+                except Exception:
+                    stockout_combos = set()   # modelo/campos ausentes -> sin override (modelo base)
+
+            # ----------------------
             # Purga + escritura
             # ----------------------
             if HARD_RESET:
@@ -376,17 +437,26 @@ else:
             n_created = 0
             n_nonzero = 0
             mu_total = 0.0
+            n_decensored = 0          # combos con quiebre en el periodo -> SMA largo
             model_counts = {}
             for (tid, pid), wkmap in sales.items():
-                vals = [_safe_float(wkmap.get(w, 0.0), 0.0) for w in window_weeks]   # vector cronologico
+                vals = [_safe_float(wkmap.get(w, 0.0), 0.0) for w in window_weeks]   # vector crudo
                 last4 = vals[-MEDIAN_K:] if len(vals) >= MEDIAN_K else vals
                 mean4 = sum(last4) / len(last4) if last4 else 0.0
 
                 stype = _classify_series_type(vals)
                 abc = abc_letter.get(pid, '')
+                is_quiebre = DECENSOR and ((tid, pid) in stockout_combos)
 
                 # --- seleccion de modelo ---
-                if FORCE_MEDIAN:
+                if is_quiebre:
+                    # etapa 2: combo con quiebre en el periodo -> SMA largo. Recupera la
+                    # venta normal pre-quiebre y no deja ceros (promedio de SMA_LONG_WEEKS).
+                    long_vals = vals[-SMA_LONG_WEEKS:] if len(vals) >= 1 else vals
+                    model_code = 'sma%d_q' % SMA_LONG_WEEKS
+                    mu = (sum(long_vals) / len(long_vals)) if long_vals else 0.0
+                    n_decensored += 1
+                elif FORCE_MEDIAN:
                     model_code = 'median4'; mu = _median(last4)
                 elif FORCE_ALPHA is not None:
                     a = _safe_float(FORCE_ALPHA, 0.6); model_code = 'ses_a%.2f' % a; mu = _ses_level(vals, a)
@@ -434,16 +504,18 @@ else:
 
             try:
                 mc = ' '.join('%s=%s' % (k, v) for k, v in sorted(model_counts.items()))
-                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | teams=%s' % (
+                dec = ('ON quiebre_combos=%s sma%s min%sd' % (len(stockout_combos), SMA_LONG_WEEKS, MIN_QUIEBRE_DAYS)) if DECENSOR else 'OFF'
+                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | teams=%s' % (
                     VERSION_ID, target_date, window_weeks[0], window_weeks[-1],
-                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, len(TEAM_IDS)), level='info')
+                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, len(TEAM_IDS)), level='info')
             except Exception:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-                'title': 'Forecast Base v1.0',
-                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s' % (
-                    target_date, n_created, n_nonzero, round(mu_total, 0)),
+                'title': 'Forecast Base v1.1',
+                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | decensor=%s' % (
+                    target_date, n_created, n_nonzero, round(mu_total, 0),
+                    ('%s combos' % n_decensored) if DECENSOR else 'off'),
                 'type': 'success', 'sticky': True}}
     finally:
         env.cr.execute('SELECT pg_advisory_unlock(%s)', (LOCK_KEY,))

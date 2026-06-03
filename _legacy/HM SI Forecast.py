@@ -1,104 +1,332 @@
-# HM SI Forecast - Motor de demanda semanal con estacionalidad por nivel
-# ============================================================
+# VERSION_ID = "FWD_v3_41_FAIR_SHARE_V2"
+# v3.41 (2026-05-23): fair share v2 con share NORMALIZADO por categoria.
+#   Reemplaza la formula de v3.40 (mu_global × share_categoria) que estaba
+#   sesgada por el tamano de las salas activas. v3.41 calcula el "peso del
+#   SKU en su categoria" promediado SIN ponderar por volumen, capturando
+#   un invariante de share independiente del tamano de cada sala.
 #
-# Version activa: v3.49 — SMA(4) SIMPLE (ver CHANGELOG.md para historial completo)
+#   FORMULA v3.41:
+#     # Para cada sala activa i (con mu_sku>0 y mu_categ>0):
+#     share_sku_categ_i = mu_sku_en_sala_i / mu_categoria_en_sala_i
 #
-# v3.49 (2026-06-01): el motor se SIMPLIFICA a SMA(4) por defecto tras el FVA
-#   mostrar que un promedio movil de 4 semanas le gana a toda la maquinaria
-#   (FVA -3.9% full / -10.7% en mayo; el over-forecast vivia en el roundtrip de
-#   SI, las capas de correccion y la de-censura de quiebre, no en la ventana).
-#   Se apagan por DEFAULT: SI (si_enabled=False), trend, categ_calib,
-#   bias_outlier, y normalizacion de demanda (use_demand_normalization=False:
-#   la de-censura inflaba el bias a +21.8% vs +8% del SMA4 sobre venta cruda);
-#   ventana base short=long=4 -> SMA(4) puro. NO se borro codigo: todas las capas siguen
-#   disponibles via context (apply_*, si_enabled=True, service_base_*_weeks)
-#   para A/B o rollback. I/O, modelo de salida (x_hm_si_forecast.x_studio_mu_week)
-#   y contrato con el reabastecimiento INTACTOS. Routing (min_stock/fair_share)
-#   y correccion de PRECIO siguen activos. Detalle: proyectos/2026-06-01-fva-vs-sma4/.
+#     factor_normalizado = mean(share_sku_categ_i)   # invariante a tamano
 #
-# Objetivo:
-#   - Calcular mu_week y sigma_week por (sala, SKU) usando heuristica de
-#     SMA blend (short/long con ratio_up/hold/collapse), deflactando por
-#     estacionalidad SI multi-nivel (local_categ -> categ_global -> global)
-#     y aplicando ajuste SKU si hay >=1 ano de historia.
-#   - Routing por zona (Z1-Z4) y scope (core_hm_si, no_forecast, secondary,
-#     core_canon_v42) segun ABCXYZ local, series_type, lifecycle, mu_week.
-#   - Fair share canon SAP IBP / Blue Yonder para rescate de SKUs A/B sin
-#     historia local (categoria share x growth_cap x conf_n).
+#     # Sala objetivo:
+#     if historia_categ_target >= 12 semanas:
+#         mu_categ_target = mu_categoria_real_target
+#     else:
+#         # Sala nueva: promedio del bottom-N% de salas (default 50%) por
+#         # mu_categoria, EXCLUYENDO la sala objetivo. Refleja crecimiento
+#         # de sala nueva: no parte en el peak, parte en el bottom.
+#         mu_categ_target = mean(mu_categ for bottom-N salas)
 #
-# Reglas vivas (resumen operativo, no cronologia):
-#   - ABC global (criterio economico). XYZ, series_type, lifecycle, regimen
-#     LOCALES por team con fallback al global cuando hay senal insuficiente
-#     (< MIN_ACTIVE_WEEKS = 4 sem).
-#   - SI multi-nivel: local_categ (>= SI_MIN_OBS_LOCAL_CATEG=12 sem),
-#     categ_global, global. Ajuste SKU con alpha 0.15 (low) / 0.30 (high)
-#     cuando n_years_sku >= SI_MIN_YEARS_FOR_SKU (3). SI_FLOOR=0.05, CEIL=5.0.
-#   - Caps anti-spike: BZ * 0.8 max, AZ/CZ/BY-Z3/Z4/AY-smooth-Z2/CY-Z4 * 1.2 max.
-#   - Zero-gate Z4 si nz_recent==0 en ultimas 8 sem, excluyendo REG-8 seasonal
-#     y ramp_up.
-#   - P1: declining/dead -> forecast=0.
-#   - Auto-model selection (v3.39): heuristico, SBA(0.15), Croston(0.10),
-#     seasonal_naive_52 compiten sobre holdout 4 sem. Heur-bias 0.90 (gana
-#     el heuristico salvo que otro sea >=10% mejor en MAE).
-#   - Fair share canon (v3.42): conf_n por N salas activas (1->0.30 ... 5+->1.00),
-#     growth_cap por XYZ (X=3.0, Y=2.0, Z=1.5), tried_penalty 0.15 sin floor
-#     cuando active_weeks_target>0. Trigger: ABC=A siempre, B con gap<=2.
-#   - Correccion de precio externa via x_price_coreccion (detector v5.8 en
-#     02_forecast/OH Price Correccion.py). Se aplica DESPUES de caps P1/P3/P6.
-#     Validacion empirica si factor<0.90 y >=3 sem post-cambio.
-#   - Redondeo mu_week final medio-arriba (>=0.5 sube). sigma_week continuo.
-#   - Trend correction (v3.43): factor multiplicativo por team basado en
-#     weekly YoY asimetrico de las ultimas TREND_WINDOW_WEEKS=8 sem.
-#     Clamp [0.70, 1.00] - solo recorta cuando hay deterioro, NO amplifica
-#     teams en alza. Se aplica DESPUES de correccion_factor, ANTES de
-#     redondeo. mu_week_pre_bias persiste el valor pre-trend.
-#   - Lifecycle declining fix (v3.44): _infer_lifecycle_local ya no clasifica
-#     'declining' por matriz trimestral cuando nz_recent_8w > 0. Antes, los
-#     cutoffs cerca del inicio de un Q (Apr-06, May-04) clasificaban masivamente
-#     SKUs activos como 'declining' y los enviaba a REG-0/min_stock_or_manual
-#     (99% en Apr-06, 71% en May). El check SMA-style evita falsos positivos.
-#   - Remove mu<2.0 threshold from router (v3.45): canon SAP IBP / Blue Yonder.
-#     El catch-all del router ya no descarta por mu_week<2.0. Croston/SBA del
-#     bake-off de _select_best_model ya esta calibrado para slow-movers; el
-#     threshold post-forecast descartaba el output de esos modelos. Ahora los
-#     SKUs B/B con mu<2.0 caen a Z3 (secondary_replenishment) y reciben
-#     forecast. min_stock_or_manual solo aplica a no_signal, C-class y
-#     declining/dead (causas legitimas).
-#   - Remove rounding (v3.46): canon SAP IBP. El motor ya NO redondea mu_week
-#     a entero. Antes (v3.31-v3.45): int(mu_week + 0.5). Para slow-movers el
-#     redondeo medio-arriba era un ajuste de hasta 50%-100% del valor: mu=0.3
-#     -> 0 (pierde toda la senal), mu=0.5 -> 1 (+100%). Para Croston/SBA en
-#     slow-movers (valores tipicos 0.2-0.8), el redondeo destruia la salida.
-#     Persistir mu_week float deja al sistema de stock decidir el reorder
-#     point con valor continuo. CONSUMERS downstream (x_analisis_de_stock)
-#     deben leer mu_week como float, no int.
-#   - Categ calibration (v3.47): factor multiplicativo por (categ_id, abc_letter)
-#     calculado mensualmente via SA OH Calc Categ Calib Factors desde el
-#     backtest 10 sem. Captura sesgo estructural del motor por segmento
-#     (Cervezas Premium A sub +22%, Cervezas Tradicionales A over -6%, etc.)
-#     que ni correccion_factor (precio) ni trend_factor (team) capturan.
-#     Clamp simetrico [0.70, 1.30]. Se aplica DESPUES de correccion_factor
-#     (precio) y ANTES de trend_factor (team) para que el ajuste de categoria
-#     opere sobre el forecast ya ajustado por evento de precio, y trend (team)
-#     ajuste despues por la dinamica YoY del local. Modelo Studio:
-#     x_categ_calib_factor. Rollback via context apply_categ_calib=False.
-#   - Bias-outlier correction (v3.48): ULTIMA capa, PROXY in-sample, SIN
-#     backtest. Compara mu ensamblado (post precio/categ/trend) vs venta real
-#     reciente (3 sem) LIMPIA de quiebre (x_stock_balance_daily). Acumula por
-#     SKU en UNIDADES (no %), toma el Pareto-80% del error absoluto (deja la
-#     cola quieta) con guard de persistencia 2/3 (espiritu +++/---), y
-#     aplica+marca un factor multiplicativo GLOBAL por SKU. Clamp ASIMETRICO
-#     [0.65, 4.0]: techo alto (corregir lo corto, error caro) / piso prudente
-#     (cortar suave lo largo). Llena el hueco que trend (capado a 1.0) no cubre
-#     (amplifica SKUs cortos como Stella). Marca x_studio_bias_outlier/_factor/
-#     _delta y persiste mu_week_pre_bias_outlier. Default ON, rollback via
-#     context apply_bias_outlier=False. Costo despreciable: real reusa pull,
-#     quiebre se consulta solo al subset Pareto (~90% cobertura).
+#     mu_raw = factor_normalizado × mu_categ_target × bias
+#     mu_fs = max(mu_raw, FAIR_SHARE_MIN_UNITS)   # min ahora 1.0 (no 2.0)
 #
-# Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
-# ------------------------------------------------------------
+#   POR QUE EL CAMBIO: el backtest 2026-05-23 (v3.40) mostro que 57 de 61
+#   pares hit el floor=2 flat. El share_categoria pesaba demasiado a las
+#   salas grandes -> SKUs con presencia desigual quedaban subestimados, y
+#   el floor fijo no compensaba la heterogeneidad. La sugerencia del
+#   usuario: promediar shares normalizados captura "este SKU representa
+#   X% de su categoria en cualquier sala" -> aplicar X% a la sala objetivo.
+#
+#   PARAMETROS NUEVOS:
+#     - FAIR_SHARE_BOTTOM_PCT (default 0.5): % de salas a usar como bottom
+#       para sala objetivo nueva. 12 salas × 0.5 = 6 salas (bottom-6).
+#     - FAIR_SHARE_MIN_UNITS reducido de 2.0 a 1.0 (el factor normalizado
+#       ya escala con velocidad real; floor solo evita rounding-to-0).
+#
+#   CONDICION DE TRIGGER (heredada de v3.40 FIX):
+#     mu_week==0 AND ABC global=='A' AND lifecycle in ('mature','ramp_up')
+#     AND len(shares_activas) >= 3
+#
+# VERSION_ID = "FWD_v3_40_FAIR_SHARE"
+# v3.40 (2026-05-23): fair share allocation para SKUs clase A sin historia local.
+#   Cierra el gap medido en Fase 1 (2026-05-23): 728 pares (sala, clase-A) caian
+#   en no_forecast => stock no compraba => ausencia se autoperpetuaba.
+#
+#   ENFOQUE (Oracle Retail Demand Forecasting / Blue Yonder "fair share by
+#   category share"): cuando una sala no tiene historia local de un SKU clase A
+#   global, el forecast = demanda_global × share_categoria_sala × bias_conservador.
+#
+#   REGLAS (Fase 0 cerrada con usuario, FIX 2026-05-23):
+#     - Aplica solo si: mu_week==0 AND letra_global_ABC=='A' AND lifecycle_local
+#       in ('mature','ramp_up') AND n_salas_activas>=3.
+#     - El trigger es mu_week==0 (NO forecast_scope=='no_forecast'). Motivo:
+#       el motor v3.39 tiene rescue rules v3.28/v3.30 que envian clase A con
+#       poca demanda a 'core_hm_si' (no a 'no_forecast') ANTES del catch-all.
+#       La condicion original nunca disparaba porque los rescatados ya tenian
+#       scope='core_hm_si' aunque mu_week fuera 0.
+#     - Lifecycle whitelist (no blacklist): solo mature/ramp_up reciben fair
+#       share. Excluido seasonal (487 pares mu=0 son baja temporada esperada),
+#       intermittent (65 son demanda real esporadica), declining/dead (saliendo).
+#     - n_salas_activas = numero de salas con qty>0 en data_si para ese SKU.
+#       Si <3, NO se aplica (validado empiricamente: 97% de SKUs flacos son
+#       "probo y fallo", no oportunidades de expansion).
+#     - Si historia_categ(sala) < 12 sem (max active_weeks_local entre SKUs de
+#       esa sala/categoria), se usa share_uniforme=1/N_SALAS en lugar del real.
+#       Caso San Jose (team_id=11, sala nueva, 0 categorias con 12 sem).
+#     - Bias 1.00 + floor 2.0 u/sem (Oracle "minimum forecast quantity"). La
+#       asimetria de error se INVIERTE para fair share: el riesgo dominante NO
+#       es over-forecast (filtrado por <3 salas que descarta 97% de SKUs nicho),
+#       sino el under-forecast que impide a stock comprar -> el SKU nunca llega
+#       a la sala -> la ausencia se autoperpetua. El objetivo es FORZAR que
+#       stock genere orden de compra/traslado, no minimizar WAPE.
+#
+#   FORMULA:
+#     mu_raw      = mu_week_global × share_used × FAIR_SHARE_BIAS
+#     mu_week_fs  = max(mu_raw, FAIR_SHARE_MIN_UNITS)
+#     sigma_week_fs = mu_week_fs × FAIR_SHARE_SIGMA_CV  (CV sin historia local)
+#
+#   IMPACTO ESPERADO (FIX 2026-05-23 — target re-medido):
+#     - 146 pares clase A en lifecycle mature con mu_week=0 + ~65 en ramp_up.
+#     - Las 728 pares originales del gap eran 100% declining/dead (no target).
+#     - El standalone original calculo propuestas para los declining/dead, lo
+#       cual era incorrecto. Ese script ya no refleja el target real.
+#     - Categorias esperadas: misma mezcla (cervezas, despensa, snacks).
+#     - Forecast tipico: floor 2 u/sem en la mayoria de casos por bias=1.0 +
+#       share chico de SKU clase A con baja velocidad.
+#
+#   CAMBIOS DE CODIGO (todos aislados, no tocan motor v3.39):
+#     1. Constantes nuevas FAIR_SHARE_* en seccion CTX.
+#     2. _load_forecast_router_context: agrega x_studio_mu_week a la lectura
+#        para tener demanda_global por pid en el router context.
+#     3. Helper nuevo _compute_fair_share() ANTES de _route_forecast_scope.
+#     4. Build de fair_share_ctx DESPUES del loop que llena buf_lc/buf_cat.
+#     5. Override DESPUES de _route_forecast_scope: si aplica fair share,
+#        reescribe (mu_week, sigma_week, forecast_zone='Z1', scope=
+#        'core_fair_share', model_code='fair_share_category', reason=detalle).
+#     6. P3 zero-gate solo cuando NO se aplico fair share (no anular el rescate).
+#
+#   NO SE HACE (deuda visible):
+#     - Lista de exclusion comercial para "nicho intencional" (2 SKUs flacos
+#       expandibles deben gestionarse manualmente, fuera del flujo automatico).
+#     - Like-store proxy (Opcion C de Fase 0): requiere clustering previo.
+#     - Hierarchical reconciliation (Hyndman): overkill para 12 salas.
+#
+# VERSION_ID = "FWD_v3_39_AUTO_MODEL"
+# v3.39 (2026-05-20): SAP-style auto-model selection per SKU.
+#   - Nuevo wrapper _select_best_model. Reemplaza al dispatcher por regimen.
+#   - Para cada SKU corre 4 modelos en paralelo: heuristico, SBA(0.15),
+#     Croston(0.10), seasonal_naive_52. Holdout de 4 sem cerradas para
+#     evaluar. MAE como metrica. Gana el modelo con menor MAE.
+#   - Heuristic-bias 0.90: el heuristico solo pierde si otro modelo es
+#     >=10% mejor en MAE. Protege REG-1 (gold standard) y SKUs estables.
+#   - Sin Holt-Winters (memoria v4: HW destruyo WAPE 90% en REG-1).
+#   - Seasonal naive lag-52 solo participa si len(base_vals)>=56. Con
+#     DEMAND_WINDOW_WEEKS=26 actual, no entra; queda hook para v3.40
+#     cuando se amplie la ventana.
+#   - El ganador per-SKU se persiste en x_studio_demand_method (campo
+#     nuevo en Studio; si no existe, _put_field lo omite).
+#   - Sigma reutiliza el del heuristico aun cuando gana otro modelo, para
+#     no degradar el calculo de safety stock.
+#   - Fallback al heuristico cuando: len(base_vals)<12, modelo ganador
+#     devuelve <=0, o ningun candidato produce forecast valido.
+# VERSION_ID = "FWD_v3_38_REG7_SBA" (DESCARTADO 2026-05-20)
+# v3.38 (2026-05-20): primer dispatcher por regimen, SBA en REG-7. REVERTIDO.
+#   - Backtest 3 sem (W18-W20):
+#     * REG-7 WAPE 90.02% -> 91.58% (+1.6pp PEOR)
+#     * REG-7 BIAS -15.48% -> -20.00% (-4.5pp PEOR, sub-forecast)
+#     * WAPE global 67.36% -> 67.79% (+0.4pp)
+#     * BIAS global -3.27% -> -4.29% (-1pp)
+#     * Otros regimenes intactos (control OK).
+#   - Razon: SBA con alpha=0.05 sobre base_vals SI-deflated produce forecast
+#     mas conservador que SMA dilution para intermitentes. Ejemplo serie
+#     {0,5,0,0,0,5}: SMA(6)=1.67, SBA(0.05)=1.22. La correccion (1-alpha/2)
+#     y el divisor p (intervalo) sub-pronostican.
+#   - Helpers _croston/_sba quedan en el codigo (no-op) por si se retoma
+#     con alpha distinto (0.15-0.20) o input raw_vals.
+#   - Memoria feedback_objetivo_declarado: sub-forecast cuesta mas. Revertido.
+#   - Dispatcher cambia a pass-through (no afecta nada). Callsite intacto.
+#   - Vuelta a VERSION_ID FWD_v3_37_CORR_VALIDATION.
+# VERSION_ID = "FWD_v3_38_SMA8" (DESCARTADO 2026-05-20)
+# v3.38 (2026-05-20): SERVICE_BASE_SHORT_WEEKS_DEFAULT 6 -> 8. REVERTIDO.
+#   - Backtest 3 sem (W18-W20): WAPE neutro (67.33 vs 67.36) pero BIAS
+#     global -6.47% vs -3.27% (3pp peor sub-forecast). Colas devastadas:
+#     AZ -48.9% (vs -39.9% baseline), CZ -47.8% (vs -35.5%), BY -24%
+#     (vs -19%). SMA(8) suaviza demasiado SKUs erraticos/lumpy y reduce
+#     reactividad en colas Z donde la senal es esparsa.
+#   - Memoria feedback_objetivo_declarado: sub-forecast cuesta mas que
+#     over-forecast. Cambio descartado.
+#   - Vuelta a SERVICE_BASE_SHORT_WEEKS_DEFAULT = 6 en v3.37.
+# VERSION_ID = "FWD_v3_37_CORR_VALIDATION"
+# v3.37 (2026-05-20): validacion empirica del factor de correccion externo.
+#   - Cuando correccion_factor < 0.90 y hay >=3 semanas post-cambio cerradas,
+#     se calcula empirical_factor = avg(base_vals post) / avg(base_vals pre)
+#     usando ventanas de min(weeks_since_real, 8) post y 8 pre.
+#   - Si empirical_factor > correccion_factor + 0.15 (la realidad muestra
+#     menos impacto del predicho), el factor se atenua a (factor + emp)/2,
+#     clampeado a 1.0. La razon se anota con "[emp X.XX adj Y.YYY]".
+#   - Asimetrica: solo atenua over-correcciones, NO aumenta cuts. Aplica la
+#     memoria: sub-forecast cuesta mas que over-forecast.
+#   - Caso testigo: SKU 0154 Paillaco BEBIDA COCA COLA DES 3L. Factor teorico
+#     0.814 (predice -18.6%) vs realidad post-cambio +16%. Con validacion,
+#     empirical ~1.36 -> factor ajustado a 1.0 -> mu_week 13 -> 17.
+#   - Cambios:
+#     * _load_correccion_context retorna ahora 'weeks_since' y
+#       'target_week_start' ademas de factor/tipo/razon.
+#     * Nuevos parametros CTX: service_corr_validation_min_weeks (3),
+#       service_corr_validation_baseline (8), service_corr_validation_threshold (0.15).
+#     * weeks_since_real se recomputa en runtime sumando weeks_since_emit +
+#       (target_date - target_week_start_emit) / 7. El decay del detector
+#       quedo congelado al emit, pero la validacion empirica usa la fecha
+#       real de la corrida.
+# VERSION_ID = "FWD_v3_36_COLLAPSE"
+# v3.36 (2026-05-20): detector de colapso de demanda en _calc_base_demand.
+#   - Tercer umbral en el branch de bajada: ratio < SERVICE_RATIO_COLLAPSE (0.30)
+#     devuelve sma_short puro (en lugar del blend 0.7/0.3 que arrastraba ~30%
+#     de SMA(16) como inercia fantasma).
+#   - Caso testigo: SKU 451500 Futrono, caida 330 u/sem -> 6 u/sem en 6 semanas.
+#     Con el blend antiguo el forecast salia 43 u (real 8); con collapse branch
+#     mu_base = SMA(6) directo, forecast esperado ~3 u.
+#   - Nueva firma de _calc_base_demand: retorna 4-tupla agregando
+#     collapse_detected (bool) para trazabilidad.
+#   - Nuevo campo de auditoria x_studio_collapse_detected (Boolean) en
+#     x_hm_si_forecast. Si el campo no existe en Studio, _put_field lo omite.
+#   - El detector NO cruza con quiebre de stock (x_stockout de archivo 8); la
+#     bandera permite hacer ese cruce manual en analisis posteriores.
+#   - v3.36 ajuste (2026-05-20): el ratio que dispara collapse_detected se
+#     evalua sobre raw_vals (ventas crudas), NO sobre base_vals (SI-deflated).
+#     La SI deflation enmascara caidas reales cuando coinciden con baja
+#     estacionalidad (cerveza en mayo). El ratio raw refleja lo que se ve a
+#     ojo en la serie de ventas. mu_base sigue calculandose sobre base_vals
+#     (sma_short SI-deflated) para que si_next no double-counte estacionalidad.
+#     Up/hold siguen disparandose sobre el ratio SI (sin cambio).
+# VERSION_ID = "FWD_v3_35_PRICE_CLEANUP"
+# v3.35 (2026-05-13): ELIMINADO sistema legacy de ajuste de precio.
+#   - Removidos: PRICE_FACTOR_TABLE_L2, _lookup_calibrated_factor, _apply_decay,
+#     _load_price_context, _price_segment, _price_at_week, _categ_l2_from_complete_name,
+#     _norm_categ, _classify_price_range.
+#   - Removidas variables del bucle: price_factor, q_adj, base_vals_no_adj,
+#     mu_base_no_adj, mu_week_no_adj, mu_week_price_delta, price_adj_factor_*,
+#     price_elasticity_acc_*, price_adjust_weeks, total_adj_*, price_segment_counts,
+#     total_units_adjusted.
+#   - Removidos campos del write: x_studio_units_sold_adjusted (legacy).
+#   - El ajuste por cambio de precio se delega 100% al detector externo
+#     (Detector v5.8 en `7- OH Price Correccion.py`) via modelo x_price_coreccion.
+#     Archivo 5 solo consume el factor pre-calculado via _load_correccion_context
+#     y lo aplica al mu_week despues de los caps P1/P3/P6.
+# VERSION_ID = "FWD_v3_34_REGIMEN_LOCAL"
+# v3.34 (2026-05-13): bajada COMPLETA del regimen por team. El motor ahora
+#   consume xyz_local, series_type_local, lifecycle_local y regimen_local
+#   calculados sobre la serie local del team. Cada variable contiene el
+#   valor a usar: si el calculo local tiene senal suficiente, es el local;
+#   si no, se hereda el global del router (escrito por archivo 1).
+#   - series_type_local: matriz Syntetos-Boylan (ADI + CV2) sobre serie local.
+#   - lifecycle_local: presencia trimestral local sobre 8 trimestres.
+#   - regimen_local: combinacion (ABC_global, series_type_local, lifecycle_local).
+#   - El motor (caps P1/P3/P6, forecast_zone routing) consume las variables
+#     locales. mu_week y sigma_week resultan distintos por team con respecto
+#     al motor anterior que usaba el regimen global del producto.
+#   - Persiste source de cada clasificacion ('local' | 'global') para auditoria.
+#   - ABC sigue global (criterio economico).
+# VERSION_ID = "FWD_v3_33_XYZ_LOCAL"
+# v3.33 (2026-05-13): persiste XYZ local por team derivado de la serie local
+#   del producto (base_vals). Mismo metodo que el XYZ global (archivo 1):
+#   una sola pasada CV simple = sigma/mu sobre la ventana completa, umbrales
+#   0.45 / 0.90, min_active_weeks alineado al global (4 sem).
+#   - Si active_weeks_local < MIN o el calculo local queda vacio, se hereda
+#     el XYZ global del producto desde router_ctx (ya disponible vor el
+#     router) y se marca source='global' para trazabilidad.
+#   - Si el global tampoco esta poblado, xyz_local queda vacio y archivo 3
+#     fuerza CZ via regla anti-blanco.
+#   - Escribe en x_hm_si_forecast: x_studio_xyz_local, x_studio_xyz_local_source,
+#     x_studio_active_weeks_local.
+#   - Consumidor (archivo 3) compone abcxyz_efectivo = ABC_global + XYZ_local
+#     y elige Z del safety segun esa combinacion. Toggle ENABLE_XYZ_LOCAL en
+#     archivo 3 controla el rollout. ABC sigue global.
+# VERSION_ID = "FWD_v3_32_SERIES_ACTIVE"
+# v3.32 (2026-05-12): consume x_studio_series_type_active (ABCXYZ v19.4)
+#   con fallback a x_studio_series_type largo si el field nuevo no existe.
+#   Permite que el router actue sobre el comportamiento RECIENTE (12 sem)
+#   en lugar del historico largo (52 sem). Resuelve casos como Cerveza
+#   Coors 620 que vendia 30/sem historico pero ahora vende 120+/sem y
+#   caia en Z4 por mu<2 por team.
+# VERSION_ID = "FWD_v3_31_ROUNDING"
+# v3.31 (2026-05-12): redondeo medio-arriba del mu_week final.
+#   - mu_week < 0.5 -> 0 (drop demanda muy debil).
+#   - mu_week >= 0.5 con fraccion >= 0.5 sube al siguiente entero (ej 1.5->2).
+#   - mu_week >= 0.5 con fraccion < 0.5 baja al entero actual (ej 1.3->1).
+#   - sigma_week y mu_week_pre_corr quedan continuos para trazabilidad.
+#   - Formula: float(int(mu_week + 0.5)). Sin import math.
+# VERSION_ID = "FWD_v3_30_AXY_RESCUE"
+# v3.30 (2026-05-12): 2 cambios contra forecast=0 con ventas reales.
+#   a) Rescate AX/AY no terminales con mu_week < 2.0 (patron v3.28 AZ rescue).
+#      256 filas, 511 unid. P6 cap activo. Cambio limpio sin daño en WAPE.
+#   b) Suavizar P3 zero-gate de 'nz_recent <= 1' a 'nz_recent == 0'.
+#      SKUs con 1 venta en 8 sem son intermitentes vivos.
+#      Forecast=0+ventas reales: 1,940 -> 821 (-58%).
+#      Real perdido sub-forecast: 3,200 -> 1,300 unid.
+#   Trade-off WAPE: +0.74pp global (BZ/CZ over-forecast en colas con
+#   volumen bajo). Costo aceptado: el objetivo es cobertura, no WAPE.
+#   Si Croston/SBA aparece, se podra mejorar el motor base para
+#   intermitentes y reducir el over-forecast en colas.
+# VERSION_ID = "FWD_v3_29_PRICE_CORRECCION"
+# v3.29 (2026-05-12): integra detector x_price_coreccion (typo de Studio).
+#   - _load_correccion_context: 1 query batch antes del loop, filtra
+#     target_week_start <= target_date AND active=True, toma mas reciente.
+#   - Aplica factor_corr DESPUES de caps P1/P3/P6 (declining/dead siguen
+#     en 0; los caps protegen contra over-forecast del motor base, pero
+#     el factor es senal externa intencional que puede superarlos).
+#   - Persiste x_studio_correccion_factor / tipo / razon / mu_week_pre_corr
+#     para auditoria. Si los campos no existen en Studio, _put_field skip.
+# v3.28 (2026-05-12): AZ rescue rule (no terminales activan motor Z1).
+# MODEL_NAME = "HM_SI_WEEKLY"
+# v3.28 (2026-05-12): Rescatar AZ del catch-all Z4 (whisky/vino premium).
+#   - Diagnostico: backtest 2026-05-04 mostro 40 SKUs AZ (ABC=A, XYZ=Z) con
+#     BIAS +48.31% sub-forecast severo. Estos SKUs son alto margen + demanda
+#     esporadica (whisky, vinos premium tipicos). El router v3.24 los
+#     mandaba a Z4 por la regla `mu_week < 2.0` -> forecast=0 mayoritariamente.
+#   - Fix: agregar regla en _route_forecast_scope ANTES del catch-all Z4:
+#       if (abc == 'AZ') and (lc not in ('declining', 'dead')):
+#           return 'Z1', ...
+#   - Resultado esperado: los AZ no terminales reciben motor activo (SMA + SI
+#     + ajuste precio) y P6 cap por max_obs * 1.2 los protege contra
+#     over-forecast extremo.
+#   - Impacto medido: 40 SKUs, 3,494 unid reales en 3 sem, 3.2% volumen A.
+#   - Cero cambios al resto del router. Cero cambios al motor de calculo.
+#   - v3.27 (Holt doble en REG-1/2/3) fue REVERTIDO antes de medir: no se
+#     justifico tocar REG-1 que ya funcionaba (BIAS -1.2% en AX). v3.28 parte
+#     desde v3.26 (motor v3.24 base) + la regla AZ unicamente.
+# v3.26 (2026-05-12): consolidacion cosmetica del fallback XYZ->series_type.
+#   - El fallback (X->smooth, Y->erratic, Z->lumpy cuando series_type no viene
+#     poblado desde ABCXYZ) aparecia duplicado en dos lugares: antes del router
+#     (loop principal) y dentro de _route_forecast_scope.
+#   - Consolidado en helper unico _infer_series_type_from_xyz.
+#   - Cero cambio funcional. El router asume que series_type ya viene inferido
+#     desde el caller (loop principal), garantizado por el helper.
+#   - El fallback NO replica la matriz Syntetos-Boylan ADI*CV2 de ABCXYZ;
+#     es solo una red por si ABCXYZ vieja no escribio series_type.
+# v3.25 (2026-05-12): excluir REG-8 (seasonal) del P3 zero-gate de Z4.
+#   - Diagnostico: backtest 2026-05-04 mostro BIAS +49.54% en REG-8 (5,291 SKUs).
+#     Causa: los SKUs estacionales tienen ventanas de cero entre temporadas que
+#     NO indican declive, pero P3 (forecast_zone=Z4 + nz_recent<=1 -> mu_week=0)
+#     los anulaba. Cuando llega la temporada, el motor esta en cero.
+#   - Fix: 1 linea — agregar `and router_regimen != 'REG-8'` al guard de P3.
+#   - El regimen se lee de x_calculo_abc_xyz.x_studio_regimen (matriz canonica
+#     de ABCXYZ v19.3). Inyeccion inerte hasta esta version, ahora activa para P3.
+#   - v3.24 inyectaba el regimen pero NO lo usaba en el calculo. v3.25 es la
+#     primera version donde el regimen modula la logica del motor.
+#   - Cero cambios al resto: P1, P6, SI multi-nivel, ajuste por precio,
+#     _calc_base_demand, _route_forecast_scope.
+# v3.24 + regimen (2026-05-12, productivo previo): rollback desde v4.3-revert
+#   tras backtest pareado mostrar que v4.3 era 65pp peor (WAPE 140 vs 75).
+#   Unica modificacion vs v3.24 original: inyeccion de x_studio_regimen desde
+#   ABCXYZ (5 lineas), sin alterar la logica de calculo.
+# v3.24: Cambios activos (todos validados o reverted):
+#   - Mantenido: corrección de nivel mixto en ajuste SKU — usa local_categ
+#     como referencia cuando si_main proviene de local_categ (antes mezclaba niveles)
+#   - Mantenido: PRICE_FACTOR_TABLE_L2 limpia (sin duplicados, sin None, normalizado)
+#   - Revertido v3.22: _calc_si_from_weekly vuelve a divisor len(clean) y len(avg_by_week)
+#     porque /expected_n y /52 inflaban SI en semanas presentes → deflactaban mu_base
+#     via q_base = q_adj/si_w → underforecast crónico en Z-class (AZ +19.7pp wMAPE)
+#   - Revertido v3.22: semanas faltantes SI=1.0 (neutro) en vez de 0.0
+# v3.21: PRICE_FACTOR_TABLE_L2 limpiada:
+#   - Eliminados 4 duplicados sin tilde (Cocteles, Snack, Isotonicas, Electronicos)
+#   - Todos los None reemplazados por valor DEFAULT correspondiente (tabla autoexplicativa)
+#   - Lookup normalizado via _norm_categ() — resiste variaciones de tilde/mayúscula
 
-VERSION_ID = "FWD_v3_49_SMA4_SIMPLE"
+VERSION_ID = "FWD_v3_39_AUTO_MODEL"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438
@@ -116,19 +344,11 @@ DEMAND_HISTORY_MONTHS_DEFAULT = 24
 DEMAND_WINDOW_WEEKS_DEFAULT   = 26
 BATCH_SIZE = 500
 
-# Normalizacion de demanda (proyecto 2026-05-25-normalizacion-demanda).
-# Overlay x_demanda_normalizada(team, sku, week_start) = {qty_obs, qty_norm}
-# corrige censura de quiebre. Default TRUE durante el backtest comparativo
-# (no productivo). Una vez validado, queda como default permanente. Para
-# desactivar temporalmente, pasar context use_demand_normalization=False.
-USE_DEMAND_NORMALIZATION_DEFAULT = False  # v3.49: SMA(4) sobre venta cruda (clon del campeon FVA). La de-censura inflaba el bias a +21.8% vs +8% del SMA4 crudo
-DEMAND_NORMALIZATION_MODEL       = 'x_demanda_normalizada'
-
 
 # ----------------------
 # Parametros HM-SI
 # ----------------------
-SI_ENABLED_DEFAULT              = False  # v3.49: SMA(4). Apagado el roundtrip de SI (metia ruido per-celda; ver FVA 2026-06-01)
+SI_ENABLED_DEFAULT              = True
 SI_HISTORY_MONTHS_DEFAULT      = 36
 SI_TARGET_WEEKS_DEFAULT        = 1
 SI_SKU_ADJ_ALPHA_LOW_DEFAULT   = 0.15
@@ -142,8 +362,8 @@ SI_CEIL_DEFAULT                = 5.00
 # ----------------------
 # Parametros demanda base
 # ----------------------
-SERVICE_BASE_SHORT_WEEKS_DEFAULT = 4   # v3.49: SMA(4) puro
-SERVICE_BASE_LONG_WEEKS_DEFAULT  = 4   # v3.49: short==long==4 -> ratio=1.0 -> hold -> SMA(4)
+SERVICE_BASE_SHORT_WEEKS_DEFAULT = 6
+SERVICE_BASE_LONG_WEEKS_DEFAULT  = 16
 SERVICE_RATIO_UP_DEFAULT         = 1.15
 SERVICE_RATIO_HOLD_DEFAULT       = 0.90
 SERVICE_RATIO_COLLAPSE_DEFAULT   = 0.30
@@ -155,45 +375,6 @@ SERVICE_CORR_VALIDATION_MIN_WEEKS_DEFAULT  = 3
 SERVICE_CORR_VALIDATION_BASELINE_DEFAULT   = 8
 SERVICE_CORR_VALIDATION_THRESHOLD_DEFAULT  = 0.15
 
-# v3.43: trend correction multiplicativo por team (weekly YoY asimetrico)
-# Captura el deterioro estructural YoY de cada local sin doble-contar el
-# nivel ya estimado por SMA en el motor. Asimetrico (cap_high=1.00) por
-# diseno: NO amplifica teams en alza (que ya estan over-forecast por otras
-# razones - SI suave en bebidas/verano). Solo recorta cuando hay deterioro.
-APPLY_TREND_CORRECTION_DEFAULT = False  # v3.49: SMA(4) sin capas de correccion
-TREND_LOOKBACK_WEEKS_DEFAULT   = 60      # ventana historica para pull POS (>= 52 + window)
-TREND_WINDOW_WEEKS_DEFAULT     = 8       # ventana reciente para promediar YoY
-TREND_CLAMP_LOW_DEFAULT        = 0.70
-TREND_CLAMP_HIGH_DEFAULT       = 1.00    # asimetrico: cap a 1.0 (no amplifica)
-
-# v3.47: calibracion por (categ_id, abc_letter). Factor multiplicativo simetrico
-# leido desde x_categ_calib_factor (refrescado mensualmente por SA OH Calc
-# Categ Calib Factors). Captura sesgo estructural por segmento que correccion
-# (precio) y trend (team) no capturan. Default ON. Override via context
-# {'apply_categ_calib': False}.
-APPLY_CATEG_CALIB_DEFAULT      = False  # v3.49: SMA(4) sin capas de correccion
-CATEG_CALIB_MODEL              = 'x_categ_calib_factor'
-# Gate por regimen: ahora vive en el dato (campo x_studio_regimenes_aplicables
-# del registro). El SA escribe el CSV "REG-1,REG-2,REG-4,REG-8" por default
-# (test_L1L2 2026-05-28). Si el campo esta vacio o no existe = aplicar a todos.
-
-
-# ----------------------
-# Bias-outlier correction (v3.48) — ultima capa, PROXY in-sample, sin backtest
-# ----------------------
-# Compara mu ensamblado vs real reciente limpio de quiebre, acumula por SKU en
-# UNIDADES, toma el Pareto-80% del error absoluto (guard de persistencia 2/3) y
-# aplica+marca un factor multiplicativo global por SKU con clamp ASIMETRICO
-# (piso prudente / techo generoso por asimetria de costo: sub-forecast cuesta
-# mas que over-forecast). Default ON. Rollback via context apply_bias_outlier=False.
-APPLY_BIAS_OUTLIER_DEFAULT              = False  # v3.49: SMA(4) sin capas de correccion
-BIAS_OUTLIER_WINDOW_WEEKS_DEFAULT       = 3      # ventana reciente (= real_wk de la watchlist)
-BIAS_OUTLIER_CANDIDATE_COVERAGE_DEFAULT = 0.90   # acota la query de quiebre al subset relevante
-BIAS_OUTLIER_PARETO_DEFAULT             = 0.80   # corrige el 80% de la masa de error
-BIAS_OUTLIER_CLAMP_LOW_DEFAULT          = 0.65   # piso prudente (cortar suave lo largo)
-BIAS_OUTLIER_CLAMP_HIGH_DEFAULT         = 4.00   # techo generoso (corregir lo corto)
-BIAS_OUTLIER_PERSISTENCE_MIN_DEFAULT    = 2      # >= 2 de 3 sem en la direccion del delta
-
 
 # ----------------------
 # Fair share (v3.40)
@@ -201,29 +382,13 @@ BIAS_OUTLIER_PERSISTENCE_MIN_DEFAULT    = 2      # >= 2 de 3 sem en la direccion
 # Rescate de pares (sala, SKU clase A) sin historia local via demanda global
 # ponderada por share de categoria. Ver header v3.40 para fundamento.
 FAIR_SHARE_ENABLED_DEFAULT          = True
-# v3.42: min_salas baja de 3 a 1 (la antigua regla se reemplaza por conf_n).
-FAIR_SHARE_MIN_SALAS_ACTIVAS_DEFAULT = 1
+FAIR_SHARE_MIN_SALAS_ACTIVAS_DEFAULT = 3     # SKU debe estar activo en >=N salas
 FAIR_SHARE_MIN_HISTORIA_CATEG_DEFAULT = 12   # semanas en categoria => mu_categ_target real
 FAIR_SHARE_BIAS_DEFAULT             = 1.00   # neutro
 FAIR_SHARE_MIN_UNITS_DEFAULT        = 1.0    # v3.41: bajo de 2.0 -> 1.0 (factor ya escala)
 FAIR_SHARE_SIGMA_CV_DEFAULT         = 0.5    # sigma_fs = mu_fs * CV (sin historia local)
 FAIR_SHARE_BOTTOM_PCT_DEFAULT       = 0.5    # v3.41: 50% de salas con menor mu_categoria
                                               # para estimar sala objetivo nueva
-# v3.42 canon SAP IBP: confianza estadistica del factor_normalizado segun N
-# salas activas. Con n_active=1, el factor es practicamente ruido (1 sola
-# observacion). Con >=5 salas, el factor es robusto.
-FAIR_SHARE_CONF_N_MAP_DEFAULT       = {0: 0.00, 1: 0.30, 2: 0.50, 3: 0.75, 4: 0.75}
-# n_active >= 5 -> 1.00 (no esta en el mapa).
-# v3.42 canon Blue Yonder: techo de crecimiento por XYZ. Limita mu_fs total
-# a mu_global x growth_cap para que no se infle la demanda en SKUs nicho.
-FAIR_SHARE_GROWTH_CAP_DEFAULT       = {'X': 3.0, 'Y': 2.0, 'Z': 1.5}
-# v3.42 canon Blue Yonder: penalty si la sala target ya probo y fallo
-# (active_weeks_local_target > 0 con mu_local=0). Escala mu_fs por este factor.
-FAIR_SHARE_TRIED_PENALTY_DEFAULT    = 0.15
-# v3.42 canon: trigger expandido. Si abc_global IN allowed_abc, aplicar
-# (con regla adicional para B: gap_count <= TERMINAR_COBERTURA_MAX_GAP).
-FAIR_SHARE_ALLOWED_ABC_DEFAULT      = ('A', 'B')
-FAIR_SHARE_B_MAX_GAP_DEFAULT        = 2  # solo TERMINAR COBERTURA para clase B
 
 
 # ----------------------
@@ -479,18 +644,8 @@ def _classify_series_type_local(adi, cv2, active_weeks, min_active_weeks,
     return 'erratic' if high_var else 'smooth'
 
 
-def _infer_lifecycle_local(u_q0, u_q1, u_q2, u_q3, u_q4, u_q5, u_q6, u_q7, p_q8, xyz,
-                            nz_recent_8w=0):
-    """PLC inferido por presencia trimestral local.
-
-    v3.44: parametro nz_recent_8w (semanas con venta > 0 en ultimas 8 sem
-    de base_vals). La regla 'declining' (u_q0=0 con historia previa) genera
-    falsos positivos cuando cutoff cae al inicio de un Q (Apr-06, May-04
-    backtest mostraron 4,926 SKUs activos clasificados 'declining' por este
-    bug). Si nz_recent_8w > 0 (SKU sigue vendiendo en ventana SMA), el
-    lifecycle pasa a la siguiente regla (mature/seasonal/intermittent)
-    en vez de quedarse en 'declining'.
-    """
+def _infer_lifecycle_local(u_q0, u_q1, u_q2, u_q3, u_q4, u_q5, u_q6, u_q7, p_q8, xyz):
+    """PLC inferido por presencia trimestral local. Identico a archivo 1."""
     u_rest = u_q1 + u_q2 + u_q3 + u_q4 + u_q5 + u_q6 + u_q7
     u8 = u_q0 + u_rest
     if u8 <= 0:
@@ -499,10 +654,7 @@ def _infer_lifecycle_local(u_q0, u_q1, u_q2, u_q3, u_q4, u_q5, u_q6, u_q7, p_q8,
         return 'intermittent'
     if u_q0 > 0 and u_rest <= 0:
         return 'new'
-    # v3.44: declining solo si NO hay venta reciente (SMA-style sobre 8 sem).
-    # Antes: u_q0 <= 0 with prior history -> 'declining'. Genera falso positivo
-    # cuando el cutoff cae al inicio de Q (u_q0=0 trivialmente por boundary).
-    if u_q0 <= 0 and (u_q1 + u_q2 + u_q3) > 0 and nz_recent_8w <= 0:
+    if u_q0 <= 0 and (u_q1 + u_q2 + u_q3) > 0:
         return 'declining'
     if xyz == 'Z' and p_q8 <= 5:
         return 'seasonal'
@@ -1099,123 +1251,42 @@ def _load_correccion_context(product_ids, target_date):
     return out
 
 
-def _load_categ_calib_context(target_date):
-    """v3.47: Lee factores de calibracion por (categ_id, abc_letter) desde
-    x_categ_calib_factor. Refrescado mensualmente por SA OH Calc Categ Calib
-    Factors desde el backtest 10 sem.
-
-    Devuelve dict (categ_id, abc_letter) -> {factor, target_week_start,
-    n_real_units}. Si el modelo no existe (initial deploy) o no hay factores
-    activos, retorna {} silenciosamente.
-
-    El motor aplica el factor entre correccion_factor (precio) y trend_factor
-    (team) para capturar sesgo estructural por segmento (Cervezas Premium A
-    sub +22%, etc.) que no es capturable por las otras dos capas.
-    """
-    out = {}
-    if not target_date:
-        return out
-    if not _model_exists(CATEG_CALIB_MODEL):
-        return out
-
-    M = env[CATEG_CALIB_MODEL].sudo()
-    catf = _first_m2o_field(M, ['x_studio_categ_id'], 'product.category')
-    abcf = _first_field(M, ['x_studio_abc_letter'])
-    facf = _first_field(M, ['x_studio_factor_corr'])
-    twf = _first_field(M, ['x_studio_target_week', 'x_studio_target_week_start'])
-    activef = _first_field(M, ['x_studio_active', 'active'])
-    nrf = _first_field(M, ['x_studio_n_real_units'])
-    regf = _first_field(M, ['x_studio_regimenes_aplicables'])
-
-    if not (catf and abcf and facf and twf):
-        return out
-
-    domain = [(twf, '<=', target_date)]
-    if activef:
-        domain.append((activef, '=', True))
-
-    rfields = [catf, abcf, facf, twf]
-    if nrf:
-        rfields.append(nrf)
-    if regf:
-        rfields.append(regf)
-
-    # Savepoint defensivo: si la query falla (modelo recien creado sin tabla,
-    # campos faltantes, etc.), rollback para no abortar la transaccion del
-    # forecast.
-    env.cr.execute('SAVEPOINT categ_calib_lookup')
-    try:
-        rows = M.search(domain, order='%s desc' % twf).read(rfields)
-        env.cr.execute('RELEASE SAVEPOINT categ_calib_lookup')
-    except Exception:
-        env.cr.execute('ROLLBACK TO SAVEPOINT categ_calib_lookup')
-        return out
-
-    for r in rows:
-        cv = r.get(catf)
-        cid = cv[0] if isinstance(cv, (list, tuple)) else _safe_int(cv, 0)
-        letter = _safe_text(r.get(abcf), 1).strip().upper()
-        if not cid or letter not in ('A', 'B', 'C'):
-            continue
-        key = (cid, letter)
-        if key in out:
-            # Ya tenemos el mas reciente (order desc); ignorar superseded.
-            continue
-        # Parse regimenes_aplicables: "REG-1,REG-2,REG-4,REG-8" -> set.
-        # Vacio o NULL = aplicar a TODOS los regimenes (sin gate).
-        regimenes_set = None
-        if regf:
-            reg_str = _safe_text(r.get(regf), 120).strip()
-            if reg_str:
-                regimenes_set = set()
-                for _s in reg_str.split(','):
-                    _s = _s.strip().upper()
-                    if _s:
-                        regimenes_set.add(_s)
-                if not regimenes_set:
-                    regimenes_set = None
-        out[key] = {
-            'factor': _safe_float(r.get(facf), 1.0),
-            'target_week_start': r.get(twf),
-            'n_real_units': _safe_float(r.get(nrf), 0.0) if nrf else 0.0,
-            'regimenes': regimenes_set,
-        }
-    return out
-
-
 def _compute_fair_share(product_id, team_id, categ_id_local,
                         router_ctx, fs_ctx,
                         bias, sigma_cv, min_units,
-                        min_salas, min_historia, bottom_pct,
-                        active_weeks_target=0,
-                        conf_n_map=None, growth_cap_map=None,
-                        tried_penalty=0.15,
-                        allowed_abc=('A', 'B'), b_max_gap=2,
-                        n_salas_total=12):
-    """v3.42: fair share canon SAP IBP / Blue Yonder.
+                        min_salas, min_historia, bottom_pct):
+    """v3.41: fair share por share normalizado del SKU en categoria.
 
-    Devuelve dict con keys: mu_week, sigma_week, method, reason, scope.
-    Devuelve None si no procede.
+    Devuelve dict con keys: mu_week, sigma_week, method, reason. O None si no
+    procede (faltan datos o no cumple las reglas).
 
-    Cambios sobre v3.41:
-      - Trigger interno: abc='A' siempre, abc='B' solo si gap_count <= b_max_gap.
-      - conf_n por N salas activas (canon SAP IBP): factor con N=1 vale 0.30.
-      - growth_cap por XYZ (canon Blue Yonder): mu_fs por par <=
-        mu_global * growth_cap(xyz) / max(1, gap_count).
-      - tried_penalty: si active_weeks_target>0 (sala probo y mu=0) -> mu_fs * 0.15.
+    FORMULA:
+        # Por cada sala activa con mu_sku > 0 y mu_categ > 0:
+        share_sku_categ_i = mu_sku_en_sala_i / mu_categoria_en_sala_i
+        factor_normalizado = mean(share_sku_categ_i)
+
+        # Sala objetivo:
+        if historia_categ_target >= min_historia:
+            mu_categ_target = mu_categoria_real_target
+        else:
+            # Sala nueva: bottom-N% salas por mu_categoria (excluye target)
+            mu_categ_target = mean(mu_categ in bottom-N salas)
+
+        mu_raw = factor_normalizado × mu_categ_target × bias
+        mu_fs  = max(mu_raw, min_units)
+
+    El share normalizado por categoria es INVARIANTE al tamano de la sala:
+    captura "este SKU representa X% de su categoria donde vive". Se asume que
+    X% es el invariante predictivo (el SKU mantiene su lugar relativo en la
+    categoria en cualquier sala).
+
+    El bottom-N% para sala nueva refleja crecimiento natural: una sala recien
+    abierta no parte en el peak. Es el promedio de las salas con menor venta
+    de la categoria (excluyendo la sala objetivo).
     """
     rctx = router_ctx.get(product_id) if router_ctx else None
     if not rctx:
         return None
-
-    # ABC / XYZ globales para gating y growth_cap.
-    abcxyz_global = _safe_text(rctx.get('abcxyz', ''), 20).upper()
-    abc_global = abcxyz_global[:1] if abcxyz_global else ''
-    xyz_global = abcxyz_global[1:2] if len(abcxyz_global) >= 2 else ''
-    if abc_global not in allowed_abc:
-        return None  # canon: solo A y B entran al fair share
-
-    mu_global = _safe_float(rctx.get('mu_week_global', 0.0), 0.0)
 
     # Categoria efectiva: la local si existe, sino la global del ABCXYZ.
     categ_efectiva = _safe_int(categ_id_local, 0) or _safe_int(rctx.get('categ_global_id'), 0)
@@ -1237,6 +1308,7 @@ def _compute_fair_share(product_id, team_id, categ_id_local,
         shares.append(qty_sku / qty_categ)
     n_active = len(shares)
 
+    # Regla min_salas: skip si el SKU no tiene suficiente distribucion.
     if n_active < min_salas:
         return None
 
@@ -1244,105 +1316,56 @@ def _compute_fair_share(product_id, team_id, categ_id_local,
     if factor_normalizado <= 0.0:
         return None
 
-    # v3.42: gap_count = salas sin actividad (proxy gap_total)
-    gap_count = max(1, int(n_salas_total) - n_active)
-
-    # v3.42: clase B solo TERMINAR COBERTURA (gap pequeno)
-    if abc_global == 'B' and gap_count > b_max_gap:
-        return None
-
-    # v3.42: conf_n por N salas activas
-    if conf_n_map is None:
-        conf_n_map = {0: 0.0, 1: 0.30, 2: 0.50, 3: 0.75, 4: 0.75}
-    conf_n = float(conf_n_map.get(n_active, 1.00))
-
     # 2) mu_categ_target: real si hay historia, bottom-N% si es sala nueva.
     historia = _safe_int(fs_ctx.get('historia_categ', {}).get((team_id, categ_efectiva), 0), 0)
     if historia >= min_historia:
         qty_categ_target = _safe_float(categ_qty_per_sala.get((team_id, categ_efectiva), 0.0), 0.0)
         mu_categ_target = qty_categ_target / n_weeks_window
-        method = 'canon_real'
+        method = 'normalized_real'
     else:
+        # Bottom-N%: salas con menor mu_categoria, EXCLUYENDO la sala objetivo.
         otras_salas_categ = []
         for (team_i, c), qty in categ_qty_per_sala.items():
             if c == categ_efectiva and team_i != team_id and qty > 0.0:
                 otras_salas_categ.append(qty)
         if not otras_salas_categ:
             return None
-        otras_salas_categ.sort()
+        otras_salas_categ.sort()  # ascending
         n_total = len(otras_salas_categ)
+        # n_bottom = ceil(n_total × bottom_pct), minimo 1
         n_bottom_raw = float(n_total) * float(bottom_pct)
         n_bottom = max(1, int(n_bottom_raw + 0.5))
         if n_bottom > n_total:
             n_bottom = n_total
         bottom_qtys = otras_salas_categ[:n_bottom]
         mu_categ_target = (sum(bottom_qtys) / float(len(bottom_qtys))) / n_weeks_window
-        method = 'canon_bottom%d' % n_bottom
+        method = 'normalized_bottom%d' % n_bottom
 
     if mu_categ_target <= 0.0:
         return None
 
-    # 3) mu_raw con conf_n
-    factor_efectivo = factor_normalizado * conf_n
-    if factor_efectivo <= 0.0:
-        return None
-    mu_raw = factor_efectivo * mu_categ_target * float(bias)
+    mu_raw = factor_normalizado * mu_categ_target * float(bias)
     if mu_raw <= 0.0:
         return None
 
-    # 4) Growth cap canon: mu_global * growth_cap(xyz) repartido entre salas faltantes
-    if growth_cap_map is None:
-        growth_cap_map = {'X': 3.0, 'Y': 2.0, 'Z': 1.5}
-    growth = float(growth_cap_map.get(xyz_global, 1.5))
-    mu_cap_per_par = (mu_global * growth) / float(gap_count) if mu_global > 0 else 0.0
-
-    cap_applied = False
-    if mu_cap_per_par > 0 and mu_raw > mu_cap_per_par:
-        mu_capped = mu_cap_per_par
-        cap_applied = True
-    else:
-        mu_capped = mu_raw
-
-    # 5) Tried penalty si la sala target ya probo y fallo (active_weeks>0, mu=0)
-    tried_applied = False
-    if active_weeks_target > 0:
-        mu_capped = mu_capped * float(tried_penalty)
-        tried_applied = True
-
-    # 6) Floor: SOLO si NO se aplico tried_penalty.
-    # Canon: si la sala ya probo y mu=0, no insistir (insight empirico OH 2026-05-23:
-    # 97% de flacos = "probo y fallo"). El threshold de stock (~0.23 u/sem) auto-filtra
-    # los pares castigados que no pasan, manteniendo solo los que tenian mu_raw
-    # naturalmente alto (senal real de demanda).
-    if (not tried_applied) and min_units > 0.0 and mu_capped < min_units:
+    # Floor minimo (defeat rounding-to-0): garantiza orden cuando hay propuesta.
+    if min_units > 0.0 and mu_raw < min_units:
         mu_fs = float(min_units)
         floor_applied = True
     else:
-        mu_fs = mu_capped
+        mu_fs = mu_raw
         floor_applied = False
 
     sigma_fs = mu_fs * float(sigma_cv)
 
-    reason = (
-        'CANON_%s|abc=%s|xyz=%s|n=%d|conf=%.2f|gap=%d|factor=%.4f|'
-        'mu_categ=%.2f|raw=%.2f|cap=%s|tried=%s|floor=%s'
-        % (method, abc_global, xyz_global, n_active, conf_n, gap_count,
-           factor_normalizado, mu_categ_target, mu_raw,
-           'Y' if cap_applied else 'N',
-           'Y' if tried_applied else 'N',
-           'Y' if floor_applied else 'N')
-    )[:240]
+    reason = ('FS2_%s|n_active=%d|factor=%.4f|mu_categ=%.2f|raw=%.2f|floor=%s'
+              % (method, n_active, factor_normalizado, mu_categ_target,
+                 mu_raw, 'Y' if floor_applied else 'N'))[:240]
     return {
         'mu_week': mu_fs,
         'sigma_week': sigma_fs,
         'method': method,
         'reason': reason,
-        'scope': 'core_canon_v42',
-        'n_active': n_active,
-        'gap_count': gap_count,
-        'conf_n': conf_n,
-        'cap_applied': cap_applied,
-        'tried_applied': tried_applied,
     }
 
 
@@ -1373,11 +1396,8 @@ def _route_forecast_scope(abcxyz, series_type, lifecycle, mu_week):
     if (abc in ('AX', 'AY')) and (lc not in ('declining', 'dead')):
         return 'Z1', 'core_hm_si', 'hm_si_core_a_low_mu', 'A_low_velocity_rescue'
 
-    # v3.45: removido `or (mu < 2.0)`. Croston/SBA del bake-off ya maneja
-    # slow-movers; el threshold post-forecast descartaba ese output (anti-canon).
-    # Los SKUs B con mu<2.0 ahora caen a Z3 (secondary_replenishment).
-    if (st == 'no_signal') or (abc in ('CX', 'CY', 'CZ')) or (lc in ('declining', 'dead')):
-        return 'Z4', 'no_forecast', 'min_stock_or_manual', 'D_no_signal_C_terminal'
+    if (st == 'no_signal') or (abc in ('CX', 'CY', 'CZ')) or (lc in ('declining', 'dead')) or (mu < 2.0):
+        return 'Z4', 'no_forecast', 'min_stock_or_manual', 'D_no_signal_C_or_low_mu'
 
     if (st == 'smooth') and (abc in ('AX', 'AY', 'BX')) and (lc in ('mature', 'ramp_up')) and (mu >= 2.0):
         return 'Z1', 'core_hm_si', 'hm_si_core', 'A_smooth_core'
@@ -1394,300 +1414,6 @@ def _route_forecast_scope(abcxyz, series_type, lifecycle, mu_week):
 # ----------------------
 # Context
 # ----------------------
-# ============================================================
-# v3.48 — Bias-outlier correction (ultima capa)
-# ============================================================
-def _compute_bias_outliers(cells, params):
-    """Core PURO (sin IO; testeado en proyectos/2026-05-29-bias-outlier).
-
-    cells: list de dicts por (team, sku) candidato:
-        {'sku','team','mu','real_weeks':[w0..],'stockout_weeks':set(idx)}
-    params: {'window','pareto','clamp':(lo,hi),'persistence_min'}
-    return: {sku: {'factor','delta','sum_real','sum_mu','n_teams'}}
-
-    Acumula por SKU en unidades (no %), gatea por persistencia 2/3 y Pareto-80%
-    del |delta| total, y devuelve el factor multiplicativo global por SKU con
-    clamp asimetrico. Excluye celdas sin semana limpia y SKUs sin persistencia.
-    """
-    window = int(params['window'])
-    lo, hi = params['clamp']
-    pareto = float(params['pareto'])
-    pmin = int(params['persistence_min'])
-
-    agg = {}
-    for c in cells:
-        sw = c['stockout_weeks']
-        # v3.48 FIX: si CUALQUIER semana tiene quiebre, no usar nada
-        # (33% contaminacion es suficiente para vicias el delta)
-        if sw:
-            continue
-        rweeks = c['real_weeks']
-        clean_sum = sum(rweeks)
-        real_weekly = clean_sum / float(window)
-        sku = c['sku']
-        a = agg.get(sku)
-        if a is None:
-            a = {'sum_real': 0.0, 'sum_mu': 0.0,
-                 'week_real': [0.0] * window, 'week_mu': [0.0] * window,
-                 'week_has': [0] * window}
-            agg[sku] = a
-        a['sum_real'] += real_weekly
-        a['sum_mu'] += c['mu']
-        # Todas las semanas limpias (if sw: continue arriba filtra cualquier quiebre)
-        for i in range(window):
-            a['week_real'][i] += rweeks[i]
-            a['week_mu'][i] += c['mu']
-            a['week_has'][i] = 1
-
-    scored = []
-    for sku, a in agg.items():
-        delta = a['sum_real'] - a['sum_mu']
-        dir_sku = 1 if delta > 0 else (-1 if delta < 0 else 0)
-        n_dir = 0
-        n_weeks = 0
-        for i in range(window):
-            if a['week_has'][i]:
-                n_weeks += 1
-                di = a['week_real'][i] - a['week_mu'][i]
-                if (di > 0 and dir_sku > 0) or (di < 0 and dir_sku < 0):
-                    n_dir += 1
-        a['delta'] = delta
-        a['n_dir'] = n_dir
-        a['n_weeks'] = n_weeks
-        scored.append((sku, a))
-
-    rank = []
-    total_abs = 0.0
-    ri = 0
-    for sku, a in scored:
-        ad = a['delta'] if a['delta'] >= 0 else -a['delta']
-        total_abs += ad
-        rank.append((ad, ri, sku))
-        ri += 1
-    out = {}
-    if total_abs <= 0.0:
-        return out
-    rank.sort(reverse=True)
-    threshold = pareto * total_abs
-    cum = 0.0
-    for ad, _ri, sku in rank:
-        a = agg[sku]
-        prev = cum
-        cum += ad
-        if prev >= threshold:
-            break
-        if a['sum_mu'] <= 0.0:
-            continue
-        if a['n_weeks'] < pmin or a['n_dir'] < pmin:
-            continue
-        # v3.48 FIX: solo corregir sub-forecasts (delta > 0, real > mu).
-        # Over-forecasts (delta < 0) son responsabilidad de trend/caps, no bias-outlier.
-        if a['delta'] <= 0:
-            continue
-        factor = a['sum_real'] / a['sum_mu']
-        factor = max(lo, min(hi, factor))
-        out[sku] = {
-            'factor': factor, 'delta': a['delta'],
-            'sum_real': a['sum_real'], 'sum_mu': a['sum_mu'],
-        }
-    return out
-
-
-def _bias_outlier_layer(data, demand_weeks_list, target_date, team_ids, params):
-    """IO de la capa: lee mu ensamblado (recien escrito) + real reciente desde
-    `data` + quiebre de x_stock_balance_daily, corre el core y aplica+marca via
-    SQL (un UPDATE por SKU outlier). No-op SEGURO si faltan los campos Studio.
-    Devuelve (n_outliers, n_filas_actualizadas).
-    """
-    # Solo los 3 campos de MARCA son obligatorios. mu_week_pre_bias_outlier es
-    # auditoria OPCIONAL: si no existe, la correccion igual se aplica y marca
-    # (no se persiste el valor pre, eso es todo). Un campo de auditoria nunca
-    # debe bloquear la correccion.
-    req_fields = ('x_studio_bias_outlier', 'x_studio_bias_outlier_factor',
-                  'x_studio_bias_outlier_delta')
-    missing = []
-    for f in req_fields:
-        if f not in fwd_fields:
-            missing.append(f)
-    if missing:
-        try:
-            log('BIAS_OUTLIER skip: faltan campos Studio %s' % ','.join(missing), level='warning')
-        except Exception:
-            pass
-        return (0, 0)
-
-    window = int(params['window'])
-    recent_weeks = list(demand_weeks_list[-window:])
-    if not recent_weeks:
-        return (0, 0)
-    week_idx = {}
-    _wi = 0
-    for wk in recent_weeks:
-        week_idx[wk] = _wi
-        _wi += 1
-    tids = list(team_ids)
-
-    # 1. mu ensamblado por (team, pid) de las filas recien escritas
-    env.cr.execute("""
-        SELECT x_studio_product_id, x_studio_team_id, x_studio_mu_week
-        FROM x_hm_si_forecast
-        WHERE x_studio_week_start = %s
-          AND x_studio_team_id = ANY(%s)
-          AND x_studio_product_id IS NOT NULL
-    """, (target_date, tids))
-    mu_by_ts = {}
-    for _pid, _tid, _mu in env.cr.fetchall():
-        if _pid is None or _tid is None:
-            continue
-        mu_by_ts[(int(_tid), int(_pid))] = _safe_float(_mu, 0.0)
-    if not mu_by_ts:
-        return (0, 0)
-
-    # 2. real crudo reciente por (team, pid) desde `data` (ya en memoria)
-    real_by_ts = {}
-    for (tid, pid), wkmap in data.items():
-        vals = []
-        has_sale = False
-        for wk in recent_weeks:
-            row = wkmap.get(wk)
-            q = _safe_float((row and row[1]) or 0.0, 0.0)
-            vals.append(q)
-            if q > 0:
-                has_sale = True
-        if has_sale:
-            real_by_ts[(int(tid), int(pid))] = vals
-
-    # 3. Candidatos: rankear por |delta crudo| por SKU, cubrir ~coverage
-    raw = {}
-    for (tid, pid), mu in mu_by_ts.items():
-        rv = real_by_ts.get((tid, pid))
-        if rv:
-            rw = sum(rv) / float(len(rv))
-        else:
-            rw = 0.0
-        acc = raw.get(pid)
-        if acc is None:
-            acc = [0.0, 0.0]
-            raw[pid] = acc
-        acc[0] += rw
-        acc[1] += mu
-    rank = []
-    total_abs_raw = 0.0
-    for pid in raw:
-        v = raw[pid]
-        ad = v[0] - v[1]
-        if ad < 0:
-            ad = -ad
-        total_abs_raw += ad
-        rank.append((ad, pid))
-    if total_abs_raw <= 0.0:
-        total_abs_raw = 1.0
-    rank.sort(reverse=True)
-    coverage = float(params['candidate_coverage'])
-    candidates = set()
-    cum = 0.0
-    for ad, pid in rank:
-        if cum >= coverage * total_abs_raw:
-            break
-        candidates.add(pid)
-        cum += ad
-    if not candidates:
-        return (0, 0)
-
-    # 4. Quiebre de candidatos en las 3 sem -> set (tid, pid, weekidx)
-    # v3.48 FIX: buscar en x_stock_balance_daily sobre TODO el rango de las 3 ultimas
-    # semanas (no solo hasta 6 dias despues de la ultima semana). Esto asegura que
-    # los quiebres detectados mapeen correctamente a los indices 0, 1, 2 de la ventana.
-    # v3.48 FIX2: expandir el rango a 1 semana ANTES de recent_weeks[0] para capturar
-    # quiebres que empezaron antes del window de analisis (ej. stockout on 2026-05-04
-    # cuando las 3 sem son 05-11, 05-18, 05-25). El gate `if idx is not None` filtra
-    # fechas fuera del window de todas formas.
-    stockout = set()
-    env.cr.execute("""
-        SELECT x_studio_product_id, x_studio_team_id, x_studio_date,
-               x_studio_stockout, x_studio_stockout_partial, x_studio_qty_balance
-        FROM x_stock_balance_daily
-        WHERE x_studio_product_id = ANY(%s)
-          AND x_studio_date >= %s AND x_studio_date < %s
-    """, (list(candidates), recent_weeks[0] - datetime.timedelta(weeks=1), recent_weeks[-1] + datetime.timedelta(days=7)))
-    for _pid, _tid, _dt, _so, _sop, _bal in env.cr.fetchall():
-        if _pid is None or _tid is None or _dt is None:
-            continue
-        if not (bool(_so) or bool(_sop) or _safe_float(_bal, 0.0) <= 0.0):
-            continue
-        ws = _week_start(_dt)
-        idx = week_idx.get(ws)
-        if idx is not None:
-            stockout.add((int(_tid), int(_pid), idx))
-
-    # 5. Celdas candidatas + core
-    cells = []
-    for (tid, pid), mu in mu_by_ts.items():
-        if pid not in candidates:
-            continue
-        rv = real_by_ts.get((tid, pid))
-        if not rv:
-            continue
-        so_weeks = set()
-        for i in range(window):
-            if (tid, pid, i) in stockout:
-                so_weeks.add(i)
-        cells.append({'sku': pid, 'team': tid, 'mu': mu,
-                      'real_weeks': rv, 'stockout_weeks': so_weeks})
-    outliers = _compute_bias_outliers(cells, params)
-    if not outliers:
-        return (0, 0)
-
-    # 6. Aplicar + marcar via SQL (un UPDATE por SKU outlier). El pre-bias se
-    # incluye solo si el campo existe (auditoria opcional).
-    # v3.48: copiar desde x_studio_mu_week_pre_bias (pre-trend) si existe,
-    # sino desde x_studio_mu_week actual.
-    has_pre = 'x_studio_mu_week_pre_bias_outlier' in fwd_fields
-    has_pre_bias = 'x_studio_mu_week_pre_bias' in fwd_fields
-    if has_pre and has_pre_bias:
-        pre_clause = ('x_studio_mu_week_pre_bias_outlier = COALESCE(x_studio_mu_week_pre_bias, x_studio_mu_week), '
-                      )
-    elif has_pre:
-        pre_clause = ('x_studio_mu_week_pre_bias_outlier = x_studio_mu_week, '
-                      )
-    else:
-        pre_clause = ''
-    update_sql = (
-        'UPDATE x_hm_si_forecast SET '
-        + pre_clause +
-        'x_studio_mu_week = x_studio_mu_week * %s, '
-        'x_studio_sigma_week = COALESCE(x_studio_sigma_week, 0.0) * %s, '
-        'x_studio_bias_outlier = TRUE, '
-        'x_studio_bias_outlier_factor = %s, '
-        'x_studio_bias_outlier_delta = %s '
-        'WHERE x_studio_week_start = %s '
-        '  AND x_studio_product_id = %s '
-        '  AND x_studio_team_id = ANY(%s)'
-    )
-    n_rows = 0
-    for sku_id, info in outliers.items():
-        f = float(info['factor'])
-        d = float(info['delta'])
-        env.cr.execute(update_sql, (f, f, f, d, target_date, int(sku_id), tids))
-        n_rows += env.cr.rowcount
-    # FIX cache (post-v3.48): el UPDATE via SQL crudo modifica la TABLA pero NO el
-    # cache del ORM. Un consumidor que lea mu_week/sigma_week con ORM en la MISMA
-    # transaccion (OH Forecast Backtest corre el motor via _run_forecast_action y
-    # luego lee con model.search()+rec[field]) ve el valor PRE-factor que fwd_create
-    # dejo cacheado, no el corregido en la tabla. Por eso el backtest no reflejaba la
-    # capa aunque el export directo de x_hm_si_forecast si. invalidate_all fuerza la
-    # relectura desde la DB. El productivo no lee mu_week con ORM despues de esta capa,
-    # asi que el costo es nulo fuera del backtest.
-    if n_rows:
-        env.invalidate_all()
-    try:
-        log('BIAS_OUTLIER v3.48 | candidatos=%s | outliers=%s | filas=%s' % (
-            len(candidates), len(outliers), n_rows), level='info')
-    except Exception:
-        pass
-    return (len(outliers), n_rows)
-
-
 CTX = env.context or {}
 
 FWD_MODEL = str(CTX.get('fwd_model', FWD_MODEL_DEFAULT) or FWD_MODEL_DEFAULT)
@@ -1699,8 +1425,6 @@ if not TEAM_IDS:
 
 DEMAND_HISTORY_MONTHS = int(CTX.get('demand_history_months', DEMAND_HISTORY_MONTHS_DEFAULT))
 DEMAND_WINDOW_WEEKS = int(CTX.get('demand_window_weeks', DEMAND_WINDOW_WEEKS_DEFAULT))
-
-USE_DEMAND_NORMALIZATION = bool(CTX.get('use_demand_normalization', USE_DEMAND_NORMALIZATION_DEFAULT))
 
 SI_ENABLED = bool(CTX.get('si_enabled', SI_ENABLED_DEFAULT))
 SI_HISTORY_MONTHS = int(CTX.get('si_history_months', SI_HISTORY_MONTHS_DEFAULT))
@@ -1723,27 +1447,6 @@ SERVICE_CORR_VALIDATION_MIN_WEEKS = int(CTX.get('service_corr_validation_min_wee
 SERVICE_CORR_VALIDATION_BASELINE = int(CTX.get('service_corr_validation_baseline', SERVICE_CORR_VALIDATION_BASELINE_DEFAULT))
 SERVICE_CORR_VALIDATION_THRESHOLD = float(CTX.get('service_corr_validation_threshold', SERVICE_CORR_VALIDATION_THRESHOLD_DEFAULT))
 
-# v3.43: trend correction
-APPLY_TREND_CORRECTION = bool(CTX.get('apply_trend_correction', APPLY_TREND_CORRECTION_DEFAULT))
-TREND_LOOKBACK_WEEKS   = int(CTX.get('trend_lookback_weeks', TREND_LOOKBACK_WEEKS_DEFAULT))
-TREND_WINDOW_WEEKS     = int(CTX.get('trend_window_weeks', TREND_WINDOW_WEEKS_DEFAULT))
-TREND_CLAMP_LOW        = float(CTX.get('trend_clamp_low', TREND_CLAMP_LOW_DEFAULT))
-TREND_CLAMP_HIGH       = float(CTX.get('trend_clamp_high', TREND_CLAMP_HIGH_DEFAULT))
-
-# v3.47: categ calibration por (categ_id, abc_letter)
-APPLY_CATEG_CALIB      = bool(CTX.get('apply_categ_calib', APPLY_CATEG_CALIB_DEFAULT))
-
-# v3.48: bias-outlier correction (ultima capa)
-APPLY_BIAS_OUTLIER              = bool(CTX.get('apply_bias_outlier', APPLY_BIAS_OUTLIER_DEFAULT))
-BIAS_OUTLIER_WINDOW_WEEKS       = int(CTX.get('bias_outlier_window_weeks', BIAS_OUTLIER_WINDOW_WEEKS_DEFAULT))
-BIAS_OUTLIER_CANDIDATE_COVERAGE = float(CTX.get('bias_outlier_candidate_coverage', BIAS_OUTLIER_CANDIDATE_COVERAGE_DEFAULT))
-BIAS_OUTLIER_PARETO             = float(CTX.get('bias_outlier_pareto', BIAS_OUTLIER_PARETO_DEFAULT))
-BIAS_OUTLIER_CLAMP              = (
-    float(CTX.get('bias_outlier_clamp_low', BIAS_OUTLIER_CLAMP_LOW_DEFAULT)),
-    float(CTX.get('bias_outlier_clamp_high', BIAS_OUTLIER_CLAMP_HIGH_DEFAULT)),
-)
-BIAS_OUTLIER_PERSISTENCE_MIN    = int(CTX.get('bias_outlier_persistence_min', BIAS_OUTLIER_PERSISTENCE_MIN_DEFAULT))
-
 # v3.40: fair share
 FAIR_SHARE_ENABLED            = bool(CTX.get('fair_share_enabled', FAIR_SHARE_ENABLED_DEFAULT))
 FAIR_SHARE_MIN_SALAS_ACTIVAS  = int(CTX.get('fair_share_min_salas_activas', FAIR_SHARE_MIN_SALAS_ACTIVAS_DEFAULT))
@@ -1752,12 +1455,6 @@ FAIR_SHARE_BIAS               = float(CTX.get('fair_share_bias', FAIR_SHARE_BIAS
 FAIR_SHARE_MIN_UNITS          = float(CTX.get('fair_share_min_units', FAIR_SHARE_MIN_UNITS_DEFAULT))
 FAIR_SHARE_SIGMA_CV           = float(CTX.get('fair_share_sigma_cv', FAIR_SHARE_SIGMA_CV_DEFAULT))
 FAIR_SHARE_BOTTOM_PCT         = float(CTX.get('fair_share_bottom_pct', FAIR_SHARE_BOTTOM_PCT_DEFAULT))
-# v3.42: canon SAP IBP / Blue Yonder
-FAIR_SHARE_CONF_N_MAP         = dict(CTX.get('fair_share_conf_n_map', FAIR_SHARE_CONF_N_MAP_DEFAULT))
-FAIR_SHARE_GROWTH_CAP         = dict(CTX.get('fair_share_growth_cap', FAIR_SHARE_GROWTH_CAP_DEFAULT))
-FAIR_SHARE_TRIED_PENALTY      = float(CTX.get('fair_share_tried_penalty', FAIR_SHARE_TRIED_PENALTY_DEFAULT))
-FAIR_SHARE_ALLOWED_ABC        = tuple(CTX.get('fair_share_allowed_abc', FAIR_SHARE_ALLOWED_ABC_DEFAULT))
-FAIR_SHARE_B_MAX_GAP          = int(CTX.get('fair_share_b_max_gap', FAIR_SHARE_B_MAX_GAP_DEFAULT))
 
 XYZ_LOCAL_MIN_WEEKS = int(CTX.get('xyz_local_min_weeks', XYZ_LOCAL_MIN_WEEKS_DEFAULT))
 XYZ_LOCAL_T1 = float(CTX.get('xyz_local_t1', XYZ_LOCAL_T1_DEFAULT))
@@ -2215,29 +1912,10 @@ else:
 
                 local_pairs = sorted(data.keys())
 
-                # Overlay de normalizacion de demanda (proyecto 2026-05-25).
-                # Si flag activo, carga x_demanda_normalizada por (team, sku, week)
-                # para reemplazar q_raw en el loop principal. Dict vacio = sin efecto.
-                demand_norm_overlay = {}
-                if USE_DEMAND_NORMALIZATION and demand_weeks_list:
-                    env.cr.execute("""
-                        SELECT x_studio_team_id, x_studio_product_id,
-                               x_studio_week_start, x_studio_qty_norm
-                        FROM x_demanda_normalizada
-                        WHERE x_studio_team_id = ANY(%s)
-                          AND x_studio_week_start >= %s
-                          AND x_studio_week_start <= %s
-                    """, (list(TEAM_IDS), demand_weeks_list[0], demand_weeks_list[-1]))
-                    for _tid, _pid, _wk, _qn in env.cr.fetchall():
-                        if _tid is None or _pid is None or _wk is None:
-                            continue
-                        demand_norm_overlay[(int(_tid), int(_pid), _wk)] = float(_qn or 0.0)
-
                 batch = []
                 total_created = 0
                 si_level_counts = {'local_categ': 0, 'categ_global': 0, 'global': 0}
                 method_counts = {}
-                norm_overlay_hits = 0
 
                 fwd_create = FWD.with_context(
                     tracking_disable=True,
@@ -2266,16 +1944,6 @@ else:
                 correccion_applied_count = 0
                 correccion_tipo_counts = {}
 
-                # v3.47: cargar calibracion por (categ_id, abc_letter) desde
-                # x_categ_calib_factor (refrescada mensualmente por SA OH Calc
-                # Categ Calib Factors). 1 query por run; se aplica entre
-                # correccion_factor (precio) y trend_factor (team).
-                if APPLY_CATEG_CALIB:
-                    categ_calib_ctx = _load_categ_calib_context(target_date)
-                else:
-                    categ_calib_ctx = {}
-                categ_calib_applied_count = 0
-
                 # v3.33: contadores distribucion XYZ local por team.
                 # 'global' agrega los casos sin datos locales suficientes que
                 # heredan el XYZ global del producto desde router_ctx.
@@ -2298,73 +1966,6 @@ else:
                             si_base_cache[(_t, _c, _w)] = (float(_sm), 'categ_global')
                             continue
                         si_base_cache[(_t, _c, _w)] = (float(si_global.get(_w, 1.0)), 'global')
-
-                # ============================================================
-                # v3.43 — Trend correction por team (weekly YoY asimetrico)
-                # ============================================================
-                # Calcula trend_factor_by_team[tid] ANTES del loop principal,
-                # 1 vez por corrida. Aplica en el loop a mu_week final.
-                trend_factor_by_team = {}
-                trend_factor_log = []  # para el msg final
-                if APPLY_TREND_CORRECTION and TEAM_IDS:
-                    trend_from = _week_start(date_to) - datetime.timedelta(weeks=TREND_LOOKBACK_WEEKS)
-                    trend_sql = """
-                        SELECT
-                            __TEAM_COL__ AS team_id,
-                            date_trunc('week',
-                                po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s
-                            )::date AS wk,
-                            SUM(COALESCE(pol.qty, 0.0)) AS qty
-                        FROM pos_order_line pol
-                        JOIN pos_order po ON po.id = pol.order_id
-                        LEFT JOIN pos_session ps ON ps.id = po.session_id
-                        LEFT JOIN pos_config pc ON pc.id = ps.config_id
-                        JOIN product_product pp ON pp.id = pol.product_id
-                        JOIN product_template pt ON pt.id = pp.product_tmpl_id
-                        WHERE po.company_id = %(company_id)s
-                          AND po.state IN ('paid','done','invoiced')
-                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date >= %(trend_from)s
-                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date <= %(date_to)s
-                          AND pp.active = TRUE
-                          AND pt.sale_ok = TRUE
-                          AND pt.active = TRUE
-                          AND __TEAM_COL__ IS NOT NULL
-                          AND __TEAM_COL__ = ANY(%(team_ids)s)
-                        GROUP BY 1, 2
-                    """.replace('__TEAM_COL__', team_col_sql)
-                    env.cr.execute(trend_sql, {
-                        'tz': TZ_NAME,
-                        'company_id': company.id,
-                        'trend_from': trend_from,
-                        'date_to': date_to,
-                        'team_ids': list(TEAM_IDS),
-                    })
-                    weekly_team_units = {}
-                    for _tid, _wk, _qty in env.cr.fetchall():
-                        if _tid is None or _wk is None:
-                            continue
-                        weekly_team_units[(int(_tid), _wk)] = _safe_float(_qty, 0.0)
-
-                    # Cutoff = lunes de la semana del date_to (la semana del cutoff incluido)
-                    cutoff_week = _week_start(date_to)
-                    for _tid in TEAM_IDS:
-                        yoy_vals = []
-                        for _i in range(TREND_WINDOW_WEEKS):
-                            _wk = cutoff_week - datetime.timedelta(weeks=_i)
-                            _wk_ly = _wk - datetime.timedelta(weeks=52)
-                            _curr = weekly_team_units.get((int(_tid), _wk))
-                            _prev = weekly_team_units.get((int(_tid), _wk_ly))
-                            if _curr is not None and _prev and _prev > 0:
-                                yoy_vals.append(_curr / _prev - 1.0)
-                        if yoy_vals:
-                            _avg = sum(yoy_vals) / float(len(yoy_vals))
-                            _fac = _clamp(1.0 + _avg, TREND_CLAMP_LOW, TREND_CLAMP_HIGH)
-                        else:
-                            _avg = 0.0
-                            _fac = 1.0
-                        trend_factor_by_team[int(_tid)] = _fac
-                        trend_factor_log.append('t%s:f=%.3f(yoy=%+.1f%%,n=%d)' % (
-                            int(_tid), _fac, _avg * 100.0, len(yoy_vals)))
 
                 for team_id, product_id in local_pairs:
                     categ_id = product_to_categ.get(product_id)
@@ -2391,12 +1992,6 @@ else:
                         q_raw = _safe_float((row and row[1]) or 0.0, 0.0)
                         if q_raw < 0.0:
                             q_raw = 0.0
-                        # Overlay: reemplazar q_raw por qty_norm si la celda
-                        # esta en x_demanda_normalizada (semana con quiebre).
-                        _norm_q = demand_norm_overlay.get((team_id, product_id, wk))
-                        if _norm_q is not None:
-                            q_raw = _norm_q
-                            norm_overlay_hits += 1
                         r_raw = _safe_float((row and row[0]) or 0.0, 0.0)
 
                         _si_main, _ = si_base_cache.get((team_id, categ_id, iso_w), (1.0, 'global'))
@@ -2511,18 +2106,12 @@ else:
                             _q_offsets_seen.add(_off)
                     _p_q8_local = sum(1 for _u in _u_q if _u > 0.0)
 
-                    # v3.44: semanas con venta > 0 en ultimas 8 sem de base_vals.
-                    # SMA-style signal para evitar falso positivo 'declining' cuando
-                    # cutoff cae al inicio de un Q (u_q0=0 trivialmente).
-                    _nz_recent_8w_local = sum(1 for _v in (base_vals or [])[-8:] if _v > 0)
-
                     # --- lifecycle local: si dead por falta de datos pero el global
                     # dice otra cosa, prefiere global. Mismo criterio que series_type.
                     _lc_calc = _infer_lifecycle_local(
                         _u_q[0], _u_q[1], _u_q[2], _u_q[3],
                         _u_q[4], _u_q[5], _u_q[6], _u_q[7],
                         _p_q8_local, xyz_local,
-                        nz_recent_8w=_nz_recent_8w_local,
                     )
                     # Si el local sale 'dead' pero hay senal global vigente, se usa global
                     # (caso tipico: producto vivo en otras sucursales sin presencia aqui).
@@ -2604,18 +2193,24 @@ else:
                     router_zone_counts[forecast_zone] = router_zone_counts.get(forecast_zone, 0) + 1
 
                     # ============================================================
-                    # v3.42 — Fair share canon (SAP IBP / Blue Yonder)
+                    # v3.40 — Fair share rescue (Oracle RDF / Blue Yonder canonico)
                     # ============================================================
-                    # v3.42 expande v3.41 con tres parches canon:
-                    #   1. conf_n por N salas activas (factor con 1 sola sala vale 0.30).
-                    #   2. growth_cap por XYZ (mu_fs <= mu_global * cap / gap_count).
-                    #   3. tried_penalty si la sala target ya probo y mu_local=0.
-                    # Trigger: A siempre, B solo si gap<=2 (TERMINAR COBERTURA).
-                    # La logica de gating ahora vive en _compute_fair_share.
+                    # FIX 2026-05-23: la version inicial fallo porque el motor
+                    # v3.39 ya tiene rescue rules v3.28/v3.30 que envian clase A
+                    # con poca demanda a 'core_hm_si' (no a 'no_forecast') ANTES
+                    # de llegar al catch-all. El override original chequeaba
+                    # forecast_scope=='no_forecast' y nunca disparaba.
+                    #
+                    # Trigger correcto: mu_week==0 (independiente del scope) en
+                    # SKU clase A global con lifecycle activo. Lifecycle es una
+                    # WHITELIST explicita (mature/ramp_up) en lugar de blacklist
+                    # para evitar inyectar forecast a seasonal (temporada baja),
+                    # intermittent (demanda real esporadica), o declining/dead.
                     fair_share_applied = False
                     if (
                         FAIR_SHARE_ENABLED
                         and mu_week == 0
+                        and (_global_abc_letter or '').upper() == 'A'
                         and lifecycle_local in ('mature', 'ramp_up')
                     ):
                         fs_res = _compute_fair_share(
@@ -2630,20 +2225,13 @@ else:
                             min_salas=FAIR_SHARE_MIN_SALAS_ACTIVAS,
                             min_historia=FAIR_SHARE_MIN_HISTORIA_CATEG,
                             bottom_pct=FAIR_SHARE_BOTTOM_PCT,
-                            active_weeks_target=active_weeks_local,
-                            conf_n_map=FAIR_SHARE_CONF_N_MAP,
-                            growth_cap_map=FAIR_SHARE_GROWTH_CAP,
-                            tried_penalty=FAIR_SHARE_TRIED_PENALTY,
-                            allowed_abc=FAIR_SHARE_ALLOWED_ABC,
-                            b_max_gap=FAIR_SHARE_B_MAX_GAP,
-                            n_salas_total=12,
                         )
                         if fs_res is not None:
                             mu_week = fs_res['mu_week']
                             sigma_week = fs_res['sigma_week']
                             forecast_zone = 'Z1'
-                            forecast_scope = fs_res.get('scope', 'core_canon_v42')
-                            forecast_model_code = 'fair_share_canon'
+                            forecast_scope = 'core_fair_share'
+                            forecast_model_code = 'fair_share_category'
                             forecast_scope_reason = fs_res['reason']
                             fair_share_applied = True
                     # ============================================================
@@ -2780,73 +2368,14 @@ else:
                                 correccion_tipo_counts.get(correccion_tipo, 0) + 1
 
                     # ============================================================
-                    # v3.47 — Categ calibration multiplicativo por (categ, abc_letter)
-                    # Se aplica DESPUES de correccion_factor (precio) y ANTES de
-                    # trend_factor (team) para que:
-                    #  - El factor de categoria amplifique/recorte sobre el
-                    #    forecast ya ajustado por evento de precio
-                    #  - Trend correction (team) ajuste DESPUES por la dinamica
-                    #    YoY del local
-                    # Captura sesgo estructural del motor por segmento (categ x
-                    # abc) detectado via backtest mensual. Clamp simetrico
-                    # [0.70, 1.30] (a diferencia de trend_factor que es asimetrico
-                    # solo recorta). Refrescado por SA OH Calc Categ Calib Factors.
+                    # v3.31 — Redondeo medio-arriba al entero del mu_week final.
+                    # fraccion < 0.5 -> entero abajo; fraccion >= 0.5 -> entero arriba.
+                    # 0.3 -> 0; 0.5 -> 1; 1.3 -> 1; 1.5 -> 2; 1.7 -> 2.
+                    # No tocamos sigma_week (es metrica continua) ni mu_week_pre_corr
+                    # (mantiene la trazabilidad pre-redondeo).
                     # ============================================================
-                    mu_week_pre_calib = mu_week
-                    categ_calib_factor = 1.0
-                    categ_calib_meta = ''
-                    # v3.47: gate por regimen leido del registro
-                    # (x_studio_regimenes_aplicables). El SA persiste el string CSV
-                    # con los regimenes donde aplicar. NULL/vacio = aplicar a todos.
-                    # Default actual del SA: 'REG-1,REG-2,REG-4,REG-8' (test_L1L2
-                    # 2026-05-28: REG-7 sufre WAPE +2.9pp, REG-5 ruido n<500).
-                    if APPLY_CATEG_CALIB and categ_calib_ctx and mu_week > 0:
-                        abc_letter_calib = (abcxyz_local or '')[:1].upper() if abcxyz_local else ''
-                        if abc_letter_calib in ('A', 'B', 'C') and categ_id:
-                            cc = categ_calib_ctx.get((int(categ_id), abc_letter_calib))
-                            if cc:
-                                # Gate por regimen — si el registro tiene un set
-                                # de regimenes restringido, validar que el regimen
-                                # del SKU este en ese set. Si no, factor=1 (skip).
-                                regs_allowed = cc.get('regimenes')
-                                gated_out = (regs_allowed is not None
-                                             and regimen_local not in regs_allowed)
-                                if not gated_out:
-                                    categ_calib_factor = _safe_float(cc.get('factor'), 1.0)
-                                    if categ_calib_factor != 1.0:
-                                        mu_week = mu_week * categ_calib_factor
-                                        sigma_week = sigma_week * categ_calib_factor
-                                        categ_calib_applied_count += 1
-                                        categ_calib_meta = (
-                                            'categ=%s|abc=%s|f=%.3f'
-                                            % (int(categ_id), abc_letter_calib, categ_calib_factor)
-                                        )
-
-                    # ============================================================
-                    # v3.43 — Trend correction multiplicativo por team
-                    # Se aplica DESPUES de correccion_factor (precio) para que:
-                    #  - mu_week_pre_bias capture el valor pre-trend
-                    #  - el redondeo sea sobre el valor final corregido
-                    # Asimetrico por design (cap_high=1.00 default): solo recorta
-                    # cuando hay deterioro YoY, NO amplifica teams en alza.
-                    # ============================================================
-                    mu_week_pre_bias = mu_week
-                    trend_factor = 1.0
-                    if APPLY_TREND_CORRECTION:
-                        trend_factor = _safe_float(
-                            trend_factor_by_team.get(team_id, 1.0), 1.0)
-                        if trend_factor != 1.0 and mu_week > 0:
-                            mu_week = mu_week * trend_factor
-                            sigma_week = sigma_week * trend_factor
-
-                    # ============================================================
-                    # v3.46 — Redondeo eliminado. Persistimos mu_week como FLOAT
-                    # (canon SAP IBP). Antes (v3.31-v3.45): int(mu_week + 0.5).
-                    # Para slow-movers el redondeo medio-arriba era ajuste de
-                    # hasta 50-100% del valor (mu=0.3 -> 0; mu=0.5 -> 1),
-                    # destruyendo el output de Croston/SBA. El sistema de stock
-                    # downstream debe leer mu_week como float continuo.
-                    # ============================================================
+                    if mu_week > 0:
+                        mu_week = float(int(mu_week + 0.5))
 
                     rec_name = 'HM-SI LOC%s PP%s' % (team_id, product_id)
 
@@ -2859,7 +2388,7 @@ else:
                     _put_field(vals, fwd_fields, 'x_studio_categ_id', categ_id)
                     _put_field(vals, fwd_fields, 'x_studio_week_start', target_date)
                     _put_field(vals, fwd_fields, 'x_studio_mu_week', mu_week)
-                    _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_bias', mu_week_pre_bias)
+                    _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_bias', mu_week)
                     _put_field(vals, fwd_fields, 'x_studio_sigma_week', sigma_week)
                     _put_field(vals, fwd_fields, 'x_studio_mu_base', mu_base)
                     _put_field(vals, fwd_fields, 'x_studio_sigma_base', sigma_base)
@@ -2877,11 +2406,6 @@ else:
                     _put_field(vals, fwd_fields, 'x_studio_correccion_tipo', correccion_tipo, 60)
                     _put_field(vals, fwd_fields, 'x_studio_correccion_razon', correccion_razon, 240)
                     _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_corr', mu_week_pre_corr)
-
-                    # v3.47: auditoria capa categ_calib (campos opcionales en Studio)
-                    _put_field(vals, fwd_fields, 'x_studio_categ_calib_factor', categ_calib_factor)
-                    _put_field(vals, fwd_fields, 'x_studio_categ_calib_meta', categ_calib_meta, 60)
-                    _put_field(vals, fwd_fields, 'x_studio_mu_week_pre_calib', mu_week_pre_calib)
 
                     _put_field(vals, fwd_fields, 'x_studio_forecast_zone', forecast_zone, 20)
                     _put_field(vals, fwd_fields, 'x_studio_forecast_scope', forecast_scope, 60)
@@ -2920,33 +2444,6 @@ else:
                 if batch:
                     fwd_create(batch)
                     total_created += len(batch)
-
-                # ============================================================
-                # v3.48 — Bias-outlier correction (ULTIMA capa, post-write)
-                # Corre sobre las filas ya escritas (mu ensamblado), aplica+marca
-                # el set Pareto-80% limpio de quiebre. Envuelto en try: un fallo
-                # de esta capa NUNCA debe romper el forecast productivo.
-                # ============================================================
-                bias_outlier_n = 0
-                bias_outlier_rows = 0
-                if APPLY_BIAS_OUTLIER and total_created:
-                    try:
-                        bias_outlier_n, bias_outlier_rows = _bias_outlier_layer(
-                            data, demand_weeks_list, target_date, TEAM_IDS,
-                            {
-                                'window': BIAS_OUTLIER_WINDOW_WEEKS,
-                                'candidate_coverage': BIAS_OUTLIER_CANDIDATE_COVERAGE,
-                                'pareto': BIAS_OUTLIER_PARETO,
-                                'clamp': BIAS_OUTLIER_CLAMP,
-                                'persistence_min': BIAS_OUTLIER_PERSISTENCE_MIN,
-                            },
-                        )
-                    except Exception as _bias_e:
-                        try:
-                            log('BIAS_OUTLIER error (forecast intacto): %s' % _bias_e,
-                                level='warning')
-                        except Exception:
-                            pass
 
                 _xyz_missing_msg = (
                     ' | xyz_local_missing=' + ','.join(_xyz_local_missing)
@@ -2992,10 +2489,6 @@ else:
                         'message': (
                             'created=%s | sku_local=%s | zones=%s'
                             ' | xyz_local: X=%s Y=%s Z=%s global=%s%s'
-                            ' | norm_overlay=%s (hits=%s)'
-                            ' | trend=%s [%s]'
-                            ' | categ_calib=%s clusters=%s applied=%s'
-                            ' | bias_outlier=%s (rows=%s)'
                         ) % (
                             total_created,
                             len(local_pairs),
@@ -3005,15 +2498,6 @@ else:
                             xyz_local_counts['Z'],
                             xyz_local_counts['global'],
                             _xyz_missing_msg,
-                            'ON' if USE_DEMAND_NORMALIZATION else 'OFF',
-                            norm_overlay_hits,
-                            'ON' if APPLY_TREND_CORRECTION else 'OFF',
-                            ' '.join(trend_factor_log) if APPLY_TREND_CORRECTION else '',
-                            'ON' if APPLY_CATEG_CALIB else 'OFF',
-                            len(categ_calib_ctx),
-                            categ_calib_applied_count,
-                            bias_outlier_n,
-                            bias_outlier_rows,
                         ),
                         'sticky': True,
                         'type': _notif_type,

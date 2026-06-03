@@ -1,8 +1,42 @@
-# Etapa 2 — De-censura de entrada por quiebre (LOCF)
+# Etapa 2 — De-censura de entrada por quiebre
 
 **Fecha diseño:** 2026-06-02
-**Estado:** diseño (no implementado)
-**Depende de:** etapa 1 (modelo base AUTO) promovida en `02_forecast/OH Forecast Base.py`.
+**Estado:** IMPLEMENTADO en `02_forecast/OH Forecast Base.py` v1.1 (pendiente validar en Odoo).
+**Depende de:** etapa 1 (modelo base AUTO).
+
+## RESOLUCIÓN FINAL (supera todo lo de abajo)
+
+**Enfoque elegido: combo con quiebre MATERIAL → SMA(12).** NO LOCF.
+
+```
+combo con ≥ MIN_QUIEBRE_DAYS (default 7) días de quiebre en la ventana → mu = SMA(12)
+resto → modelo base (SES/Mediana por series_type)
+```
+
+- **Fuente quiebre:** `x_stock_balance_daily` (stockout OR stockout_partial OR
+  qty_balance<=0, criterio motor v3.48). Query con `GROUP BY ... HAVING
+  COUNT(DISTINCT x_studio_date) >= min_days`.
+- **Trigger por DÍAS, no semanas:** el 75% de combos con quiebre tienen 1 solo día
+  (blips). ≥7 días = 1 semana acumulada sin stock. ≥1 día flagueaba 6.079 combos
+  (22%); ≥7 días → 174 combos. Tunable: `min_quiebre_days`.
+- **Por qué SMA(12) y no LOCF:** el LOCF rellena solo las semanas de quiebre pero deja
+  la Mediana(4) → que igual da 0 en sparse no-quiebre. El SMA largo NO da ceros y
+  recupera el nivel pre-quiebre. Es la base larga del motor (SMA-16) re-aplicada.
+- **Efecto:** cigarros con quiebre material recuperan nivel sin ceros; WAPE global sube
+  (esperado, real censurado).
+
+## PENDIENTE (decisión próxima sesión)
+
+Los **ceros estructurales de la cola intermitente SIN quiebre** siguen (Mediana(4) da 0
+en intermittent/no_signal con o sin stock). Medido: cola → SMA(8) baja ceros intermittent
+48%→8%, PERO infla no_signal (casi-muerto) +260%. Diseño correcto si se ataca:
+intermittent/lumpy → SMA(8), no_signal → Mediana(4). Marco decidió dejarlo fuera por ahora
+y quedarse SOLO con productos con quiebre. Artefacto: `cola_sma_largo.py`,
+`estimador_intermitente.py`.
+
+---
+
+## (Histórico — diseño LOCF, reemplazado por SMA12 arriba)
 
 ## Problema (Fase 0)
 

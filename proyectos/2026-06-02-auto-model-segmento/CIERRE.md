@@ -101,13 +101,20 @@ smooth+A→SES(0.5) / smooth+B,C→SES(0.6) / erratic→SES(0.7) / lumpy,interm,
   SIN `demand_history_months` (obsoleta).
 - **OH SMA4 Forecast.py:** superseded por Base (queda como referencia/rollback).
 
-## ETAPA 2 — pendiente (de-censura de entrada por quiebre, LOCF)
+## ETAPA 2 — IMPLEMENTADA (de-censura por quiebre con SMA12), pendiente validar en Odoo
 
-Limpiar el input de semanas con quiebre con **LOCF** (valor pre-quiebre) → forecast estima
-demanda no restringida → reabastece lo que corresponde. El WAPE sube vs crudo (62.8→64.2)
-y es ESPERADO (real censurado, no demanda perdida del modelo). Solo semanas de quiebre
-real; la baja estacional queda intacta. Aplica a TODOS los productos, no solo cigarros.
-Diseño completo en `etapa2_decensura.md`. Requiere cablear `x_stock_balance_daily` al script.
+`OH Forecast Base.py` v1.1: **combo con ≥7 días de quiebre en la ventana → mu = SMA(12)**
+(no LOCF — el LOCF dejaba ceros porque la Mediana sigue dando 0 en sparse). El SMA largo
+recupera el nivel pre-quiebre sin ceros (es la base larga del motor re-aplicada). Fuente:
+`x_stock_balance_daily` (GROUP BY ... HAVING COUNT(DISTINCT date) >= min_quiebre_days).
+Trigger por DÍAS, no semanas (75% de combos con quiebre tienen 1 solo día = blip). ≥7 días
+→ 174 combos. Tunable: `min_quiebre_days`. El WAPE sube vs base y es ESPERADO (real
+censurado). Apagable con `decensor_stockout=False`.
+
+**PENDIENTE próxima sesión:** los ceros estructurales de la cola intermitente SIN quiebre
+(Mediana(4) da 0). Diseño medido: intermittent/lumpy → SMA(8), no_signal → Mediana (NO
+aplicar SMA al no_signal, infla casi-muertos +260%). Marco lo dejó fuera por ahora.
+Detalle en `etapa2_decensura.md`.
 
 ## ARTEFACTOS
 
