@@ -2,7 +2,7 @@
 # OH Forecast Backtest - HM-SI vs Old Forecast vs Venta Real POS
 # ============================================================
 #
-# Version activa: v11.1 (ver CHANGELOG.md para historial completo)
+# Version activa: v11.2 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Comparar forecast HM-SI vs forecast anterior contra venta real POS.
@@ -22,7 +22,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = 'OH_FORECAST_BACKTEST_RUNNER_v11_1_REGIMEN'
+VERSION_ID = 'OH_FORECAST_BACKTEST_RUNNER_v11_2_DEADCODE'
 
 TZ_NAME = 'America/Santiago'
 LOCK_KEY = 99009490
@@ -107,17 +107,6 @@ def _week_start(d):
     return d - datetime.timedelta(days=d.weekday())
 
 
-def _week_range(dfrom, dto):
-    start = _week_start(dfrom)
-    end = _week_start(dto)
-    weeks = []
-    cur = start
-    while cur <= end:
-        weeks.append(cur)
-        cur += datetime.timedelta(weeks=1)
-    return weeks or [start]
-
-
 def _field_exists(model_obj, fname):
     try:
         return bool(fname) and fname in (model_obj._fields or {})
@@ -130,35 +119,6 @@ def _first_existing_field(model_obj, names):
     for n in (names or []):
         if n in fields_map:
             return n
-    return False
-
-
-def _first_existing_field_or_label(model_obj, technical_names, label_names):
-    fields_map = model_obj._fields or {}
-
-    for n in (technical_names or []):
-        if n in fields_map:
-            return n
-
-    wanted = []
-    for x in (label_names or []):
-        try:
-            wanted.append(str(x or '').strip().lower())
-        except Exception:
-            pass
-
-    if not wanted:
-        return False
-
-    for fname, field in fields_map.items():
-        label = ''
-        try:
-            label = str(field.string or '').strip().lower()
-        except Exception:
-            label = ''
-        if label and label in wanted:
-            return fname
-
     return False
 
 
@@ -244,17 +204,6 @@ def _put_selection_safe(vals, model_obj, fname, code):
 
     # Si la selección no tiene el valor, no escribimos para evitar error.
     return
-
-
-def _selection_accepts(model_obj, fname, code):
-    if not fname or not _field_exists(model_obj, fname):
-        return False
-    if _field_type(model_obj, fname) != 'selection':
-        return True
-    keys = _selection_keys(model_obj, fname)
-    if not keys or str(code) in keys:
-        return True
-    return False
 
 
 def _zone_code(v):
@@ -414,75 +363,6 @@ def _variant_template_map(product_ids):
     return out
 
 
-def _series_type_from_metrics(cv2, density_pct, adi):
-    den = _safe_float(density_pct, 0.0)
-    cv2v = _safe_float(cv2, 999.0)
-    adiv = _safe_float(adi, 999.0)
-    if den < 0.05:
-        return 'no_signal'
-    if adiv >= 1.32 and cv2v >= 0.49:
-        return 'lumpy'
-    if adiv >= 1.32:
-        return 'intermittent'
-    if cv2v >= 0.49:
-        return 'erratic'
-    return 'smooth'
-
-
-def _calc_adi_from_vals(qty_vals):
-    intervals = []
-    gap = 0
-    for q in (qty_vals or []):
-        qv = _safe_float(q, 0.0)
-        if qv > 0.0:
-            intervals.append(gap + 1)
-            gap = 0
-        else:
-            gap += 1
-    if not intervals:
-        return 999.0
-    return sum(intervals) / len(intervals)
-
-
-def _quarter_abs(d):
-    return d.year * 4 + ((d.month - 1) // 3) + 1
-
-
-def _infer_lifecycle_simple(u_q0, u_q1, u_q2, u_q3, u_q4, u_q5, u_q6, u_q7, p_q8, local_volatility_high):
-    u_rest = u_q1 + u_q2 + u_q3 + u_q4 + u_q5 + u_q6 + u_q7
-    u8 = u_q0 + u_rest
-    if u8 <= 0.0:
-        return 'dead'
-    if p_q8 <= 2 and u_q1 <= 0.0:
-        return 'intermittent'
-    if u_q0 > 0.0 and u_rest <= 0.0:
-        return 'new'
-    if u_q0 <= 0.0 and (u_q1 + u_q2 + u_q3) > 0.0:
-        return 'declining'
-    if local_volatility_high and p_q8 <= 5:
-        return 'seasonal'
-    if u_q0 > 0.0 and u_q1 <= 0.0 and (u_q2 + u_q3 + u_q4 + u_q5 + u_q6 + u_q7) > 0.0:
-        return 'ramp_up'
-    return 'mature'
-
-
-def _seasonal_band_for_week(iso_week):
-    w = _safe_int(iso_week, 0)
-    if w in [1]:
-        return 'VERANO_BAJO'
-    if w in [2, 3, 4, 9]:
-        return 'VERANO_MEDIO'
-    if w in [5, 6, 7, 8]:
-        return 'VERANO_ALTO'
-    if w == 38:
-        return 'FIESTAS_PATRIAS'
-    if w == 44:
-        return 'HALLOWEEN'
-    if w in [49, 50, 51, 52]:
-        return 'FIN_ANIO'
-    return 'BASE'
-
-
 # ------------------------------------------------------------
 # Contexto
 # ------------------------------------------------------------
@@ -541,7 +421,6 @@ BT_ABC = _first_existing_field(Backtest, ['x_studio_abc', 'x_abc'])
 BT_XYZ = _first_existing_field(Backtest, ['x_studio_xyz', 'x_xyz'])
 BT_IMPORTANCE = _first_existing_field(Backtest, ['x_studio_importancia', 'x_studio_importance', 'x_importancia'])
 BT_RANK_ABCXYZ = _first_existing_field(Backtest, ['x_studio_rank_abcxyz', 'x_studio_rank', 'x_rank_abcxyz'])
-BT_CV2 = _first_existing_field(Backtest, ['x_studio_cv2', 'x_cv2'])
 BT_FORECAST_ZONE = _first_existing_field(Backtest, ['x_studio_forecast_zone', 'x_studio_z_segment', 'x_studio_zona_forecast', 'x_forecast_zone'])
 
 # v4.3 motor canonico: regimen + model_code (best-effort, si no existen los campos se omiten).
@@ -719,90 +598,6 @@ else:
             # ----------------------------------------------------
             # Función: venta real POS por semana, llave product.product
             # ----------------------------------------------------
-            def _load_real_sales(real_from, real_to):
-                team_filter_sql = ''
-                params = {
-                    'company_id': company.id,
-                    'date_from': real_from,
-                    'date_to': real_to,
-                    'tz': TZ_NAME,
-                }
-
-                if TEAM_IDS:
-                    team_filter_sql = ' AND ' + team_col_sql + ' = ANY(%(team_ids)s) '
-                    params['team_ids'] = TEAM_IDS
-
-                pt_fields = env['product.template']._fields or {}
-                dtype_sql = 'pt.detailed_type' if pt_fields.get('detailed_type') else 'pt.type'
-
-                sql = """
-                    WITH base AS (
-                        SELECT
-                            {team_col} AS team_id,
-                            pol.id AS line_id,
-                            pol.combo_parent_id,
-                            pp.id AS product_id,
-                            {dtype_sql} AS dtype,
-                            COALESCE(pol.qty, 0.0) AS qty,
-                            COALESCE(pol.price_subtotal, 0.0) AS line_rev
-                        FROM pos_order_line pol
-                        JOIN pos_order po ON po.id = pol.order_id
-                        LEFT JOIN pos_session ps ON ps.id = po.session_id
-                        LEFT JOIN pos_config pc ON pc.id = ps.config_id
-                        JOIN product_product pp ON pp.id = pol.product_id
-                        JOIN product_template pt ON pt.id = pp.product_tmpl_id
-                        WHERE po.company_id = %(company_id)s
-                          AND po.state IN ('paid','done','invoiced')
-                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date >= %(date_from)s
-                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date <= %(date_to)s
-                          AND pp.active = TRUE
-                          AND pt.sale_ok = TRUE
-                          AND pt.active = TRUE
-                          AND {team_col} IS NOT NULL
-                          {team_filter}
-                    ),
-                    standalone AS (
-                        SELECT team_id, product_id, SUM(qty) AS units
-                        FROM base
-                        WHERE combo_parent_id IS NULL
-                          AND COALESCE(dtype,'') NOT IN ('combo','service')
-                        GROUP BY 1,2
-                    ),
-                    combo_children AS (
-                        SELECT c.team_id, c.product_id, SUM(c.qty) AS units
-                        FROM base c
-                        JOIN base p ON p.line_id = c.combo_parent_id
-                        WHERE c.combo_parent_id IS NOT NULL
-                          AND COALESCE(c.dtype,'') <> 'service'
-                        GROUP BY 1,2
-                    )
-                    SELECT team_id, product_id, SUM(units) AS units
-                    FROM (
-                        SELECT * FROM standalone
-                        UNION ALL
-                        SELECT * FROM combo_children
-                    ) su
-                    GROUP BY 1,2
-                """.format(
-                    team_col=team_col_sql,
-                    dtype_sql=dtype_sql,
-                    team_filter=team_filter_sql,
-                )
-
-                env.cr.execute(sql, params)
-                out = {}
-                for team_id, product_id, qty in env.cr.fetchall():
-                    tid = _safe_int(team_id)
-                    pid = _safe_int(product_id)
-                    if not tid or not pid:
-                        continue
-                    q = _safe_float(qty, 0.0)
-                    if q < 0.0:
-                        q = 0.0
-                    key = (tid, pid)
-                    out[key] = out.get(key, 0.0) + q
-                return out
-
             def _load_real_sales_batched(date_from_all, date_to_all):
                 team_filter_sql = ''
                 params = {
@@ -1038,190 +833,6 @@ else:
                 return out, sigma_out, categ_out, meta_out
 
             # ----------------------------------------------------
-            # Función: calcular señales de serie desde POS, llave product.product
-            # ----------------------------------------------------
-            def _load_computed_segment_rows_from_pos(lookup_week):
-                series_out = {}
-                lifecycle_out = {}
-                band_out = {}
-                cv2_out = {}
-
-                try:
-                    _band = _seasonal_band_for_week(lookup_week.isocalendar()[1])
-                except Exception:
-                    _band = 'BASE'
-
-                try:
-                    env.cr.execute(
-                        "SELECT (date_trunc('month', %s::date)::date - interval '24 months')::date",
-                        (lookup_week,)
-                    )
-                    history_from_seg = env.cr.fetchone()[0]
-                except Exception:
-                    history_from_seg = _week_start(lookup_week) - datetime.timedelta(weeks=104)
-
-                xyz_from_seg = _week_start(lookup_week) - datetime.timedelta(weeks=25)
-                if xyz_from_seg < history_from_seg:
-                    xyz_from_seg = history_from_seg
-
-                xyz_weeks_seg = _week_range(xyz_from_seg, lookup_week)
-                all_weeks_seg = _week_range(history_from_seg, lookup_week)
-
-                q_now_abs = _quarter_abs(lookup_week)
-                week_to_q_offset = {}
-                for wk in all_weeks_seg:
-                    off = q_now_abs - _quarter_abs(wk)
-                    if 0 <= off <= 7:
-                        week_to_q_offset[wk] = off
-
-                team_filter_sql = ''
-                params = {
-                    'company_id': company.id,
-                    'history_from': history_from_seg,
-                    'date_to': lookup_week,
-                    'tz': TZ_NAME,
-                }
-                if TEAM_IDS:
-                    team_filter_sql = ' AND ' + team_col_sql + ' = ANY(%(team_ids)s) '
-                    params['team_ids'] = TEAM_IDS
-
-                pt_fields_seg = env['product.template']._fields or {}
-                dtype_sql_seg = 'pt.detailed_type' if pt_fields_seg.get('detailed_type') else 'pt.type'
-
-                sql_seg = """
-                    WITH base AS (
-                        SELECT
-                            {team_col} AS team_id,
-                            pol.id AS line_id,
-                            pol.combo_parent_id,
-                            pp.id AS product_id,
-                            {dtype_sql} AS dtype,
-                            date_trunc('week', po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date AS week,
-                            COALESCE(pol.qty, 0.0) AS qty,
-                            COALESCE(pol.price_subtotal, 0.0) AS line_rev
-                        FROM pos_order_line pol
-                        JOIN pos_order po ON po.id = pol.order_id
-                        LEFT JOIN pos_session ps ON ps.id = po.session_id
-                        LEFT JOIN pos_config pc ON pc.id = ps.config_id
-                        JOIN product_product pp ON pp.id = pol.product_id
-                        JOIN product_template pt ON pt.id = pp.product_tmpl_id
-                        WHERE po.company_id = %(company_id)s
-                          AND po.state IN ('paid','done','invoiced')
-                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date >= %(history_from)s
-                          AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date <= %(date_to)s
-                          AND pp.active = TRUE
-                          AND pt.sale_ok = TRUE
-                          AND pt.active = TRUE
-                          AND {team_col} IS NOT NULL
-                          {team_filter}
-                    ),
-                    standalone AS (
-                        SELECT team_id, product_id, week, SUM(qty) AS units
-                        FROM base
-                        WHERE combo_parent_id IS NULL
-                          AND COALESCE(dtype,'') NOT IN ('combo','service')
-                        GROUP BY 1,2,3
-                    ),
-                    combo_children AS (
-                        SELECT c.team_id, c.product_id, c.week, SUM(c.qty) AS units
-                        FROM base c
-                        JOIN base p ON p.line_id = c.combo_parent_id
-                        WHERE c.combo_parent_id IS NOT NULL
-                          AND COALESCE(c.dtype,'') <> 'service'
-                        GROUP BY 1,2,3
-                    )
-                    SELECT team_id, product_id, week, SUM(units) AS units
-                    FROM (
-                        SELECT * FROM standalone
-                        UNION ALL
-                        SELECT * FROM combo_children
-                    ) su
-                    GROUP BY 1,2,3
-                """.format(
-                    team_col=team_col_sql,
-                    dtype_sql=dtype_sql_seg,
-                    team_filter=team_filter_sql,
-                )
-
-                env.cr.execute(sql_seg, params)
-                raw = env.cr.fetchall()
-
-                data_seg = {}
-                for team_id, product_id, wk, qty in raw:
-                    ti = _safe_int(team_id)
-                    pi = _safe_int(product_id)
-                    if not ti or not pi:
-                        continue
-                    key = (ti, pi)
-                    if key not in data_seg:
-                        data_seg[key] = {}
-                    qv = _safe_float(qty, 0.0)
-                    if qv < 0.0:
-                        qv = 0.0
-                    data_seg[key][wk] = data_seg[key].get(wk, 0.0) + qv
-
-                total_weeks_hist = len(all_weeks_seg)
-                total_weeks_xyz = len(xyz_weeks_seg)
-                if total_weeks_xyz <= 0:
-                    total_weeks_xyz = 1
-
-                for key, wkmap in data_seg.items():
-                    qty_vals = []
-                    sum_q = 0.0
-                    sum_sq = 0.0
-                    active_wks = 0
-                    for wk in xyz_weeks_seg:
-                        qv = _safe_float(wkmap.get(wk, 0.0), 0.0)
-                        if qv < 0.0:
-                            qv = 0.0
-                        qty_vals.append(qv)
-                        sum_q += qv
-                        sum_sq += qv * qv
-                        if qv > 0.0:
-                            active_wks += 1
-
-                    mu = sum_q / total_weeks_xyz
-                    var = (sum_sq / total_weeks_xyz) - (mu * mu)
-                    if var < 0.0:
-                        var = 0.0
-                    sigma = var ** 0.5
-                    cv = (sigma / mu) if mu > 0.0 else 999.0
-                    cv2 = cv * cv
-
-                    nonzero_hist = 0
-                    u_q = [0.0] * 8
-                    for wk in all_weeks_seg:
-                        qh = _safe_float(wkmap.get(wk, 0.0), 0.0)
-                        if qh > 0.0:
-                            nonzero_hist += 1
-                            off = week_to_q_offset.get(wk)
-                            if off is not None:
-                                u_q[off] += qh
-
-                    density = (float(nonzero_hist) / float(total_weeks_hist)) if total_weeks_hist > 0 else 0.0
-                    adi = _calc_adi_from_vals(qty_vals)
-                    stype = _series_type_from_metrics(cv2, density, adi)
-
-                    p_q8 = 0
-                    for uq in u_q:
-                        if uq > 0.0:
-                            p_q8 += 1
-
-                    local_vol_high = bool(mu < 0.2 or active_wks < 4 or cv > 0.90)
-                    lifecycle = _infer_lifecycle_simple(
-                        u_q[0], u_q[1], u_q[2], u_q[3],
-                        u_q[4], u_q[5], u_q[6], u_q[7],
-                        p_q8, local_vol_high
-                    )
-
-                    series_out[key] = stype
-                    lifecycle_out[key] = lifecycle
-                    band_out[key] = _band
-                    cv2_out[key] = cv2
-
-                return series_out, lifecycle_out, band_out, cv2_out
-
-            # ----------------------------------------------------
             # Función: leer ABCXYZ por product.product desde x_calculo_abc_xyz
             # ----------------------------------------------------
             def _load_abcxyz_map(product_ids):
@@ -1385,8 +996,6 @@ else:
 
                 series_map = {}
                 lifecycle_map = {}
-                seasonal_band_map = {}
-                cv2_map = {}
 
                 methods = []
                 hm_forecast = {}
@@ -1537,9 +1146,6 @@ else:
                             if rank_val:
                                 _put_if_field(vals, Backtest, BT_RANK_ABCXYZ, rank_val)
 
-                        if BT_CV2:
-                            _put_if_field(vals, Backtest, BT_CV2, cv2_map.get(key, 0.0))
-
                         if BT_PRICE_SEGMENT:
                             _put_selection_safe(vals, Backtest, BT_PRICE_SEGMENT, price_meta.get('price_segment', False))
 
@@ -1627,7 +1233,7 @@ else:
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'title': 'Forecast Backtest v10.4 pre-bias',
+                    'title': 'Forecast Backtest v11.2',
                     'message': msg,
                     'type': 'success' if not forecast_warnings else 'warning',
                     'sticky': True,

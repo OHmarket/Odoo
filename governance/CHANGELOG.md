@@ -357,6 +357,18 @@ Cambios activos:
 
 ## 02_forecast / OH Forecast Backtest.py
 
+### v11.2 — Limpieza de código muerto post-OLD (2026-06-02)
+
+Barrido de solo borrado, sin cambio de fórmula ni de fuente de datos. No altera ninguna métrica del backtest (WAPE/BIAS/real/forecast idénticos). Elimina definiciones huérfanas que quedaron tras v11.0 (que dejó de llamarlas) y la columna CV2 cuya fuente murió.
+
+- Borra funciones sin llamadores: `_first_existing_field_or_label`, `_selection_accepts`, `_load_real_sales` (no-batched, reemplazado por `_load_real_sales_batched`), y `_load_computed_segment_rows_from_pos`.
+- Borra helpers que solo usaba la función de segmentación eliminada: `_series_type_from_metrics`, `_calc_adi_from_vals`, `_quarter_abs`, `_infer_lifecycle_simple`, `_seasonal_band_for_week`, `_week_range`.
+- Elimina la columna CV2: `cv2_map` ya no se poblaba (su fuente era la función borrada), por lo que el campo `x_studio_cv2` se escribía siempre como `0.0`. Se quita la resolución `BT_CV2`, la var `cv2_map` y el write. La columna deja de poblarse (queda vacía en vez de 0.0).
+- Elimina la var muerta `seasonal_band_map`.
+- `_variant_template_map` se conserva: sigue en uso en el fallback legacy de `_load_abcxyz_map`.
+
+---
+
 ### v11.1 — Soporte REG-0..REG-8 en _zone_code
 
 - `_zone_code()` ahora acepta REG-0..REG-8 como valores validos. Antes cualquier valor que no fuera Z1-Z4 caia silenciosamente a SIN_ZONA. Esto rompia el backtest contra HM-SI v4.3+ que escribe REG-X en `x_studio_forecast_zone` (nueva semantica).
