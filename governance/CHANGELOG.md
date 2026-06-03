@@ -357,6 +357,22 @@ Cambios activos:
 
 ## 02_forecast / OH Forecast Base.py
 
+### v1.5 — Cleansing de quiebre POR DIA ponderado por perfil dia-semana (2026-06-02)
+
+`_cleanse_stockout` deja de borrar la semana entera y reemplazarla por el baseline historico. Ahora de-censura por la fraccion de VENTA que estuvo disponible (proportional unconstraining, canon SAP IBP):
+
+- Calcula un **perfil de venta por dia-de-semana GLOBAL** de la cadena (runtime, ultimas `dow_profile_weeks`=12 sem): peso por dia que suma 1 (Sab ~22%, Vie ~19%, Dom ~18%, Lun ~9%). El peso es por VOLUMEN DE VENTA del dia, NO por frecuencia de quiebre (aunque correlacionan: mas venta → mas rotacion → mas probabilidad de agotarse).
+- **Quiebre leve** (`peso_perdido < cleanse_severe_weight`, default 0.5): `demanda = venta / (1 - peso_perdido)`, donde `peso_perdido` = suma del peso-venta de los dias que quebraron. Un quiebre de sabado levanta mas (perdiste ~22% de la venta-semana) que uno de lunes (~9%). Sigue la demanda reciente.
+- **Quiebre severo** (`peso_perdido >= cleanse_severe_weight`): la semana perdio demasiada venta → promedio de las `cleanse_base_weeks` semanas in-stock previas (baseline, comportamiento anterior).
+- Siempre solo-levanta.
+
+**Bug que corrige** (validado, caso Royal Guard Golden 28382, cerveza estacional que cayo −95% verano→otono): con `min_days=1`, v1.4 marcaba la semana entera como suprimida con 1 solo dia de quiebre y la subia al promedio de las 6 in-stock previas, que arrastraba el verano (~182). El SES quedaba anclado arriba → forecast en **sentido contrario a la venta** (fc 121→153→169 mientras vendia ~20). Reconstruccion offline: fc v1.4=169 vs v1.5-dow=18 (venta real 30); el quiebre de sabado se pondero 0.22 y el de lunes 0.09. El driver del over de `ses_a0.50` (smooth+A, BIAS −15.5% limpio) era este.
+
+- Costo de calculo: +1 query agregada (perfil dow, GROUP BY isodow) — barata; la query de quiebre suma isodow al GROUP BY. Sigue en ~5s.
+- Nuevos params `cleanse_severe_weight` (default 0.5) y `dow_profile_weeks` (default 12). Ver memoria `cleansing-min-days1-ancla-baseline`.
+
+---
+
 ### v1.4 — no_signal vivo via SMA(6) en vez de Mediana(4) (2026-06-02)
 
 La rama `no_signal` pasa de `Mediana(4)` a `SMA(SMA_TAIL_WEEKS=6)` con `model_code='sma6_ns'`. Ataca el sub-forecast de los intermitentes lentos VIVOS sin inflar los obsoletos.
