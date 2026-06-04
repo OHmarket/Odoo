@@ -18,8 +18,8 @@
 #     fallback PURCHASE_CYCLE_WEEKS si missing. lead_weeks operativo = 0.
 #   - CD reposicion solo_bodega usa el MISMO period_weeks por SKU (v9.1.85).
 #   - Safety stock: z * sigma * sqrt(period_weeks). Z segun ABCXYZ:
-#     AX/AY=2.05, BX=1.65, BY=1.28, AZ=1.04, BZ/CX=0.84, CY=0.52, CZ=0.0;
-#     default fallback 0.84. Top cash sube a 1.65/1.68 (display reserve).
+#     AX/AY/BX=1.68, BY=1.28, AZ=1.04, CX=0.84, BZ/CY=0.35, CZ=0.0;
+#     default fallback 0.84. Top cash sube a 1.65 (piso, display reserve).
 #     Cigarros (categ 1628): multiplicador 0.778 sobre Z; display_mult=0.
 #   - MOQ: politica caja-o-esperar (SMART_MOQ_ROUNDING). Bloquea cajas
 #     cuyo post-stock supere target * 1.35. Para AX/AY/AZ/BX/BY/BZ en estado
@@ -165,12 +165,22 @@ PHANTOM_COST_SOURCE_DEFAULT = 'product_first'
 PHANTOM_PROCUREMENT_MODE_DEFAULT = 'buy_parent_block_children'  # block_parent | allow_parent | buy_parent_block_children
 
 _SAFETY_FACTOR = {
-    'AX': 1.65, 'BX': 1.65,
-    'AY': 1.65, 'BY': 1.28,
-    'AZ': 1.04, 'BZ': 0.84,
-    'CX': 0.84, 'CY': 0.52,
+    'AX': 1.68, 'BX': 1.68,   # 2026-06-04: bajado de 2.05 (98%->95% servicio, sobre-protegido)
+    'AY': 1.68, 'BY': 1.28,   # 2026-06-04: bajado de 2.05
+    'AZ': 1.04, 'BZ': 0.35,   # 2026-06-02: bajado de 0.84 (sobre-protegido)
+    'CX': 0.84, 'CY': 0.35,   # 2026-06-02: bajado de 0.52 (sobre-protegido)
     'CZ': 0.0,
 }
+# Calibracion BZ/CY (2026-06-02): el test de safety factor mostro que en estos
+# segmentos de baja rotacion la curva quiebre vs z es plana (el colchon casi no
+# compra servicio: los quiebres vienen de spikes que ni z=0.84 alcanza). Con z=0.35
+# el quiebre sube <1pp y ambos quedan muy bajo su tolerancia (BZ 20%, CY 30%),
+# liberando ~58%/33% del safety. Ver proyectos/2026-06-02-test-safety-factor/.
+# Calibracion A/B-X (2026-06-04): AX/AY/BX bajados de 2.05 a 1.68 (servicio 98%->95%,
+# sigue alto). El 2.05 sobre-protegia el VOLUMEN: simulacion mostro -12M de inventario
+# objetivo, 0 SKUs nuevos bajo 90% servicio. Confirma el test 2026-06-02 (A/B-X en
+# 2.05 = ~+10M de stock muerto). El sobrestock vivia en el z, NO en el sigma (el
+# proxy sigma-demanda 4sem si acaso subestima; ver proyectos/2026-06-04-revision-target-cobertura/).
 _SAFETY_FACTOR_DEFAULT = 0.84
 
 # Sala solo_bodega usa la misma regla que proveedor->CD con H=1.0 sem:
