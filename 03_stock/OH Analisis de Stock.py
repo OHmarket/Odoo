@@ -1255,7 +1255,9 @@ else:
                         JOIN uom_uom um ON um.id = sm.product_uom
                         JOIN uom_uom up ON up.id = pt.uom_id
                         WHERE sm.company_id = %s
-                          AND sm.state NOT IN ('done', 'cancel')
+                          -- Solo guias aceptadas: excluye borrador y cancelada.
+                          -- 'draft' es intencion, no compromiso: contarlo infla el transito.
+                          AND sm.state NOT IN ('done', 'cancel', 'draft')
                           AND sm.purchase_line_id IS NULL
                           AND src.usage = 'internal'
                           AND dst.usage = 'internal'
@@ -1309,7 +1311,8 @@ else:
                           JOIN product_product pp ON pp.id = sm.product_id
                           JOIN stock_picking sp ON sp.id = sm.picking_id
                          WHERE sm.company_id = %s
-                           AND sm.state NOT IN ('done', 'cancel')
+                           -- Solo guias aceptadas: excluye borrador y cancelada.
+                           AND sm.state NOT IN ('done', 'cancel', 'draft')
                            AND sm.purchase_line_id IS NULL
                            AND src.usage = 'internal'
                            AND dst.usage = 'internal'
