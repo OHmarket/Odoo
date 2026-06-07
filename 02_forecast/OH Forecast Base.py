@@ -1,7 +1,7 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version activa: v1.5 (2026-06-02)  [reemplaza OH SMA4 Forecast v1.0]
+# Version activa: v1.6 (2026-06-04)  [reemplaza OH SMA4 Forecast v1.0]
 #   v1.1: de-censura por combo con quiebre -> SMA. v1.2: CLEANSING por SEMANA
 #         (reemplaza la venta suprimida de cada semana de quiebre por el promedio
 #         in-stock, solo-levanta) sobre TODO el periodo + cola SMA(6).
@@ -10,6 +10,10 @@
 #   v1.4: no_signal pasa de Mediana(4) a SMA(6) [model_code sma6_ns]. Recupera el
 #         intermitente lento vivo (forecast 0 -> tasa media); el SMA da 0 al muerto
 #         real, no infla obsoletos. Proxy de TSB.
+#   v1.6: persiste x_studio_ciclo_de_vida (PLC GLOBAL reusado de la segmentacion,
+#         NO recalculado) por fila para auditar SES erráticos que vienen a la baja;
+#         elimina la escritura de x_studio_mu_week_pre_bias (era == mu_week, sin
+#         correccion de bias aplicada -> campo placeholder muerto).
 #   v1.5: cleansing POR DIA ponderado por perfil dia-de-semana (no por semana).
 #         demanda = venta / (1 - peso_perdido), peso_perdido = peso dow (perfil GLOBAL
 #         de venta de la cadena) de los dias que quebraron -> sabado pesa ~21%, lunes
@@ -81,7 +85,7 @@
 # No toca stock, compras, transferencias ni OC. Solo escribe el forecast.
 # ============================================================
 
-VERSION_ID = "OH_FORECAST_BASE_v1_5"
+VERSION_ID = "OH_FORECAST_BASE_v1_6"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009438          # mismo lock que el forecast HM-SI/SMA4: mutuamente excluyentes
@@ -466,21 +470,34 @@ else:
                 for pid, cid in env.cr.fetchall():
                     categ_of[_safe_int(pid)] = _safe_int(cid)
 
-            # ABC GLOBAL por producto desde x_calculo_abc_xyz (x_studio_abcxyz)
+            # ABC y CICLO DE VIDA GLOBAL por producto desde x_calculo_abc_xyz.
+            # ciclo_de_vida es el PLC canonico (PROXY Levitt) ya calculado en la
+            # segmentacion (dead/intermittent/new/declining/seasonal/ramp_up/mature);
+            # se reusa, NO se recalcula aqui. Auditoria: dejar visible junto al forecast
+            # por que un SES errático puede venir a la baja (lifecycle=declining/seasonal).
             abc_letter = {}
+            lifecycle_of = {}
             try:
                 Seg = env[SEG_MODEL].sudo()
                 seg_fields = Seg._fields or {}
+                has_lc = _field_exists(seg_fields, 'x_studio_ciclo_de_vida')
                 if _field_exists(seg_fields, 'x_studio_product_id') and _field_exists(seg_fields, 'x_studio_abcxyz') and pids:
-                    for rec in Seg.search_read([('x_studio_product_id', 'in', pids)],
-                                               ['x_studio_product_id', 'x_studio_abcxyz']):
+                    seg_read = ['x_studio_product_id', 'x_studio_abcxyz']
+                    if has_lc:
+                        seg_read.append('x_studio_ciclo_de_vida')
+                    for rec in Seg.search_read([('x_studio_product_id', 'in', pids)], seg_read):
                         pr = rec.get('x_studio_product_id')
                         prid = _safe_int(pr[0] if isinstance(pr, (list, tuple)) else pr)
                         ltr = (_safe_text(rec.get('x_studio_abcxyz'), 3) or '')[:1].upper()
                         if prid and ltr:
                             abc_letter[prid] = ltr
+                        if prid and has_lc:
+                            lc = _safe_text(rec.get('x_studio_ciclo_de_vida'), 20) or ''
+                            if lc:
+                                lifecycle_of[prid] = lc
             except Exception:
-                abc_letter = {}   # sin ABC -> smooth usa alfa 0.6 (no-A)
+                abc_letter = {}        # sin ABC -> smooth usa alfa 0.6 (no-A)
+                lifecycle_of = {}
 
             # ----------------------
             # Perfil de venta por DIA-DE-SEMANA (GLOBAL de la cadena, runtime). Pondera el
@@ -657,9 +674,9 @@ else:
                 _put_field(vals_w, fwd_fields, 'x_studio_week_start', target_date)
                 _put_field(vals_w, fwd_fields, 'x_studio_mu_week', mu)
                 _put_field(vals_w, fwd_fields, 'x_studio_sigma_week', sigma)
-                _put_field(vals_w, fwd_fields, 'x_studio_mu_week_pre_bias', mu)
                 _put_field(vals_w, fwd_fields, 'x_studio_forecast_model_code', model_code, 60)
                 _put_field(vals_w, fwd_fields, 'x_studio_series_type', stype, 20)   # auditoria: tipo de serie LOCAL que eligio el modelo
+                _put_field(vals_w, fwd_fields, 'x_studio_ciclo_de_vida', lifecycle_of.get(pid, ''), 20)   # PLC GLOBAL reusado de la segmentacion (no recalculado)
                 batch.append(vals_w)
 
                 if len(batch) >= BATCH_SIZE:
@@ -680,7 +697,7 @@ else:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-                'title': 'Forecast Base v1.5',
+                'title': 'Forecast Base v1.6',
                 'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s' % (
                     target_date, n_created, n_nonzero, round(mu_total, 0),
                     ('%s combos' % n_cleansed) if DECENSOR else 'off'),
