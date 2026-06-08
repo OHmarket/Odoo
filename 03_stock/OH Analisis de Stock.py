@@ -1,7 +1,7 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.1.86 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.1.87 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Calcular analisis de stock por Sucursal (crm.team) y Bodega Central.
@@ -29,7 +29,10 @@
 #     Snack y Coctel] -> SALA siempre. Si cobertura_caja = moq/demanda_semanal
 #     > COVER_WEEKS_THRESHOLD_FOR_CD (4.286 sem) -> CD. Resto -> SALA.
 #   - Phantom kits: padre absorbe demanda del pool (mu_padre + mu_hijo/qty_per_parent).
-#     Hijos visibles, no compran. PHANTOM_PROCUREMENT_MODE bloquea OC padre/hijos.
+#     Hijos visibles, no compran. PHANTOM_PROCUREMENT_MODE define la direccion:
+#     buy_parent_block_children (default) compra el PADRE y bloquea el hijo, tanto
+#     en sala como en la reposicion CD solo_bodega (v9.1.87 hizo ese loop mode-aware;
+#     antes saltaba al padre e invertia la regla). block_parent = legacy inverso.
 #   - Techo financiero por proveedor: lee res.partner payment_term
 #     (FINANCIAL_CEILING_WEEKS = payment_days / 7).
 #   - sigma_week NO se escala por share cuando fwd_source='local' (ya es local).
@@ -44,7 +47,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_1_86_OC_PENDIENTES_TRAZABILIDAD'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_1_87_PHANTOM_CD_REPLENISH_PADRE'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -2512,8 +2515,21 @@ else:
                     meta = tmpl_meta.get(tid) or {}
                     if not bool(meta.get('solo_bodega')):
                         continue
-                    if kit_components_tmpl.get(tid):
-                        continue
+                    # Phantom: la direccion de compra depende del modo.
+                    #   buy_parent_block_children -> repone el PADRE, bloquea el HIJO.
+                    #   block_parent (legacy)      -> bloquea el PADRE, repone el HIJO.
+                    #   allow_parent               -> ninguno se salta.
+                    # Bug previo (<=v9.1.86): saltaba SIEMPRE al padre phantom y nunca
+                    # al hijo, invirtiendo la regla bajo buy_parent_block_children
+                    # (compraba la lata, no el pack). v9.1.87 lo hace mode-aware.
+                    _ph_parent = bool(kit_components_tmpl.get(tid))
+                    _ph_child  = bool(component_parent_tmpl.get(tid))
+                    if PHANTOM_PROCUREMENT_MODE == 'buy_parent_block_children':
+                        if _ph_child:
+                            continue
+                    elif PHANTOM_PROCUREMENT_MODE == 'block_parent':
+                        if _ph_parent:
+                            continue
                     if _safe_float(base.get('qty_a_pedir'), 0.0) > 0.0:
                         continue
 
