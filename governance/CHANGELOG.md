@@ -529,6 +529,34 @@ Revertido por decision: evitar acoplar el motor a casuisticas especificas del ne
 
 ## 03_stock / OH Analisis de Stock.py
 
+### v9.1.87 — Phantom: reposicion CD compra el padre, no el hijo (2026-06-08)
+
+Fix de dirección en el loop de **reposición automática CD para `solo_bodega`**.
+
+- **Síntoma**: packs phantom comprables (ej. 450684 CERVEZA ROYAL GUARD LATA
+  6X470) no generaban compra. La que compraba era la **lata unidad** (hijo,
+  7802100002747) por su demanda directa (~22/sem → 2 cajas), mientras el pack
+  (padre) quedaba en `no_comprar` con target 0 — pese a tener demanda pooled
+  consolidada al CD (`cd_demanda_origen≈95/sem`, `pool_parent_demand=1`).
+  Resultado: exactamente la regla al revés (`buy_parent_block_children`).
+- **Causa raíz**: el loop de reposición CD (solo_bodega) tenía
+  `if kit_components_tmpl.get(tid): continue`, que saltaba **siempre** al padre
+  phantom y **nunca** al hijo. Esa exclusión sólo era correcta bajo el modo
+  legacy `block_parent`; nunca se hizo *mode-aware* al pasar el default a
+  `buy_parent_block_children`. El bloqueo del hijo a nivel sala (línea ~2636) sí
+  funcionaba, pero este loop del CD lo pasaba por encima y le compraba igual.
+- **Fix**: el skip ahora depende de `PHANTOM_PROCUREMENT_MODE`:
+  - `buy_parent_block_children` (default): salta el **hijo**, repone el **padre**.
+  - `block_parent` (legacy): salta el padre (comportamiento anterior).
+  - `allow_parent`: no salta a ninguno.
+- **Efecto esperado**: el pack compra sobre la demanda pooled (en cajas de 6) y
+  la lata cae a 0 en el CD. Alcance: 61 padres phantom comprables (cervezas
+  multipack: Cristal, Escudo, Austral, Coors, Heineken, etc.).
+- Sin cambios en el cálculo de qty ni en otros caminos (compra_sala / path de
+  consolidación por `qty_compra_cd`). Un solo bloque tocado.
+- **Validar al correr**: que el stock del padre phantom en el CD venga derivado
+  de componentes (`_apply_kit_stock`) y no doble-cuente con el stock de la lata.
+
 ### v9.1.86 — Trazabilidad de OC pendientes
 
 - Trazabilidad de OC y pickings que originan el stock_pedido.
@@ -1199,6 +1227,41 @@ Adicionalmente se eliminaron de los headers del script:
 ---
 
 ## 03_stock / OH Generacion de Documentos.py
+
+### v1.6 — Bandas y presupuesto por rank ABCXYZ (2026-06-08)
+
+Redefine el universo de los flags y la prioridad de compra en base al ranking
+numerico de margen de la segmentacion (`x_studio_rank_abcxyz`, donde rank 1 =
+mayor margen acumulado y el numero crece al bajar la importancia).
+
+- **Flags Top/Medio/Bajo = bandas de rank** (antes: combos de letras ABCXYZ).
+  - Top  : `rank 1..300`
+  - Medio: `rank 301..800`
+  - Bajo : `rank 801..N` (resto)
+  Constantes `RANK_BAND_TOP_MAX=300`, `RANK_BAND_MEDIUM_MAX=800`. El dominio
+  base ya no filtra por `x_studio_abcxyz in [...]` sino por la(s) banda(s) de
+  rank marcada(s) (OR si hay varias). El "300" calza con
+  `TOP_CASH_RANK_MAX_DEFAULT` del Analisis de Stock.
+- **Orden de compra unico (sala y CD)**: `x_studio_rank_abcxyz asc,
+  x_studio_valor_orden_compra asc`. Compra del rank 1 (mejor margen) hacia
+  abajo; desempate por valor de orden ascendente (mas barato). ASC, no desc:
+  rank 1 es el mejor. Reemplaza el orden por `severity`/`gmroi` que se uso
+  brevemente en una version intermedia.
+- **Presupuesto**: greedy simple. Recorre el rank de 1 hacia N acumulando el
+  `valor_orden_compra`; agrega cada linea si la suma sigue `<=` monto total y
+  salta las que no caben, hasta agotar el presupuesto. Misma logica para
+  `compra_sala` y `compra_bodega` (se descarto el `skip_floor` por severidad de
+  un diseno intermedio: con rank unico por SKU no aporta).
+- **No** se toco el Analisis de Stock: `x_studio_rank_abcxyz` ya se persistia
+  en las filas locales y CD.
+- Sin cambios en la idempotencia, el modo borrador ni los traslados.
+- El gate sigue igual: el tope SOLO corre si `x_studio_use_budget=True` Y
+  `x_studio_budget_amount > 0`. Con el flag apagado entra todo, sin tope.
+- **Borde**: greedy puede dejar entrar un rank bajo barato con presupuesto
+  sobrante despues de saltar un rank alto que no cupo. Si se quisiera prioridad
+  estricta (parar al primero que no cabe), seria reintroducir el corte.
+
+---
 
 ### v1.5 — Draft mode adoption
 

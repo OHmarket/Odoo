@@ -2,7 +2,7 @@
 # OH Generacion de Documentos - Crea OCs y traslados desde Analisis Stock
 # ============================================================
 #
-# Version activa: v1.5 (ver CHANGELOG.md para historial completo)
+# Version activa: v1.6 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Lee x_analisis_de_stock y crea documentos en Odoo:
@@ -24,7 +24,7 @@
 # Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = 'OH_SUPPLY_GENERATION_v1_5_DRAFT_MODE_ADOPTION'
+VERSION_ID = 'OH_SUPPLY_GENERATION_v1_6_BUDGET_RANK_ABCXYZ'
 
 ACTION_STOCK_ANALYSIS_ID = 1502
 CENTRAL_WAREHOUSE_ID     = 15
@@ -34,6 +34,14 @@ LOCK_KEY                 = 99123041
 # Si True, bloquea productos cuya UoM de compra sea igual a la UoM base.
 # Si aún no están todas las UoM de compra/caja configuradas, cambia a False para probar.
 STRICT_PURCHASE_UOM_BOX = True
+
+# Bandas de ranking para los flags Top/Medio/Bajo, sobre x_studio_rank_abcxyz
+# (1 = mejor margen acumulado; el numero CRECE al bajar la importancia).
+#   Top   : rank 1..300
+#   Medio : rank 301..800
+#   Bajo  : rank 801..N (resto)
+RANK_BAND_TOP_MAX    = 300
+RANK_BAND_MEDIUM_MAX = 800
 
 TEAM_WAREHOUSE_MAP_FALLBACK = {
     5:  1,
@@ -119,15 +127,26 @@ def _set_summary(ok_bool, msg, snapshot_date, total_lines, total_amount):
     if vals:
         rec.write(vals)
 
-def _selected_abcxyz():
-    out = []
+def _any_group_selected():
+    return bool(rec.x_studio_inc_top or rec.x_studio_inc_medium or rec.x_studio_inc_low)
+
+def _selected_rank_domain():
+    # Sub-dominio Odoo (OR de las bandas marcadas) sobre x_studio_rank_abcxyz.
+    # Top=1..300, Medio=301..800, Bajo=801..N (resto). rank 1 = mejor margen.
+    bands = []
     if rec.x_studio_inc_top:
-        out += ['AX', 'AY', 'BX']
+        bands.append(['&', ('x_studio_rank_abcxyz', '>=', 1),
+                           ('x_studio_rank_abcxyz', '<=', RANK_BAND_TOP_MAX)])
     if rec.x_studio_inc_medium:
-        out += ['AZ', 'BY', 'CX']
+        bands.append(['&', ('x_studio_rank_abcxyz', '>=', RANK_BAND_TOP_MAX + 1),
+                           ('x_studio_rank_abcxyz', '<=', RANK_BAND_MEDIUM_MAX)])
     if rec.x_studio_inc_low:
-        out += ['BZ', 'CY', 'CZ']
-    return out
+        bands.append([('x_studio_rank_abcxyz', '>=', RANK_BAND_MEDIUM_MAX + 1)])
+    # Combina las bandas con OR (notacion polaca: N-1 '|' al frente).
+    dom = ['|'] * (len(bands) - 1) if len(bands) > 1 else []
+    for b in bands:
+        dom += b
+    return dom
 
 def _run_stock_analysis():
     act = env['ir.actions.server'].sudo().browse(ACTION_STOCK_ANALYSIS_ID)
@@ -184,8 +203,7 @@ try:
     if not gen_type:
         raise UserError('Falta Operación.')
 
-    abcxyz_list = _selected_abcxyz()
-    if not abcxyz_list:
+    if not _any_group_selected():
         raise UserError('Debes marcar al menos un grupo: Top, Medio o Bajo.')
 
     if gen_type in ('compra_sala', 'compra_bodega') and not rec.x_studio_supplier_id:
@@ -213,8 +231,9 @@ try:
     domain = [
         ('x_studio_company_id', '=', env.company.id),
         ('x_studio_fecha_1', '=', snapshot_date),
-        ('x_studio_abcxyz', 'in', abcxyz_list),
     ]
+    # Universo por banda de ranking (flags Top/Medio/Bajo => rank_abcxyz).
+    domain += _selected_rank_domain()
 
     total_amount = 0.0
     selected_rows = []
@@ -248,16 +267,23 @@ try:
                 ('x_studio_qty_a_pedir_cajas', '>', 0),
             ]
 
-        rows = Anal.search(
-            domain,
-            order='x_studio_severity desc, x_studio_gmroi_reponer desc, x_studio_rotacion_por_peso desc, x_studio_valor_orden_compra asc'
-        )
+        # Prioridad unica para compras (sala y CD): ranking de margen de la
+        # segmentacion, x_studio_rank_abcxyz. rank 1 = mayor margen acumulado
+        # (el mejor) y el numero CRECE a medida que el SKU importa menos, asi
+        # que ASC = mejor primero (NO desc). Desempate por valor de orden
+        # ascendente (mas barato primero).
+        order = 'x_studio_rank_abcxyz asc, x_studio_valor_orden_compra asc'
+
+        rows = Anal.search(domain, order=order)
 
         if not rows:
             _set_summary(False, 'No hay líneas elegibles para compra.', snapshot_date, 0, 0.0)
             raise UserError('No hay líneas elegibles para compra.')
 
-        # Presupuesto aplica solo a compras.
+        # Presupuesto: recorre rank_abcxyz de 1 hacia N (mejor margen primero) y
+        # acumula hasta topar el monto total. Si una linea no cabe en el saldo,
+        # se salta y se sigue con la siguiente (mas abajo en rank) hasta agotar
+        # el presupuesto. Aplica igual a compra_sala y compra_bodega.
         if rec.x_studio_use_budget and _safe_float(rec.x_studio_budget_amount, 0.0) > 0.0:
             budget = _safe_float(rec.x_studio_budget_amount, 0.0)
             for r in rows:
