@@ -2,7 +2,7 @@
 # OH Generacion de Documentos - Crea OCs y traslados desde Analisis Stock
 # ============================================================
 #
-# Version activa: v1.6 (ver CHANGELOG.md para historial completo)
+# Version activa: v1.7 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Lee x_analisis_de_stock y crea documentos en Odoo:
@@ -24,7 +24,7 @@
 # Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = 'OH_SUPPLY_GENERATION_v1_6_BUDGET_RANK_ABCXYZ'
+VERSION_ID = 'OH_SUPPLY_GENERATION_v1_7_PRIORITY_ABC_CATEG'
 
 ACTION_STOCK_ANALYSIS_ID = 1502
 CENTRAL_WAREHOUSE_ID     = 15
@@ -42,6 +42,20 @@ STRICT_PURCHASE_UOM_BOX = True
 #   Bajo  : rank 801..N (resto)
 RANK_BAND_TOP_MAX    = 300
 RANK_BAND_MEDIUM_MAX = 800
+
+# Priorizacion de compras por clase ABC (v1.7). Reemplaza el orden por rank
+# continuo: ahora el orden de compra (y por ende el gasto del presupuesto) es
+#   P1 = clase A en quiebre (severity == 100)
+#   P2 = resto de clase A, repartido PAREJO (round-robin entre categorias,
+#        ordenadas por su mejor rank_abcxyz)
+#   P3 = clase B y C
+# La importancia de categoria se DERIVA del rank_abcxyz (ranking canonico por
+# margen acumulado de la segmentacion); NO se recalcula margen. Por eso funciona
+# igual en compra_sala y compra_bodega: rank_abcxyz esta poblado en filas de
+# sala y de CD (margen_unit/demanda_semanal en cambio quedan en 0 en el CD).
+# Las bandas Top/Medio/Bajo siguen como pre-filtro de dominio; esta prioridad
+# opera DENTRO del conjunto ya filtrado.
+ABC_STOCKOUT_SEVERITY = 100     # severity de cover_label 'sin_stock' (stock<=0 con demanda)
 
 TEAM_WAREHOUSE_MAP_FALLBACK = {
     5:  1,
@@ -147,6 +161,79 @@ def _selected_rank_domain():
     for b in bands:
         dom += b
     return dom
+
+def _row_class(r):
+    # Clase ABC = primer caracter de x_studio_abcxyz (AX/AY/AZ -> 'A', etc.).
+    # Vacio/desconocido cae a '' y se trata como C (peor prioridad).
+    return (r.x_studio_abcxyz or '')[:1].upper()
+
+def _is_stockout(r):
+    return _safe_float(r.x_studio_severity, 0.0) == float(ABC_STOCKOUT_SEVERITY)
+
+def _row_categ_id(r):
+    # x_studio_categ_id puede venir como int (Integer) o recordset (Many2one).
+    c = r.x_studio_categ_id
+    if isinstance(c, int):
+        return int(c)
+    return (c.id or 0) if c else 0
+
+def _compra_sort_key(r):
+    # rank 1 = mejor margen (ASC); desempate por valor de orden ascendente.
+    return (_safe_float(r.x_studio_rank_abcxyz, 1e12),
+            _safe_float(r.x_studio_valor_orden_compra, 0.0))
+
+def _prioritize_compras(rows):
+    # Devuelve la lista de filas en el orden de compra P1 -> P2 -> P3.
+    # La importancia de categoria se DERIVA del rank_abcxyz (ranking canonico
+    # por margen acumulado de la segmentacion); NO se recalcula margen.
+    rows_list = list(rows)
+    a_rows  = [r for r in rows_list if _row_class(r) == 'A']
+    bc_rows = [r for r in rows_list if _row_class(r) != 'A']
+
+    # P1: clase A en quiebre, por rank/valor.
+    p1 = sorted([r for r in a_rows if _is_stockout(r)], key=_compra_sort_key)
+    p1_ids = set([r.id for r in p1])
+    # for explicito (no comprehension): referenciar un local del scope exterior
+    # (p1_ids) dentro de una comprehension crea celda/closure y safe_eval
+    # prohibe LOAD_DEREF/LOAD_CLOSURE/MAKE_CELL.
+    a_rest = []
+    for r in a_rows:
+        if r.id not in p1_ids:
+            a_rest.append(r)
+
+    # P2: resto de A, round-robin entre categorias. Cada categoria se ordena
+    # por su MEJOR rank (minimo rank_abcxyz = mayor margen acumulado); dentro de
+    # cada una, por rank. rank_abcxyz esta poblado en filas de sala y CD, asi
+    # que esto prioriza por categoria por igual en compra_sala y compra_bodega.
+    buckets = {}        # categ_id -> filas
+    cat_best_rank = {}  # categ_id -> mejor (menor) rank de la categoria
+    for r in a_rest:
+        cid = _row_categ_id(r)
+        buckets.setdefault(cid, []).append(r)
+        rk = _safe_float(r.x_studio_rank_abcxyz, 1e12)
+        if cid not in cat_best_rank or rk < cat_best_rank[cid]:
+            cat_best_rank[cid] = rk
+    for cid in buckets:
+        buckets[cid] = sorted(buckets[cid], key=_compra_sort_key)
+    # Categorias ordenadas por su mejor rank asc. Lambda usa SOLO su argumento
+    # (kv[1]); capturar cat_best_rank seria closure prohibido por safe_eval.
+    cats_order = [kv[0] for kv in sorted(cat_best_rank.items(), key=lambda kv: kv[1])]
+    max_depth = 0
+    for c in cats_order:
+        lc = len(buckets[c])
+        if lc > max_depth:
+            max_depth = lc
+    p2 = []
+    for i in range(max_depth):
+        for c in cats_order:
+            q = buckets[c]
+            if i < len(q):
+                p2.append(q[i])
+
+    # P3: clase B y C, por rank.
+    p3 = sorted(bc_rows, key=_compra_sort_key)
+
+    return p1 + p2 + p3
 
 def _run_stock_analysis():
     act = env['ir.actions.server'].sudo().browse(ACTION_STOCK_ANALYSIS_ID)
@@ -267,33 +354,34 @@ try:
                 ('x_studio_qty_a_pedir_cajas', '>', 0),
             ]
 
-        # Prioridad unica para compras (sala y CD): ranking de margen de la
-        # segmentacion, x_studio_rank_abcxyz. rank 1 = mayor margen acumulado
-        # (el mejor) y el numero CRECE a medida que el SKU importa menos, asi
-        # que ASC = mejor primero (NO desc). Desempate por valor de orden
-        # ascendente (mas barato primero).
-        order = 'x_studio_rank_abcxyz asc, x_studio_valor_orden_compra asc'
-
-        rows = Anal.search(domain, order=order)
+        # Prioridad de compras por clase ABC (v1.7), construida en memoria:
+        #   P1 = clase A en quiebre (severity == 100)
+        #   P2 = resto de A, round-robin por rank entre categorias importantes
+        #   P3 = clase B y C
+        # rank_abcxyz (1 = mejor margen) se usa como desempate dentro de cada
+        # tier. Ver _prioritize_compras.
+        rows = Anal.search(domain)
 
         if not rows:
             _set_summary(False, 'No hay líneas elegibles para compra.', snapshot_date, 0, 0.0)
             raise UserError('No hay líneas elegibles para compra.')
 
-        # Presupuesto: recorre rank_abcxyz de 1 hacia N (mejor margen primero) y
-        # acumula hasta topar el monto total. Si una linea no cabe en el saldo,
-        # se salta y se sigue con la siguiente (mas abajo en rank) hasta agotar
-        # el presupuesto. Aplica igual a compra_sala y compra_bodega.
+        ordered_rows = _prioritize_compras(rows)
+
+        # Presupuesto: recorre el orden priorizado (P1 -> P2 -> P3) y acumula
+        # hasta topar el monto total. Si una linea no cabe en el saldo, se salta
+        # y se sigue con la siguiente hasta agotar el presupuesto. Aplica igual a
+        # compra_sala y compra_bodega.
         if rec.x_studio_use_budget and _safe_float(rec.x_studio_budget_amount, 0.0) > 0.0:
             budget = _safe_float(rec.x_studio_budget_amount, 0.0)
-            for r in rows:
+            for r in ordered_rows:
                 line_amount = _safe_float(r.x_studio_valor_orden_compra, 0.0)
                 if total_amount + line_amount <= budget:
                     selected_rows.append(r)
                     total_amount += line_amount
         else:
-            selected_rows = rows
-            for r in rows:
+            selected_rows = ordered_rows
+            for r in ordered_rows:
                 total_amount += _safe_float(r.x_studio_valor_orden_compra, 0.0)
 
         if not selected_rows:
