@@ -1,7 +1,14 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.1.87 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.2.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.2.0 (2026-06-09): CD pass-through diferencial. solo_bodega: la sala SOLO
+#   transfiere desde CD; el faltante se consolida en UNA compra_cd en la fila CD
+#   (id 26) = max(0, Σ necesidad_salas − stock_CD). Elimina (a) el orphan de salas
+#   'compra_cd' cuyo traslado nunca se generaba y (b) el doble conteo del antiguo
+#   solo_bodega_cd_replenish (target forward del CD). Ver
+#   proyectos/2026-06-09-diag-li450701/diseno.md
 #
 # Objetivo:
 #   - Calcular analisis de stock por Sucursal (crm.team) y Bodega Central.
@@ -2290,6 +2297,35 @@ else:
                         rec['purchase_qty_net'] = qty_buy
 
                         gap_cubierto = transfer_qty >= need - 0.00001
+
+                        # ── [2026-06-09] Modelo CD pass-through diferencial ──────────────
+                        # solo_bodega: el CD es consolidador puro. La sala SOLO transfiere lo
+                        # que el CD ya tiene; el faltante (qty_net) se consolida en UNA sola
+                        # compra_cd en la pseudo-fila CD (id 26), no por sala. Esto elimina:
+                        #   (a) el orphan (sala 'compra_cd' con traslado que nunca se generaba), y
+                        #   (b) el doble conteo del antiguo solo_bodega_cd_replenish (target
+                        #       forward del CD sin restar stock de salas).
+                        # compra_cd(id 26) = max(0, Σ necesidad_salas − stock_CD), MOQ una vez.
+                        # Ver proyectos/2026-06-09-diag-li450701/diseno.md
+                        if bool(rec.get('meta', {}).get('solo_bodega')):
+                            rec['purchase_qty_net'] = 0.0        # la compra vive en el CD, no en la sala
+                            if qty_net > 0.0:
+                                rec['purchase_qty_need_exact'] = qty_net
+                                _cc = compra_cd_gaps.get(rec['tmpl_id']) or []
+                                _cc.append(rec)
+                                compra_cd_gaps[rec['tmpl_id']] = _cc
+                            if transfer_qty > 0.0:
+                                rec['supply_source']    = 'transferir_desde_cd'
+                                rec['solo_cd']          = True
+                                rec['buy_action_final'] = 'transferir_desde_cd'
+                                central_transfer_only_lines += 1
+                            else:
+                                rec['supply_source']    = 'no_action'
+                                rec['solo_cd']          = False
+                                rec['buy_action_final'] = 'no_comprar_esta_semana'
+                            continue
+                        # ── fin modelo CD pass-through (resto = no solo_bodega) ───────────
+
                         if transfer_qty > 0.0 and gap_cubierto and qty_buy == 0.0:
                             rec['supply_source']    = 'transferir_desde_cd'
                             rec['solo_cd']          = True
@@ -2298,10 +2334,7 @@ else:
                         elif transfer_qty > 0.0 and qty_buy > 0.0:
                             rec['supply_source']    = 'central+buy'
                             rec['solo_cd']          = False
-                            if rec.get('meta', {}).get('solo_bodega'):
-                                rec['buy_action_final'] = 'compra_cd'
-                            else:
-                                rec['buy_action_final'] = 'reponer_ahora'
+                            rec['buy_action_final'] = 'reponer_ahora'
                         elif transfer_qty > 0.0:
                             rec['supply_source']    = 'transferir_desde_cd'
                             rec['solo_cd']          = True
@@ -2310,17 +2343,11 @@ else:
                         elif qty_buy > 0.0:
                             rec['supply_source']    = 'buy_only'
                             rec['solo_cd']          = False
-                            if rec.get('meta', {}).get('solo_bodega'):
-                                rec['buy_action_final'] = 'compra_cd'
-                            else:
-                                rec['buy_action_final'] = rec.get('buy_action_pre')
+                            rec['buy_action_final'] = rec.get('buy_action_pre')
                         else:
                             rec['supply_source']    = 'no_action'
                             rec['solo_cd']          = False
-                            if rec.get('meta', {}).get('solo_bodega'):
-                                rec['buy_action_final'] = 'no_comprar_esta_semana'
-                            else:
-                                rec['buy_action_final'] = rec.get('buy_action_pre')
+                            rec['buy_action_final'] = rec.get('buy_action_pre')
 
                 # ----------------------
                 # Consolidar compra CD por SKU
@@ -2387,7 +2414,11 @@ else:
                     else:
                         # Si la politica caja-o-esperar decide no comprar el SKU consolidado,
                         # apagamos la accion para no dejar lineas compra_cd sin cantidad.
+                        # PERO preservamos las salas que SI tienen traslado (transferir_desde_cd):
+                        # su movimiento es real aunque la compra consolidada del CD sea 0.
                         for rec in arr:
+                            if _safe_float(rec.get('transfer_qty'), 0.0) > 0.0:
+                                continue
                             rec['buy_action_final'] = 'no_comprar_esta_semana'
                             rec['supply_source'] = 'no_action'
 
@@ -2491,8 +2522,11 @@ else:
                             base['banda_actual'] = rec.get('banda_actual')
                         base['qty_transferir'] += _safe_float(rec.get('transfer_qty'), 0.0)
                         base['qty_retorno_cd'] += _safe_float(rec.get('qty_retorno_cd'), 0.0)
-                        if (rec.get('buy_action_final') or rec.get('buy_action_pre')) == 'compra_cd':
-                            _q = _safe_float(rec.get('qty_compra_cd', 0.0), 0.0)
+                        # Consolida por qty_compra_cd>0, NO por etiqueta: con el modelo
+                        # pass-through (2026-06-09) la fila que carga la compra del SKU queda
+                        # etiquetada 'transferir_desde_cd' (la sala transfiere; el CD compra).
+                        _q = _safe_float(rec.get('qty_compra_cd', 0.0), 0.0)
+                        if _q > 0.0:
                             base['qty_a_pedir'] += _q
 
                             # Venta estimada de las lineas locales que explican esta compra CD.
@@ -2509,9 +2543,16 @@ else:
                     central_team_map[tid] = base
 
                 # ----------------------
-                # Reposicion automatica CD para solo_bodega
+                # Reposicion automatica CD para solo_bodega  [DESACTIVADO 2026-06-09]
                 # ----------------------
+                # El target forward del CD (demanda_red*periodo + safety, SIN restar stock
+                # de salas) causaba doble conteo y sobre-compra (~-$78,7M en simulacion).
+                # Reemplazado por el modelo CD pass-through: la compra del CD se consolida
+                # en compra_cd_gaps = max(0, Σ necesidad_salas − stock_CD), MOQ una vez.
+                # El loop queda inalcanzable (continue) como referencia/rollback.
+                # Ver proyectos/2026-06-09-diag-li450701/diseno.md
                 for tid, base in central_team_map.items():
+                    continue
                     meta = tmpl_meta.get(tid) or {}
                     if not bool(meta.get('solo_bodega')):
                         continue
