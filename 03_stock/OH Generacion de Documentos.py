@@ -422,10 +422,17 @@ try:
             # CD -> Local
             src_wh_id = CENTRAL_WAREHOUSE_ID
             dst_wh_id = local_wh_id
+            # Filtra por la ACCION (buy_action), no por supply_source.
+            # supply_source='transferir_desde_cd' es la politica estatica ("si
+            # falta, traer del CD") y queda seteada incluso en filas de retorno
+            # (ver OH Analisis de Stock.py: RETURN_TO_CD usa el mismo
+            # qty_transferir + supply_source SAFE). Filtrar por supply_source
+            # barria filas retorno_a_cd y compra_cd y las enviaba al reves.
+            # La accion de enviar CD->sala es buy_action='transferir_desde_cd'.
             domain += [
                 ('x_studio_team_id', '=', team_id),
+                ('x_studio_buy_action', '=', 'transferir_desde_cd'),
                 ('x_studio_qty_transferir', '>', 0),
-                ('x_studio_supply_source', 'in', ['transferir_desde_cd', 'central+buy']),
             ]
         else:
             # Local -> CD
