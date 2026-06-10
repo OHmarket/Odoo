@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# OH FACTOR SEMANAL — v1.3 (FACTOR_SEMANAL_v1.3)
+# OH FACTOR SEMANAL — v1.4 (FACTOR_SEMANAL_v1.4)
 # ============================================================
 # Escribe x_forecast_factor_week: factor de correccion por CATEGORIA x SEMANA
 # futura (52 semanas), sobre la SEMANA BASE (nivel destendenciado, factor
@@ -35,6 +35,19 @@
 #                   curva -> compras identicas; pero la tabla queda legible
 #                   (1.0 fuera de temporada alta) y la zona muerta silencia
 #                   el wiggle de temporada baja no validado.
+#                   v1.4: SKUs "evento-only" EXCLUIDOS de la serie de
+#                   categoria. Regla doble (universal, sin listas): share de
+#                   venta historica en semanas-evento >= EXCL_SHARE_MIN  Y
+#                   factor propio (peak semana-evento / mediana limpia) >=
+#                   EXCL_FACTOR_MIN. El share solo no discrimina: SKUs de
+#                   historia corta (Bon O Bon, mayo-2026) marcan share 70%
+#                   con factor 2-3x; los reales (pipeno, cola de mono,
+#                   helado pina, granadina) parten en 7x. Sin exclusion, la
+#                   categoria hereda el spike de UN SKU (Helados marcaba
+#                   3.09x cuando el resto sube 1.22x -> bajo umbral, sin
+#                   factor). Excluidos quedan en el log de cada corrida
+#                   (candidatos para flag Fase C / ancla LY); hasta Fase C
+#                   van sub-forecasteados en su semana, decision explicita.
 #   factor_evento : uplift medido por evento x categoria (semana objetivo
 #                   vs baseline mediana de semanas limpias +/-6). Arquetipo
 #                   A feriado -> semana de la VISPERA; B comercial -> semana
@@ -67,7 +80,7 @@
 #   x_studio_source_version (char)
 # ============================================================
 
-VERSION_ID = 'FACTOR_SEMANAL_v1.3'
+VERSION_ID = 'FACTOR_SEMANAL_v1.4'
 MODEL = 'x_forecast_factor_week'
 SALE_MODEL_TABLE = 'x_pos_week_sku_sale'
 HOL_OCC_MODEL = 'x_holiday_occurrence'
@@ -88,6 +101,10 @@ EV_BL_MIN_QTY = 10.0        # baseline minimo (u/sem) para ratio estable
 EV_MIN_FACTOR = 1.20        # umbral de senal del factor de evento
 EV_CLAMP = (1.0, 8.0)
 TOTAL_CLAMP = (0.30, 8.0)
+
+EXCL_SHARE_MIN = 0.50       # share venta en semanas-evento para evento-only
+EXCL_FACTOR_MIN = 5.0       # factor propio minimo (descarta historia corta)
+EXCL_TOTAL_MIN = 50.0       # u historicas minimas para juzgar un SKU
 
 HORIZON_WEEKS = 52
 MIN_RECENT_WEEKS = 13       # categ viva: venta en las ultimas N semanas
@@ -145,36 +162,20 @@ try:
         return d - datetime.timedelta(days=d.weekday())
 
     # --------------------------------------------------------
-    # 3. Venta semanal por categoria (toda la historia del fact)
+    # 3. Calendario de eventos (master + comerciales), pasado y futuro
+    #    ev = (code, fecha, target_week)
+    #    v1.4: va ANTES de la serie porque la deteccion de SKU-evento
+    #    necesita las semanas sucias y la serie excluye esos SKUs.
     # --------------------------------------------------------
     env.cr.execute("""
-        SELECT x_studio_categ_id, x_studio_week_start,
-               SUM(COALESCE(x_studio_qty_sold, 0.0)) AS qty
-        FROM """ + SALE_MODEL_TABLE + """
-        WHERE x_studio_categ_id IS NOT NULL
-          AND x_studio_week_start IS NOT NULL
-          AND x_studio_week_start < %s
-        GROUP BY 1, 2
-        HAVING SUM(COALESCE(x_studio_qty_sold, 0.0)) > 0
-    """, (monday_now,))
-    series = {}                       # categ_id -> {week(date): qty}
-    for cid, wk, qty in env.cr.fetchall():
-        if isinstance(wk, datetime.datetime):
-            wk = wk.date()
-        series.setdefault(int(cid), {})[wk] = float(qty)
-    if not series:
+        SELECT MIN(x_studio_week_start) FROM """ + SALE_MODEL_TABLE + """
+        WHERE x_studio_week_start IS NOT NULL
+    """)
+    hist_min = env.cr.fetchone()[0]
+    if not hist_min:
         raise UserError('Sin datos en %s.' % SALE_MODEL_TABLE)
-
-    recent_cut = monday_now - datetime.timedelta(weeks=MIN_RECENT_WEEKS)
-    categs = [c for c, s in series.items()
-              if any(w >= recent_cut for w in s)]
-    log('%s: categorias vivas %s de %s' % (VERSION_ID, len(categs), len(series)))
-
-    # --------------------------------------------------------
-    # 4. Calendario de eventos (master + comerciales), pasado y futuro
-    #    ev = (code, fecha, target_week)
-    # --------------------------------------------------------
-    hist_min = min([min(s.keys()) for s in series.values()])
+    if isinstance(hist_min, datetime.datetime):
+        hist_min = hist_min.date()
     horizon_end = monday_now + datetime.timedelta(weeks=HORIZON_WEEKS)
 
     events = []
@@ -216,7 +217,87 @@ try:
         (VERSION_ID, len(ev_hist), len(ev_futu)))
 
     # --------------------------------------------------------
-    # 5. Algebra: resolver Ax=b (Gauss-Jordan, pivoteo parcial)
+    # 4. Deteccion SKU evento-only (v1.4): share en semanas-evento
+    #    >= EXCL_SHARE_MIN Y factor propio >= EXCL_FACTOR_MIN.
+    #    Quedan FUERA de la serie de categoria (curva y uplift);
+    #    su forecast es Fase C (ancla LY). Log = catastro para flag.
+    # --------------------------------------------------------
+    dirty_hist = sorted([w for w in dirty_weeks if w < monday_now])
+    excl_ids = []
+    excl_info = []                    # (pid, share, factor_propio)
+    if dirty_hist:
+        env.cr.execute("""
+            WITH wk AS (
+                SELECT x_studio_product_id AS pid,
+                       x_studio_week_start AS w,
+                       SUM(COALESCE(x_studio_qty_sold, 0.0)) AS q
+                FROM """ + SALE_MODEL_TABLE + """
+                WHERE x_studio_product_id IS NOT NULL
+                  AND x_studio_week_start IS NOT NULL
+                  AND x_studio_week_start < %s
+                GROUP BY 1, 2
+            )
+            SELECT pid,
+                   SUM(q) AS total,
+                   COALESCE(SUM(q) FILTER (WHERE w = ANY(%s)), 0.0) AS evq,
+                   COALESCE(MAX(q) FILTER (WHERE w = ANY(%s)), 0.0) AS evpeak,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY q)
+                       FILTER (WHERE NOT (w = ANY(%s))) AS blmed
+            FROM wk
+            GROUP BY pid
+            HAVING SUM(q) >= %s
+               AND COALESCE(SUM(q) FILTER (WHERE w = ANY(%s)), 0.0)
+                   >= %s * SUM(q)
+        """, (monday_now, dirty_hist, dirty_hist, dirty_hist,
+              EXCL_TOTAL_MIN, dirty_hist, EXCL_SHARE_MIN))
+        for pid, total, evq, evpeak, blmed in env.cr.fetchall():
+            fp = (float(evpeak) / float(blmed)) if blmed else None
+            if fp is None or fp >= EXCL_FACTOR_MIN:
+                excl_ids.append(int(pid))
+                excl_info.append((int(pid), float(evq) / float(total), fp))
+    if excl_ids:
+        nm = {}
+        for r in env['product.product'].sudo().browse(excl_ids).read(['display_name']):
+            nm[r['id']] = r['display_name']
+        for pid, share, fp in sorted(excl_info, key=lambda t: -t[1]):
+            log('%s: SKU-evento excluido id=%s share=%s%% factor=%sx | %s' % (
+                VERSION_ID, pid, round(100 * share),
+                round(fp, 1) if fp is not None else 'inf',
+                nm.get(pid, '?')))
+    log('%s: SKUs evento-only excluidos de la serie: %s' %
+        (VERSION_ID, len(excl_ids)))
+
+    # --------------------------------------------------------
+    # 5. Venta semanal por categoria (historia completa, sin los
+    #    SKU evento-only)
+    # --------------------------------------------------------
+    env.cr.execute("""
+        SELECT x_studio_categ_id, x_studio_week_start,
+               SUM(COALESCE(x_studio_qty_sold, 0.0)) AS qty
+        FROM """ + SALE_MODEL_TABLE + """
+        WHERE x_studio_categ_id IS NOT NULL
+          AND x_studio_week_start IS NOT NULL
+          AND x_studio_week_start < %s
+          AND (x_studio_product_id IS NULL
+               OR NOT (x_studio_product_id = ANY(%s)))
+        GROUP BY 1, 2
+        HAVING SUM(COALESCE(x_studio_qty_sold, 0.0)) > 0
+    """, (monday_now, excl_ids or [0]))
+    series = {}                       # categ_id -> {week(date): qty}
+    for cid, wk, qty in env.cr.fetchall():
+        if isinstance(wk, datetime.datetime):
+            wk = wk.date()
+        series.setdefault(int(cid), {})[wk] = float(qty)
+    if not series:
+        raise UserError('Sin datos en %s.' % SALE_MODEL_TABLE)
+
+    recent_cut = monday_now - datetime.timedelta(weeks=MIN_RECENT_WEEKS)
+    categs = [c for c, s in series.items()
+              if any(w >= recent_cut for w in s)]
+    log('%s: categorias vivas %s de %s' % (VERSION_ID, len(categs), len(series)))
+
+    # --------------------------------------------------------
+    # 6. Algebra: resolver Ax=b (Gauss-Jordan, pivoteo parcial)
     # --------------------------------------------------------
     def solve(A, b):
         n = len(b)
@@ -259,7 +340,7 @@ try:
         return 2.0 * s + k * 0.6931471805599453
 
     # --------------------------------------------------------
-    # 6. Por categoria: curva SI (52) + factores de evento
+    # 7. Por categoria: curva SI (52) + factores de evento
     # --------------------------------------------------------
     def fit_curve(s):
         """Curva estacional centrada en 1 por iso_week, o None.
@@ -362,7 +443,7 @@ try:
         return out
 
     # --------------------------------------------------------
-    # 7. Generar filas futuras y escribir
+    # 8. Generar filas futuras y escribir
     # --------------------------------------------------------
     vals_list = []
     n_seasonal, n_event_rows = 0, 0
@@ -406,9 +487,10 @@ try:
         Factor.create(vals_list[i:i + 2000])
 
     msg = ('%s: %s filas creadas (%s borradas) | categs %s | estacionales %s | '
-           'semanas-evento con factor %s | horizonte %s -> %s' %
+           'semanas-evento con factor %s | SKU evento-only excluidos %s | '
+           'horizonte %s -> %s' %
            (VERSION_ID, len(vals_list), n_old, len(categs), n_seasonal,
-            n_event_rows, monday_now,
+            n_event_rows, len(excl_ids), monday_now,
             monday_now + datetime.timedelta(weeks=HORIZON_WEEKS - 1)))
     log(msg)
     action = {
