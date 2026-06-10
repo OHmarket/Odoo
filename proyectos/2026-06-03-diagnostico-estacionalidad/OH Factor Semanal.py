@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# OH FACTOR SEMANAL — v1.0 (FACTOR_SEMANAL_v1.0)
+# OH FACTOR SEMANAL — v1.3 (FACTOR_SEMANAL_v1.3)
 # ============================================================
 # Escribe x_forecast_factor_week: factor de correccion por CATEGORIA x SEMANA
 # futura (52 semanas), sobre la SEMANA BASE (nivel destendenciado, factor
@@ -8,10 +8,33 @@
 #
 #   factor_verano : curva estacional por categoria (regresion armonica
 #                   Fourier K=3 sobre log-venta semanal, destendenciada,
-#                   con dummy de semana-evento que absorbe los spikes).
+#                   EXCLUYENDO las semanas-evento del fit).
+#                   v1.1: antes habia un dummy GLOBAL de semana-evento; con
+#                   magnitudes heterogeneas (Ano Nuevo 7.6x vs Carmen 1.1x)
+#                   el dummy promediaba, el residuo del spike lo perseguia
+#                   el Fourier y corria/inflaba el hombro de enero
+#                   (espumantes: real iso-4 1.31 vs fit 2.69). Exclusion =
+#                   patron RegARIMA sin gastar grados de libertad.
 #                   Gates: amplitud >= SEASONAL_MIN_AMP (categ estacional)
 #                   y zona muerta |SI-1| < DEAD_ZONE -> 1.0 (parsimonia:
 #                   factor solo donde hay senal).
+#                   v1.2: gates de ELEGIBILIDAD de la serie antes del fit
+#                   (patron SAP: modelo estacional solo con historia
+#                   suficiente y estable):
+#                     - volumen: mediana semanal limpia >= VOL_MIN_QTY
+#                       (mata series chicas tipo Jarabes, mediana 6 u/sem,
+#                       donde la rampa de evento en log dinamita la curva)
+#                     - estabilidad YoY: mediana de ratios ano2/ano1 en
+#                       iso-weeks observadas 2 veces dentro de YOY_BAND
+#                       (mata quiebres estructurales tipo Cafeteria,
+#                       10 -> 250 u/sem; el escalon no es estacionalidad)
+#                   Serie no elegible -> sin curva (1.0), el SES manda solo.
+#                   v1.3: curva centrada en la MEDIANA de las 52 semanas (en
+#                   vez de la media geometrica). El consumo usa el ratio
+#                   factor(T)/factor(hoy), invariante a la escala de la
+#                   curva -> compras identicas; pero la tabla queda legible
+#                   (1.0 fuera de temporada alta) y la zona muerta silencia
+#                   el wiggle de temporada baja no validado.
 #   factor_evento : uplift medido por evento x categoria (semana objetivo
 #                   vs baseline mediana de semanas limpias +/-6). Arquetipo
 #                   A feriado -> semana de la VISPERA; B comercial -> semana
@@ -44,7 +67,7 @@
 #   x_studio_source_version (char)
 # ============================================================
 
-VERSION_ID = 'FACTOR_SEMANAL_v1.0'
+VERSION_ID = 'FACTOR_SEMANAL_v1.3'
 MODEL = 'x_forecast_factor_week'
 SALE_MODEL_TABLE = 'x_pos_week_sku_sale'
 HOL_OCC_MODEL = 'x_holiday_occurrence'
@@ -52,6 +75,9 @@ LOCK_KEY = 99009614
 
 K_FOURIER = 3
 MIN_WEEKS_FIT = 40          # semanas con venta para ajustar la curva
+VOL_MIN_QTY = 30.0          # mediana semanal limpia minima para fitear curva
+YOY_BAND = (0.40, 2.50)     # estabilidad: mediana ratio ano2/ano1 admisible
+YOY_MIN_PAIRS = 8           # pares iso-week para poder juzgar estabilidad
 SEASONAL_MIN_AMP = 1.30     # max/min de la curva para considerar categ estacional
 DEAD_ZONE = 0.10            # |SI-1| < zona -> factor 1 (hombros solamente)
 SI_CLAMP = (0.40, 3.50)
@@ -236,20 +262,39 @@ try:
     # 6. Por categoria: curva SI (52) + factores de evento
     # --------------------------------------------------------
     def fit_curve(s):
-        """Curva estacional centrada en 1 por iso_week, o None."""
-        weeks = sorted(s.keys())
+        """Curva estacional centrada en 1 por iso_week, o None.
+        v1.1: fit SOLO sobre semanas limpias (sin evento); los spikes de
+        evento se miden aparte en event_factors() con su propio baseline.
+        v1.2: gates de elegibilidad (volumen y estabilidad YoY)."""
+        weeks = sorted([w for w in s.keys() if w not in dirty_weeks])
         if len(weeks) < MIN_WEEKS_FIT:
             return None
+        # Gate volumen: serie chica -> ln ruidoso -> curva salvaje
+        if median([s[w] for w in weeks]) < VOL_MIN_QTY:
+            return None
+        # Gate estabilidad: mismas iso-weeks en anos distintos deben tener
+        # nivel comparable; un escalon (quiebre estructural) no es
+        # estacionalidad y el trend lineal no lo absorbe.
+        by_iso_yr = {}
+        for w in weeks:
+            by_iso_yr.setdefault(iso_week_of(w), []).append(w)
+        ratios = []
+        for iso, ws in by_iso_yr.items():
+            if len(ws) >= 2:
+                ws = sorted(ws)
+                a, b = s[ws[0]], s[ws[-1]]
+                if a > 0:
+                    ratios.append(b / a)
+        if len(ratios) >= YOY_MIN_PAIRS:
+            r_med = median(ratios)
+            if r_med < YOY_BAND[0] or r_med > YOY_BAND[1]:
+                return None
         w0 = weeks[0]
-        # dummy de evento solo si tiene variacion (todo-cero = matriz singular)
-        has_ev = any([w in dirty_weeks for w in weeks])
         X, y = [], []
         for w in weeks:
             iso = iso_week_of(w)
             t = (w - w0).days / 365.0
             row = [1.0, t] + basis[iso]
-            if has_ev:
-                row = row + [1.0 if w in dirty_weeks else 0.0]
             X.append(row)
             y.append(ln(s[w]))
         n_par = len(X[0])
@@ -272,8 +317,11 @@ try:
         for iso in range(1, 53):
             bs = basis[iso]
             s_log.append(sum([bs[i] * fcoef[i] for i in range(2 * K_FOURIER)]))
-        mean_s = sum(s_log) / 52.0
-        curve = [E ** (v - mean_s) for v in s_log]
+        # v1.3: ancla = mediana (no media). Temporada baja queda ~1 y la
+        # zona muerta la aplana; solo la temporada alta lleva factor. El
+        # ratio de consumo factor(T)/factor(hoy) no cambia con el ancla.
+        med_s = median(s_log)
+        curve = [E ** (v - med_s) for v in s_log]
         curve = [max(SI_CLAMP[0], min(SI_CLAMP[1], v)) for v in curve]
         if (max(curve) / max(min(curve), 1e-9)) < SEASONAL_MIN_AMP:
             return None                       # categ plana: sin factor
