@@ -25,7 +25,7 @@
 #     fallback PURCHASE_CYCLE_WEEKS si missing. lead_weeks operativo = 0.
 #   - CD reposicion solo_bodega usa el MISMO period_weeks por SKU (v9.1.85).
 #   - Safety stock: z * sigma * sqrt(period_weeks). Z segun ABCXYZ:
-#     AX/AY/BX=1.68, BY=1.28, AZ=1.04, CX=0.84, BZ/CY=0.35, CZ=0.0;
+#     AX/BX=1.68, AY=1.28, BY=1.04, AZ=1.04, CX=0.84, BZ/CY=0.35, CZ=0.0;
 #     default fallback 0.84. Top cash sube a 1.65 (piso, display reserve).
 #     Cigarros (categ 1628): multiplicador 0.778 sobre Z; display_mult=0.
 #   - MOQ: politica caja-o-esperar (SMART_MOQ_ROUNDING). Bloquea cajas
@@ -176,7 +176,7 @@ PHANTOM_PROCUREMENT_MODE_DEFAULT = 'buy_parent_block_children'  # block_parent |
 
 _SAFETY_FACTOR = {
     'AX': 1.68, 'BX': 1.68,   # 2026-06-04: bajado de 2.05 (98%->95% servicio, sobre-protegido)
-    'AY': 1.68, 'BY': 1.28,   # 2026-06-04: bajado de 2.05
+    'AY': 1.28, 'BY': 1.04,   # 2026-06-10: bajado de 1.68/1.28 (diag_z_ay_az_by: libera ~$5.9M target, svc teorico 90%/85%; curva quiebre-vs-z plana en Y)
     'AZ': 1.04, 'BZ': 0.35,   # 2026-06-02: bajado de 0.84 (sobre-protegido)
     'CX': 0.84, 'CY': 0.35,   # 2026-06-02: bajado de 0.52 (sobre-protegido)
     'CZ': 0.0,
@@ -1455,6 +1455,7 @@ else:
                     'x_studio_product_id',
                     FWD_TEAM_FIELD,
                     'x_studio_mu_week',
+                    'x_studio_mu_week_adjusted',   # capa demand sensing (COALESCE, ver OH Demand Sensing)
                     'x_studio_sigma_week',
                     'x_studio_xyz_local',
                 ]
@@ -1483,7 +1484,8 @@ else:
                     team_id = loc and loc[0] or False
 
                     payload = {
-                        'mu_week':       _safe_float(r.get('x_studio_mu_week'),    0.0),
+                        # COALESCE: si la capa demand sensing escribio un ajuste, usarlo; si no, base
+                        'mu_week':       _safe_float(r.get('x_studio_mu_week_adjusted') or r.get('x_studio_mu_week'), 0.0),
                         'sigma_week':    _safe_float(r.get('x_studio_sigma_week'), 0.0),
                         'lead_weeks':    supplier_lead_map.get(tmpl_id, PURCHASE_CYCLE_WEEKS),
                         'moq':           max(uom_po_factor_map.get(tmpl_id, 1.0),
