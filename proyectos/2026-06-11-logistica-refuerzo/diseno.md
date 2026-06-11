@@ -86,6 +86,11 @@ valor primero).
 - **Código + descripción**: cada `stock.move` lleva el producto
   (`default_code` + `display_name`).
 - **Cantidad**: `product_uom_qty = x_studio_qty_transferir` (unidades).
+- **Días de cobertura**: el motor guarda cobertura en SEMANAS
+  (`x_studio_cover_weeks`); días = semanas × 7. Se inyecta en `name` y
+  `description_picking` de cada `stock.move` para que aparezca en la pantalla
+  del documento y en la guía impresa, junto al `cover_label`. Formato:
+  `<producto> | Cobertura: X.X días (sin_stock|critico)`.
 
 ## 9. Casos canónicos de validación
 

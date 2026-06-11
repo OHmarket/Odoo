@@ -250,8 +250,15 @@ try:
         qty = _safe_float(r.x_studio_qty_transferir, 0.0)
         if not product or qty <= 0.0:
             continue
-        env['stock.move'].sudo().create({
-            'name': product.display_name,
+        # Días de cobertura para la guía: el motor guarda cobertura en SEMANAS
+        # (x_studio_cover_weeks); días = semanas * 7. Se inyecta en el nombre del
+        # move para que aparezca en la pantalla del documento y en la impresión.
+        dias_cob = _safe_float(r.x_studio_cover_weeks, 0.0) * 7.0
+        cover_label = r.x_studio_cover_label or ''
+        move_name = '%s | Cobertura: %.1f días (%s)' % (
+            product.display_name, dias_cob, cover_label or 's/dato')
+        move_vals = {
+            'name': move_name,
             'company_id': env.company.id,
             'product_id': product.id,
             'product_uom_qty': qty,
@@ -259,7 +266,11 @@ try:
             'location_id': src_loc.id,
             'location_dest_id': dst_loc.id,
             'picking_id': picking.id,
-        })
+        }
+        # description_picking es la columna "Descripción" que imprime la guía.
+        if 'description_picking' in env['stock.move']._fields:
+            move_vals['description_picking'] = move_name
+        env['stock.move'].sudo().create(move_vals)
         created_moves += 1
         total_amount += _safe_float(r.x_studio_valor_reponer, 0.0)
 
