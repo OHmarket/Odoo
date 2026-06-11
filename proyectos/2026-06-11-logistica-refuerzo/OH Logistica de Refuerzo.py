@@ -34,7 +34,13 @@ ACTION_STOCK_ANALYSIS_ID = 1502
 CENTRAL_WAREHOUSE_ID     = 15
 LOCK_KEY                 = 99123042   # distinto al de Supply Generation (99123041)
 
-# Etiquetas de cobertura que cuentan como "refuerzo urgente".
+# Selector de días de cobertura al generar el documento.
+#   El usuario elige el umbral en el formulario: el refuerzo incluye los SKU con
+#   cobertura <= N días (el quiebre, cobertura 0, siempre entra).
+#   Campo Studio en el formulario (Selection '3','5','7'... o Integer):
+REFUERZO_DAYS_FIELD = 'x_studio_dias_cobertura_refuerzo'
+REFUERZO_DAYS_DEFAULT = 5          # umbral si el campo está vacío
+# Respaldo por etiqueta si el formulario NO tiene el campo selector todavía.
 REFUERZO_COVER_LABELS = ['sin_stock', 'critico']
 
 TEAM_WAREHOUSE_MAP_FALLBACK = {
@@ -140,6 +146,20 @@ def _latest_snapshot_after(started_at):
     )
     return row and row.x_studio_fecha_1 or False
 
+def _selected_refuerzo_days():
+    # Lee el selector de días del formulario. Acepta Selection (str '5') o
+    # Integer. Devuelve int de días, o None si el campo no existe en el modelo.
+    if not rec._fields.get(REFUERZO_DAYS_FIELD):
+        return None
+    # safe_eval no expone getattr: se accede al campo por indexación del record.
+    raw = rec[REFUERZO_DAYS_FIELD]
+    if raw is False or raw is None or raw == '':
+        return REFUERZO_DAYS_DEFAULT
+    try:
+        return int(float(raw))
+    except Exception:
+        return REFUERZO_DAYS_DEFAULT
+
 def _build_origin_key(snapshot_date):
     team_id = 0
     if rec.x_studio_team_id:
@@ -184,23 +204,34 @@ try:
     Anal = env['x_analisis_de_stock'].sudo()
 
     # --------------------------------------------------------
-    # 2) Filtrar SOLO refuerzo urgente: quiebre + crítico, despachable desde CD
+    # 2) Filtrar refuerzo según el selector de días del formulario.
+    #    Umbral N días -> incluye SKU con cobertura <= N días (cover_weeks*7).
+    #    El quiebre (cover_weeks=0) siempre entra. Si el formulario aún no tiene
+    #    el campo selector, se cae al filtro por etiqueta (sin_stock/critico).
+    #    Siempre acotado a lo despachable desde el CD.
     # --------------------------------------------------------
+    refuerzo_days = _selected_refuerzo_days()
     domain = [
         ('x_studio_company_id', '=', env.company.id),
         ('x_studio_fecha_1', '=', snapshot_date),
         ('x_studio_team_id', '=', team_id),
-        ('x_studio_cover_label', 'in', REFUERZO_COVER_LABELS),
         ('x_studio_buy_action', '=', 'transferir_desde_cd'),
         ('x_studio_qty_transferir', '>', 0),
     ]
+    if refuerzo_days is not None:
+        # Umbral en semanas para comparar contra x_studio_cover_weeks (Float).
+        domain.append(('x_studio_cover_weeks', '<=', refuerzo_days / 7.0))
+        filtro_desc = 'cobertura <= %s días' % refuerzo_days
+    else:
+        domain.append(('x_studio_cover_label', 'in', REFUERZO_COVER_LABELS))
+        filtro_desc = 'quiebre/crítico (sin selector de días)'
     rows = Anal.search(
         domain,
         order='x_studio_severity desc, x_studio_valor_reponer desc'
     )
     if not rows:
-        _set_summary(False, 'No hay líneas de refuerzo (quiebre/crítico despachable desde CD) para esta sucursal.', snapshot_date, 0, 0.0)
-        raise UserError('No hay líneas de refuerzo para esta sucursal.')
+        _set_summary(False, 'No hay líneas de refuerzo (%s, despachable desde CD) para esta sucursal.' % filtro_desc, snapshot_date, 0, 0.0)
+        raise UserError('No hay líneas de refuerzo (%s) para esta sucursal.' % filtro_desc)
 
     # --------------------------------------------------------
     # 3) Crear picking CD -> sala en Borrador
@@ -280,10 +311,11 @@ try:
         raise UserError('No se pudieron crear movimientos de refuerzo válidos.')
 
     # MODO ADOPCIÓN: no confirmar. Queda Borrador para revisión humana.
-    msg = 'OK BORRADOR REFUERZO | %s | PICK=%s | moves=%s | snapshot=%s' % (
+    msg = 'OK BORRADOR REFUERZO | %s | PICK=%s | moves=%s | filtro=%s | snapshot=%s' % (
         lote_name,
         picking.name or picking.id,
         created_moves,
+        filtro_desc,
         snapshot_date,
     )
     _set_summary(True, msg, snapshot_date, created_moves, total_amount)

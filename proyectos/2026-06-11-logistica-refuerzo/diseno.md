@@ -69,12 +69,22 @@ Qué se decide NO hacer:
 
 ## 7. Criterio de inclusión (definición de "refuerzo")
 
-Una fila de `x_analisis_de_stock` entra al refuerzo si TODO se cumple:
+El umbral lo elige el usuario al generar el documento, vía un **selector de días
+de cobertura** en el formulario (campo Studio `x_studio_dias_cobertura_refuerzo`,
+Selection '3'/'5'/'7'... o Integer). Una fila de `x_analisis_de_stock` entra si:
 
 - `x_studio_team_id == sucursal` del formulario.
-- `x_studio_cover_label in ('sin_stock', 'critico')`  ← quiebre + crítico.
+- `x_studio_cover_weeks * 7 <= N días` (N = selector). El quiebre (cover 0)
+  siempre entra. → umbral elegido al generar, no fijo.
 - `x_studio_buy_action == 'transferir_desde_cd'`       ← despachable desde CD.
 - `x_studio_qty_transferir > 0`.
+
+Respaldo: si el formulario aún NO tiene el campo selector, se cae al filtro por
+etiqueta `cover_label in ('sin_stock', 'critico')`. Default si el campo existe
+pero está vacío: 5 días (`REFUERZO_DAYS_DEFAULT`).
+
+Pendiente Studio (fuera de código): crear el campo `x_studio_dias_cobertura_refuerzo`
+en el modelo del formulario y agregarlo a la vista como selector.
 
 Orden de armado: `severity desc, valor_reponer desc` (lo más urgente y de mayor
 valor primero).
