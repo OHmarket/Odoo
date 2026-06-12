@@ -67,24 +67,47 @@ Qué se decide NO hacer:
 - La "pistola / restricción de códigos no incluidos en guía" es un proceso
   aparte, fuera de alcance.
 
-## 7. Criterio de inclusión (definición de "refuerzo")
+## 7. Modelo de entrega: order-up-to a N días (base stock)
 
-El umbral lo elige el usuario al generar el documento, vía un **selector de días
-de cobertura** en el formulario (campo Studio `x_studio_dias_cobertura_refuerzo`,
-Selection '3'/'5'/'7'... o Integer). Una fila de `x_analisis_de_stock` entra si:
+El selector de días NO es un filtro de urgencia: es el **target de cobertura**.
+El usuario elige cuántos días EXTRA cubrir al generar el documento (campo Studio
+`x_studio_dias_cobertura_refuerzo`, Selection '3'/'4'/'5'... o Integer). El doc
+lleva cada SKU hasta esa cobertura enviando solo el faltante.
 
-- `x_studio_team_id == sucursal` del formulario.
-- `x_studio_cover_weeks * 7 <= N días` (N = selector). El quiebre (cover 0)
-  siempre entra. → umbral elegido al generar, no fijo.
-- `x_studio_buy_action == 'transferir_desde_cd'`       ← despachable desde CD.
-- `x_studio_qty_transferir > 0`.
+Política canónica (R,S) / order-up-to-level (base stock, Silver-Pyke-Peterson):
+el nivel objetivo S se fija por la demanda sobre el horizonte elegido y se ordena
+la brecha contra la posición de inventario.
 
-Respaldo: si el formulario aún NO tiene el campo selector, se cae al filtro por
-etiqueta `cover_label in ('sin_stock', 'critico')`. Default si el campo existe
-pero está vacío: 5 días (`REFUERZO_DAYS_DEFAULT`).
+Por SKU:
 
-Pendiente Studio (fuera de código): crear el campo `x_studio_dias_cobertura_refuerzo`
-en el modelo del formulario y agregarlo a la vista como selector.
+```
+demanda_diaria  = x_studio_demanda_semanal / 7
+objetivo_N      = demanda_diaria * N            (N = días seleccionados)
+faltante        = objetivo_N - x_studio_stock_real   (físico en sala)
+enviar          = min(max(0, faltante), x_studio_stock_central)  (tope CD)
+qty             = round(enviar)  -> unidades enteras
+```
+
+Universo (decisiones cerradas con el usuario):
+- **Alcance**: `x_studio_buy_action == 'transferir_desde_cd'` (los que el motor
+  rutea CD→sala). No se filtra por `cover_label` ni `qty_transferir`: la cantidad
+  se RECALCULA a N días.
+- **Stock base del faltante**: `x_studio_stock_real` (físico vendible en sala).
+- **Tope**: `x_studio_stock_central` (no se envía más de lo que hay en el CD).
+
+Caso de uso: logística central el martes; refuerzo el viernes para cubrir
+sáb/dom/lun → el operador selecciona esos días extra. Default si el campo está
+vacío: 3 días (`REFUERZO_DAYS_DEFAULT`).
+
+Se reportan en el resumen: `moves` creados, `ya_cubiertos` (faltante ≤ 0) y
+`sin_cd` (faltante > 0 pero CD sin stock).
+
+Pendiente Studio (fuera de código): crear `x_studio_dias_cobertura_refuerzo` en
+el modelo del formulario y ponerlo como selector en la vista.
+
+Abierto a revisar en práctica (dicho por el usuario): si conviene acotar además a
+solo críticos, o ajustar el redondeo. El motor ya reusa demanda y stock, así que
+cambiar el alcance es solo tocar el dominio.
 
 Orden de armado: `severity desc, valor_reponer desc` (lo más urgente y de mayor
 valor primero).
@@ -95,18 +118,22 @@ valor primero).
   dirección de la sala destino imprime en la guía de traslado.
 - **Código + descripción**: cada `stock.move` lleva el producto
   (`default_code` + `display_name`).
-- **Cantidad**: `product_uom_qty = x_studio_qty_transferir` (unidades).
-- **Días de cobertura**: el motor guarda cobertura en SEMANAS
-  (`x_studio_cover_weeks`); días = semanas × 7. Se inyecta en `name` y
-  `description_picking` de cada `stock.move` para que aparezca en la pantalla
-  del documento y en la guía impresa, junto al `cover_label`. Formato:
-  `<producto> | Cobertura: X.X días (sin_stock|critico)`.
+- **Cantidad**: `product_uom_qty = qty` (faltante a N días, topado por CD; ver §7).
+- **Días de cobertura**: la cobertura ACTUAL (semanas×7) y el target N se inyectan
+  en `name` y `description_picking` de cada `stock.move`, para que aparezcan en la
+  pantalla del documento y en la guía impresa. Formato:
+  `<producto> | Cob. actual: X.X d → refuerzo a N d (cover_label)`.
 
 ## 9. Casos canónicos de validación
 
-1. Sala con 3 SKUs en `sin_stock` + 2 en `critico` + 5 en `bajo`/`normal`
-   → el picking de refuerzo trae 5 moves (los `bajo/normal` quedan fuera).
-2. Sala sin SKUs críticos → mensaje "no hay líneas de refuerzo", sin picking.
-3. SKU crítico pero `buy_action != transferir_desde_cd` (necesita compra)
-   → NO entra al refuerzo (se documenta).
-4. Re-ejecución con mismo snapshot → idempotente (no duplica picking).
+1. SKU demanda 7 u/sem (1 u/día), stock sala 0, CD 50, N=4 →
+   objetivo=4, faltante=4, enviar=min(4,50)=4. Move qty=4.
+2. Mismo SKU pero stock sala 6 → objetivo 4 ≤ 6 → faltante ≤ 0 → no entra
+   (cuenta en `ya_cubiertos`).
+3. SKU demanda 14 u/sem (2 u/día), stock sala 0, CD 5, N=4 → objetivo=8,
+   faltante=8, topado por CD → enviar=5. Move qty=5 (`sin_cd` no aplica).
+4. SKU con `buy_action != transferir_desde_cd` → fuera del universo (no es
+   CD→sala).
+5. Re-ejecución con mismo snapshot → idempotente (no duplica picking).
+6. Toda la sala ya cubre N días o CD vacío → sin moves; error con conteo
+   `ya_cubiertos` / `sin_cd`.
