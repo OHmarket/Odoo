@@ -1,0 +1,67 @@
+<!--
+  Vista heredada: formato CD/INT (transferencias internas), lista previa al envio.
+  Inherit: stock.report_delivery_document  |  Priority: 99
+  Cambios SOLO para picking_type_id.code == 'internal' (resto de guias intacto):
+    A) Encabezado estilo Guia de Despacho (Fecha/Cliente/VAT/GIRO/Domicilio/Orden
+       + Chofer/Rut Chofer/Patente) reutilizando el template de la guia.
+    B) Columnas tabla previa -> PRODUCTO | CODIGO DE BARRA | PEDIDO
+       (oculta Entregado y Codigo HS).
+-->
+<data inherit_id="stock.report_delivery_document">
+
+    <!-- ============ A) ENCABEZADO ESTILO GUIA DE DESPACHO ============ -->
+
+    <!-- A1. Oculta el header pobre actual (bloque Order + Shipping Date) en internas -->
+    <xpath expr="//div[@name='div_origin']/.." position="attributes">
+        <attribute name="t-if">o.picking_type_id.code != 'internal'</attribute>
+    </xpath>
+
+    <!-- A2. Inserta el encabezado de la guia de despacho despues del titulo (solo internas).
+            Reutiliza l10n_cl_edi_stock.stock_informations: Fecha/Cliente/VAT/GIRO/
+            Domicilio/Orden + (via mod) Chofer/Rut Chofer/Patente. -->
+    <xpath expr="//div[@class='page']/h2" position="after">
+        <div t-if="o.picking_type_id.code == 'internal'" name="cd_int_header">
+            <t t-call="l10n_cl_edi_stock.stock_informations"/>
+        </div>
+    </xpath>
+
+    <!-- ============ B) COLUMNAS (tabla previa al envio, state != 'done') ============ -->
+
+    <!-- B1. Header: Codigo de barra despues de Producto (solo internas) -->
+    <xpath expr="//table[@name='stock_move_table']/thead/tr/th[@name='th_sm_product']" position="after">
+        <th t-if="o.picking_type_id.code == 'internal'"><strong>Código de barra</strong></th>
+    </xpath>
+
+    <!-- B2. Celda: barcode del producto despues de la celda Producto (solo internas) -->
+    <xpath expr="//table[@name='stock_move_table']/tbody/tr/td[span[@t-field='move.product_id']]" position="after">
+        <td t-if="o.picking_type_id.code == 'internal'">
+            <span t-field="move.product_id.barcode"/>
+        </td>
+    </xpath>
+
+    <!-- B3. Oculta header Entregado en internas -->
+    <xpath expr="//table[@name='stock_move_table']/thead/tr/th[@name='th_sm_quantity']" position="attributes">
+        <attribute name="t-if">o.picking_type_id.code != 'internal'</attribute>
+    </xpath>
+
+    <!-- B4. Oculta celda Entregado (move.quantity) en internas -->
+    <xpath expr="//table[@name='stock_move_table']/tbody/tr/td[span[@t-field='move.quantity']]" position="attributes">
+        <attribute name="t-if">o.picking_type_id.code != 'internal'</attribute>
+    </xpath>
+
+    <!-- B5. Oculta columna Codigo HS en internas SIN localizar sus nodos (los agrega
+            otro modulo, vista 2384). El th/td de HS estan protegidos con t-if="has_hs_code";
+            redefinimos esa variable a False para internas, justo antes del thead, y la
+            columna desaparece sola. Robusto ante orden de herencias. -->
+    <xpath expr="//table[@name='stock_move_table']/thead" position="before">
+        <t t-set="has_hs_code" t-value="has_hs_code and o.picking_type_id.code != 'internal'"/>
+    </xpath>
+
+    <!-- B7. Oculta en el PDF la nota de linea (description_picking, ej. "FACTURA" +
+            link a Drive) SOLO en internas. El dato queda intacto en Odoo; solo se
+            agrega la guarda de picking_type a la condicion original del <p>. -->
+    <xpath expr="//table[@name='stock_move_table']/tbody/tr/td/p[span[@t-field='move.description_picking']]" position="attributes">
+        <attribute name="t-if">move.description_picking and move.description_picking != move.product_id.name and move.description_picking != move.product_id.display_name and o.picking_type_id.code != 'internal'</attribute>
+    </xpath>
+
+</data>
