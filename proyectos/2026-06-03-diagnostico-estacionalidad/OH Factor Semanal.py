@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# OH FACTOR SEMANAL — v1.4 (FACTOR_SEMANAL_v1.4)
+# OH FACTOR SEMANAL — v1.5 (FACTOR_SEMANAL_v1.5)
 # ============================================================
 # Escribe x_forecast_factor_week: factor de correccion por CATEGORIA x SEMANA
 # futura (52 semanas), sobre la SEMANA BASE (nivel destendenciado, factor
@@ -48,6 +48,15 @@
 #                   factor). Excluidos quedan en el log de cada corrida
 #                   (candidatos para flag Fase C / ancla LY); hasta Fase C
 #                   van sub-forecasteados en su semana, decision explicita.
+#                   v1.5: uplift de evento medido sobre serie
+#                   DES-ESTACIONALIZADA (q / curva fiteada). Un evento
+#                   parado sobre el peak estacional (San Valentin x Carbon)
+#                   media el peak contra los hombros y el factor_total lo
+#                   multiplicaba por la misma curva -> doble conteo
+#                   (6.18x vs ~4.4x real). Patron X-13/RegARIMA: el
+#                   feriado se estima junto a la estacionalidad, no sobre
+#                   la serie cruda. Eventos en zona plana (18-sep x carbon,
+#                   curva=1.0) no cambian.
 #   factor_evento : uplift medido por evento x categoria (semana objetivo
 #                   vs baseline mediana de semanas limpias +/-6). Arquetipo
 #                   A feriado -> semana de la VISPERA; B comercial -> semana
@@ -80,7 +89,7 @@
 #   x_studio_source_version (char)
 # ============================================================
 
-VERSION_ID = 'FACTOR_SEMANAL_v1.4'
+VERSION_ID = 'FACTOR_SEMANAL_v1.5'
 MODEL = 'x_forecast_factor_week'
 SALE_MODEL_TABLE = 'x_pos_week_sku_sale'
 HOL_OCC_MODEL = 'x_holiday_occurrence'
@@ -417,7 +426,9 @@ try:
         return sv[n // 2] if n % 2 else (sv[n // 2 - 1] + sv[n // 2]) / 2.0
 
     def event_factors(s):
-        """code -> factor (mediana entre anos, con gates de senal)."""
+        """code -> factor (mediana entre anos, con gates de senal).
+        v1.5: recibe la serie YA des-estacionalizada (ver call site;
+        sin clausuras: safe_eval prohibe MAKE_CELL/LOAD_CLOSURE)."""
         ups = {}
         for code, _d, tw in ev_hist:
             q = s.get(tw, 0.0)
@@ -450,7 +461,15 @@ try:
     for cid in sorted(categs):
         s = series[cid]
         si = fit_curve(s)
-        evf = event_factors(s)
+        # v1.5: el uplift de evento se mide sobre la serie des-estacionalizada
+        # (q / curva fiteada); sin curva, serie cruda (identico a v1.4).
+        if si:
+            s_dz = {}
+            for w_dz, v_dz in s.items():
+                s_dz[w_dz] = v_dz / si.get(iso_week_of(w_dz), 1.0)
+        else:
+            s_dz = s
+        evf = event_factors(s_dz)
         if si:
             n_seasonal += 1
         for h in range(HORIZON_WEEKS):
