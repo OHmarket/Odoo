@@ -272,7 +272,9 @@ def _cleanse_stockout(raw_vals, weeks_list, tid, pid, qweight, min_days, base_k,
     que quebraron -> un quiebre de sabado pesa ~21%, uno de lunes ~9%.
     En una semana con quiebre (n_days >= min_days y peso_perdido > 0):
       - quiebre LEVE (peso_perdido < severe_w): completa por disponibilidad ->
-        demanda = venta / (1 - peso_perdido). Sigue la demanda RECIENTE.
+        demanda = venta / (1 - peso_perdido), pero CAPADA al baseline in-stock (no
+        infla sobre el nivel de periodos similares; si la semana ya vendio sobre ese
+        nivel, no levanta). Corrige el salto del leve sobre semanas que ya rindieron.
       - quiebre SEVERO (peso_perdido >= severe_w, la semana perdio demasiada venta): cae
         al promedio de las base_k semanas CON stock previas (baseline).
     Siempre SOLO LEVANTA: nunca recorta. Loop explicito (sin comprehension que capture
@@ -287,16 +289,18 @@ def _cleanse_stockout(raw_vals, weeks_list, tid, pid, qweight, min_days, base_k,
         nd = info[0] if info else 0
         pw = info[1] if info else 0.0
         if nd >= min_days and pw > 0.0:
+            recent = instock[-base_k:] if instock else []
+            base = (sum(recent) / len(recent)) if recent else None   # nivel periodos similares
             if pw < severe_w and pw < 0.95:
-                # quiebre leve: escala por la fraccion de venta-semana disponible
+                # quiebre leve: escala por disponibilidad, capado al baseline (solo-levanta)
                 val = y / (1.0 - pw)
+                if base is not None and val > base:
+                    val = base if base > y else y    # nunca sobre el nivel vecino ni bajo y
                 out.append(val)
                 if val > y + 1e-9:
                     n_lift += 1
-            elif instock:
+            elif base is not None:
                 # quiebre severo: baseline de semanas in-stock previas (solo-levanta)
-                recent = instock[-base_k:]
-                base = sum(recent) / len(recent)
                 if base > y:
                     out.append(base)
                     n_lift += 1
