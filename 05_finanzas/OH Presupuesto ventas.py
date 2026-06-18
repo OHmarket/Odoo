@@ -70,8 +70,11 @@ TEAM_DAILY_FLOOR_APPLY_FUTURE = True
 TEAM_DAILY_FLOOR_SCALE_MAX = 1.50
 
 # === Override piso absoluto por team (reaperturas / sucursales especiales) ===
+# San José (11): override quitado 2026-06-17. La sala ya tiene 82 días de venta
+# real post-reapertura (~$600-700K/día, a la baja), que el TY4 (PROM_4_SEMANAS)
+# usa con forma de día de semana. El floor de $1M aplanaba la proyección a la
+# constante y sobreproyectaba ~$60-78M al flujo de caja. Que mande el TY4.
 TEAM_DAILY_FLOOR_ABS_OVERRIDE = {
-    11: 1000000,  # San José — reapertura mar-2026, media histórica ~1.57M
 }
 
 # (si no estás usando multiplicadores por clase, déjalo vacío)
