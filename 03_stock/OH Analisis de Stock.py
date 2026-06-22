@@ -108,7 +108,7 @@ MOQ_MAX_POST_FACTOR_DEFAULT   = 1.35   # max post-compra vs target_weeks antes d
 MOQ_CRITICAL_FACTOR_DEFAULT   = 0.50   # critico si cobertura < periodo * este factor
 RETURN_HOLD_WEEKS_DEFAULT    = 8.0
 RETURN_TRIGGER_WEEKS_DEFAULT = 8.0
-CD_DELIVERY_EXTRA_DAYS_DEFAULT = 2.0  # buffer logistico CD->sala (atraso camion, ej. martes en vez de lunes)
+CD_DELIVERY_EXTRA_DAYS_DEFAULT = 0.0  # buffer logistico CD->sala ELIMINADO (sala_H = 1.0 sem exacta; el CD entrega dentro de la semana). Override por context cd_delivery_extra_days si se requiere holgura puntual.
 CENTRAL_TEAM_ID_DEFAULT = 26
 
 # Politica de descentralizacion sala vs CD: COBERTURA DE CAJA + EXCLUSION POR CATEGORIA.
@@ -175,9 +175,9 @@ PHANTOM_COST_SOURCE_DEFAULT = 'product_first'
 PHANTOM_PROCUREMENT_MODE_DEFAULT = 'buy_parent_block_children'  # block_parent | allow_parent | buy_parent_block_children
 
 _SAFETY_FACTOR = {
-    'AX': 1.68, 'BX': 1.68,   # 2026-06-04: bajado de 2.05 (98%->95% servicio, sobre-protegido)
-    'AY': 1.28, 'BY': 1.04,   # 2026-06-10: bajado de 1.68/1.28 (diag_z_ay_az_by: libera ~$5.9M target, svc teorico 90%/85%; curva quiebre-vs-z plana en Y)
-    'AZ': 1.04, 'BZ': 0.35,   # 2026-06-02: bajado de 0.84 (sobre-protegido)
+    'AX': 1.95, 'BX': 1.68,   # 2026-06-22: subido (mas servicio en A-X de alto volumen)
+    'AY': 1.68, 'BY': 1.28,   # 2026-06-22: subido
+    'AZ': 1.28, 'BZ': 0.35,   # 2026-06-22: subido
     'CX': 0.84, 'CY': 0.35,   # 2026-06-02: bajado de 0.52 (sobre-protegido)
     'CZ': 0.0,
 }
@@ -2543,6 +2543,101 @@ else:
                             # para presupuestar mensual a nivel SKU-red sin double counting por local.
                             base['stock_proyectado_origen_cd'] += _safe_float(rec.get('stock_proyectado'), 0.0)
                     central_team_map[tid] = base
+
+                # ----------------------
+                # CD echelon: compra 15 dias de red, netea TODO el stock  [2026-06-22]
+                # ----------------------
+                # Objetivo de negocio: el CD compra para cubrir la demanda de la red
+                # durante su periodo de reposicion (delay del proveedor, p.ej. 15 dias)
+                # y despues distribuye a salas con la frecuencia que decida. Las salas
+                # siguen apuntando a ~1 sem y solo transfieren (la distribucion no cambia);
+                # lo unico que cambia es CUANTO compra el CD al proveedor.
+                #
+                # Modelo canonico: base-stock multi-echelon (SAP IBP / Oracle). El nodo
+                # central planifica contra su periodo de revision usando "echelon stock"
+                # = inventario fisico propio + inventario fisico aguas abajo + en transito.
+                #
+                #   target_red    = mu_red * period_weeks + z * sigma_red * sqrt(period_weeks)
+                #   disponible_red = stock_CD_fisico + Σ stock_salas_fisico + POs_pendientes
+                #   compra_CD      = max(0, target_red - disponible_red)   (MOQ 1 vez en build CD)
+                #
+                # Netea TODO el stock (NO solo el del CD) -> evita el doble conteo que
+                # mato la rama vieja (sobre-compra ~-$78,7M, ver bloque DESACTIVADO abajo).
+                # Solo se aplica a solo_bodega CD-elegible (A/B); C-class y no-solo_bodega
+                # mantienen el diferencial pass-through ya cargado en qty_a_pedir.
+                # Se usa stock fisico (stock_real CD + stock_effective salas) y POs inbound;
+                # NO se suma stock_pedido_transfer para no contar dos veces el en-transito
+                # interno CD->sala (la unidad sigue fisica en el CD hasta validar el picking).
+                for tid, base in central_team_map.items():
+                    meta = tmpl_meta.get(tid) or {}
+                    if not bool(meta.get('solo_bodega')):
+                        continue
+
+                    abcxyz_cd = (base.get('abcxyz') or '').strip()
+                    if abcxyz_cd not in CD_ELIGIBLE_ABCXYZ:
+                        # C-class / no elegible: respeta el diferencial pass-through.
+                        continue
+
+                    # Phantom: misma direccion de compra que el resto del motor.
+                    _ph_parent = bool(kit_components_tmpl.get(tid))
+                    _ph_child  = bool(component_parent_tmpl.get(tid))
+                    if PHANTOM_PROCUREMENT_MODE == 'buy_parent_block_children' and _ph_child:
+                        base['qty_a_pedir'] = 0.0
+                        continue
+                    if PHANTOM_PROCUREMENT_MODE == 'block_parent' and _ph_parent:
+                        base['qty_a_pedir'] = 0.0
+                        continue
+
+                    # Demanda, sigma, periodo y stock fisico de salas desde TODAS las
+                    # filas-sala del SKU (no solo las con necesidad residual).
+                    mu_red = 0.0
+                    sigma_sq_red = 0.0
+                    period_weeks_sku = 0.0
+                    sala_stock_sum = 0.0
+                    for rec in records_by_tmpl.get(tid, []):
+                        mu_i = _safe_float(rec.get('mu_week'), 0.0)
+                        if mu_i > 0.0:
+                            mu_red += mu_i
+                        sig_i = _safe_float(rec.get('sigma_week'), 0.0)
+                        if sig_i > 0.0:
+                            sigma_sq_red += sig_i ** 2.0
+                        sala_stock_sum += _safe_float(rec.get('stock_effective'), 0.0)
+                        if period_weeks_sku <= 0.0:
+                            pw = _safe_float(rec.get('period_weeks'), 0.0)
+                            if pw > 0.0:
+                                period_weeks_sku = pw
+                    if period_weeks_sku <= 0.0:
+                        period_weeks_sku = PURCHASE_CYCLE_WEEKS
+
+                    if mu_red <= DEMAND_FLOOR_WEEK:
+                        # Sin demanda de red: no comprar (igual que diferencial ~0).
+                        base['qty_a_pedir'] = 0.0
+                        continue
+
+                    sigma_red = sigma_sq_red ** 0.5
+                    z_cd = _safe_float(_SAFETY_FACTOR.get(abcxyz_cd, _SAFETY_FACTOR_DEFAULT), _SAFETY_FACTOR_DEFAULT)
+                    safety_red = z_cd * max(sigma_red, 0.0) * (period_weeks_sku ** 0.5)
+                    target_red = (mu_red * period_weeks_sku) + safety_red
+
+                    # Disponible de red = fisico CD + fisico salas + POs inbound del CD.
+                    stock_cd_fisico  = _safe_float(base.get('stock_real'), 0.0)
+                    transito_inbound = _safe_float(base.get('stock_pedido_compra'), 0.0)
+                    disponible_red   = stock_cd_fisico + sala_stock_sum + transito_inbound
+
+                    qty_neta_red = max(target_red - disponible_red, 0.0)
+
+                    # Override del qty del CD (reemplaza el diferencial pass-through).
+                    # El MOQ/caja se aplica una sola vez en el build de la fila CD (3083).
+                    base['qty_a_pedir'] = qty_neta_red
+                    base['solo_bodega_cd_replenish'] = True
+                    base['cd_target_weeks']  = period_weeks_sku
+                    base['cd_target_units']  = target_red
+                    base['cd_mu_red']        = mu_red
+                    base['cd_sigma_red']     = sigma_red
+                    base['cd_safety_units']  = safety_red
+                    base['cd_z']             = z_cd
+                    base['cd_qty_neta']      = qty_neta_red
+                    base['cd_disponible_red'] = disponible_red
 
                 # ----------------------
                 # Reposicion automatica CD para solo_bodega  [DESACTIVADO 2026-06-09]
