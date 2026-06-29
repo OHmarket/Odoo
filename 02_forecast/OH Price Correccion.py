@@ -2,7 +2,7 @@
 # OH Price Correccion - Detector de cambios de precio y promos
 # ============================================================
 #
-# Version activa: v5.8 (ver CHANGELOG.md para historial completo)
+# Version activa: v6.0 (ver governance/CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Detecta cambios de precio y promos en x_price_change_event /
@@ -11,6 +11,31 @@
 #   - El motor HM SI Forecast consume el factor via
 #     _load_correccion_context y lo aplica al mu_week despues de los
 #     caps P1/P3/P6.
+#
+# v6.0 - DEMAND SENSING (solo cervezas con evento de PRECIO):
+#   - Ademas del factor, MIDE el nuevo nivel post-evento con venta diaria
+#     (canon SAP IBP / o9): nivel_medido = venta de los ultimos 7 dias
+#     completos (= MM7 x 7), agregada todas las salas, por producto.
+#   - Escribe 3 campos NUEVOS en x_price_coreccion (si existen en Studio):
+#       x_studio_nivel_medido   (float, venta semanal medida; total producto)
+#       x_studio_dias_medidos   (int, dias calendario desde el evento)
+#       x_studio_sensing_estado ('midiendo' <7 dias / 'confirmado' >=7 dias)
+#   - Gates en el detector (no necesitan baseline del motor):
+#       * vigencia: solo escribe sensing si dias_medidos <= SENSING_MAX_DAYS
+#         (~6 sem); pasado eso el SMA del motor ya absorbio el nivel.
+#       * senal: solo si nivel_medido > 0 (sin venta no hay nivel que resetear;
+#         evita forzar mu_week=0 por quiebre / producto muerto).
+#   - El detector solo MIDE. El RESET de nivel y el gating FINO (gap vs
+#     baseline) los hace el motor (lee nivel_medido y, si sensing_estado=
+#     'confirmado', reemplaza el factor multiplicativo; reparte por team y
+#     suelta cuando su baseline ya alcanzo el nivel). Ver fase1_diseno.md del
+#     proyecto 2026-06-01-demand-sensing. Validado: -13pp post-confirmacion vs
+#     produccion (gate W20-22, con bias_outlier).
+#   - DEFENSIVO: si faltan los 3 campos Studio o el pull POS falla, el
+#     sensing se omite en silencio y el detector sigue igual que v5.9.
+#   - PROXY (deuda visible): v1 NO excluye dias con quiebre del MM7 (en
+#     Fase 0 el cruce stockout fue solo validacion, no entro al computo).
+#     Refinamiento futuro: censurar dias stockout via x_stock_balance_daily.
 #
 # Reglas vivas (resumen operativo, no cronologia):
 #   - Lookback diferenciado:
@@ -36,7 +61,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = "PRICE_CORRECCION_v5_9"
+VERSION_ID = "PRICE_CORRECCION_v6_0"
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009612
@@ -59,6 +84,16 @@ LOOKBACK_PRICE_WEEKS_DEFAULT = 52
 LOOKBACK_PROMO_WEEKS_DEFAULT = 4
 # Compatibilidad retro
 LOOKBACK_WEEKS_DEFAULT = LOOKBACK_PRICE_WEEKS_DEFAULT
+
+# v6.0 Demand sensing (solo cervezas con evento de PRECIO)
+SENSING_ENABLED_DEFAULT = True
+SENSING_WINDOW_DAYS = 7          # ventana de medicion = ultimos 7 dias completos (MM7 x 7)
+SENSING_CONF_DAYS = 7            # dias calendario desde el evento para 'confirmado'
+SENSING_MAX_DAYS = 42           # vigencia: pasados ~6 sem el SMA del motor ya absorbio
+                                # el nivel; despues no se escribe sensing (vuelve al motor)
+SENSING_CATEG_LIKE = 'Cerveza'   # filtro de categoria (categ_id.complete_name ilike)
+POS_LINE_MODEL = 'pos.order.line'
+POS_DONE_STATES = ['paid', 'done', 'invoiced']
 
 # Pesos canibalizacion por importancia ABC (impacto del COMPETIDOR sobre el SKU)
 PESO_ABC = {'A': 1.0, 'B': 0.2, 'C': 0.03}
@@ -301,6 +336,7 @@ LOOKBACK_PRICE_WEEKS = int(CTX.get('lookback_price_weeks', LOOKBACK_PRICE_WEEKS_
 LOOKBACK_PROMO_WEEKS = int(CTX.get('lookback_promo_weeks', LOOKBACK_PROMO_WEEKS_DEFAULT))
 BASELINE_MIN_PROMO_PAREO = int(CTX.get('baseline_min_promo_pareo', BASELINE_MIN_PROMO_PAREO_DEFAULT))
 LIFT_PROMO_PAREO_MODERADO = float(CTX.get('lift_promo_pareo_moderado', LIFT_PROMO_PAREO_MODERADO_DEFAULT))
+SENSING_ENABLED = bool(CTX.get('sensing_enabled', SENSING_ENABLED_DEFAULT))
 
 company = env.company
 
@@ -811,11 +847,97 @@ else:
                         })
 
             # ----------------------
+            # v6.0 DEMAND SENSING: medir nivel post-evento (solo cervezas, precio)
+            # ----------------------
+            # nivel_medido = venta de los ultimos SENSING_WINDOW_DAYS dias completos
+            # (= MM7 x 7), agregada todas las salas, por producto. dias_medidos =
+            # dias calendario desde el evento. El motor lo consume y resetea el
+            # nivel cuando 'confirmado'. DEFENSIVO: si faltan los 3 campos Studio
+            # o el pull POS falla, se omite sin afectar el resto del detector.
+            sensing_by_pid = {}   # pid -> {nivel, dias, estado}
+            sensing_fields_ok = all(
+                f in corr_fields for f in
+                ('x_studio_nivel_medido', 'x_studio_dias_medidos', 'x_studio_sensing_estado')
+            )
+            if SENSING_ENABLED and sensing_fields_ok:
+                env.cr.execute('SAVEPOINT sensing_compute')
+                try:
+                    # Eventos de PRECIO (no promos): pid -> fecha de evento mas reciente
+                    evt_date_by_pid = {}
+                    for a in alertas:
+                        if a.get('source') != 'price_change':
+                            continue
+                        ed = a.get('event_date')
+                        if not ed:
+                            continue
+                        if isinstance(ed, str):
+                            ed = datetime.datetime.strptime(ed[:10], '%Y-%m-%d').date()
+                        elif isinstance(ed, datetime.datetime):
+                            ed = ed.date()
+                        prev = evt_date_by_pid.get(a['product_id'])
+                        if prev is None or ed > prev:
+                            evt_date_by_pid[a['product_id']] = ed
+
+                    # Filtrar a cervezas (categ_id.complete_name ilike 'Cerveza')
+                    cand_pids = list(evt_date_by_pid.keys())
+                    cerv_pids = set()
+                    if cand_pids:
+                        cerv_pids = set(env['product.product'].sudo().search([
+                            ('id', 'in', cand_pids),
+                            ('categ_id.complete_name', 'ilike', SENSING_CATEG_LIKE),
+                        ]).ids)
+
+                    # Venta semanal medida: 1 read_group sum(qty) en la ventana
+                    nivel_by_pid = {}
+                    if cerv_pids:
+                        win_end = today_local                       # exclusivo -> dias completos
+                        win_start = today_local - datetime.timedelta(days=SENSING_WINDOW_DAYS)
+                        grp = env[POS_LINE_MODEL].sudo().read_group(
+                            [
+                                ('order_id.date_order', '>=', win_start.strftime('%Y-%m-%d')),
+                                ('order_id.date_order', '<', win_end.strftime('%Y-%m-%d')),
+                                ('order_id.state', 'in', POS_DONE_STATES),
+                                ('product_id', 'in', list(cerv_pids)),
+                            ],
+                            ['qty:sum'],
+                            ['product_id'],
+                            lazy=False,
+                        )
+                        for g in grp:
+                            pv = g.get('product_id')
+                            pid = pv[0] if isinstance(pv, (list, tuple)) else _safe_int(pv, 0)
+                            if pid:
+                                nivel_by_pid[pid] = _safe_float(g.get('qty'), 0.0)
+
+                    for pid in cerv_pids:
+                        dias = (today_local - evt_date_by_pid[pid]).days
+                        nivel = nivel_by_pid.get(pid, 0.0)
+                        # Gate de vigencia: el ds solo aplica en la ventana post-evento
+                        # (~6 sem). Pasado eso el SMA del motor ya absorbio el nivel y
+                        # el ds solo agregaria lag -> no escribir (vuelve al motor).
+                        # Gate de senal: sin venta medida (nivel<=0) no hay nivel que
+                        # resetear (probable quiebre / producto muerto) -> dejar el
+                        # factor multiplicativo del motor, no forzar mu_week a 0.
+                        if dias > SENSING_MAX_DAYS or nivel <= 0.0:
+                            continue
+                        estado = 'confirmado' if dias >= SENSING_CONF_DAYS else 'midiendo'
+                        sensing_by_pid[pid] = {
+                            'nivel': round(nivel, 3),
+                            'dias': max(0, dias),
+                            'estado': estado,
+                        }
+                    env.cr.execute('RELEASE SAVEPOINT sensing_compute')
+                except Exception:
+                    env.cr.execute('ROLLBACK TO SAVEPOINT sensing_compute')
+                    sensing_by_pid = {}
+
+            # ----------------------
             # Persistir alertas en x_price_correccion
             # ----------------------
             batch = []
             total_created = 0
             tipo_counts = {}
+            sensing_written = 0
 
             corr_create = CorrModel.with_context(
                 tracking_disable=True,
@@ -866,6 +988,14 @@ else:
                 if 'x_studio_active' in corr_fields:
                     vals['x_studio_active'] = True
 
+                # v6.0: campos de demand sensing (solo cervezas con evento de precio)
+                s = sensing_by_pid.get(a['product_id'])
+                if s:
+                    _put_field(vals, corr_fields, 'x_studio_nivel_medido', s['nivel'])
+                    _put_field(vals, corr_fields, 'x_studio_dias_medidos', s['dias'])
+                    _put_field(vals, corr_fields, 'x_studio_sensing_estado', s['estado'], 20)
+                    sensing_written += 1
+
                 batch.append(vals)
                 if len(batch) >= 500:
                     corr_create(batch)
@@ -882,8 +1012,9 @@ else:
             tipo_summary = ','.join(['%s:%s' % (k, v) for k, v in sorted(tipo_counts.items())])
             try:
                 log(
-                    '%s | target_week=%s | purged=%s | alertas=%s | tipos=%s' % (
-                        VERSION_ID, target_week_start, purge_count, total_created, tipo_summary
+                    '%s | target_week=%s | purged=%s | alertas=%s | sensing=%s | tipos=%s' % (
+                        VERSION_ID, target_week_start, purge_count, total_created,
+                        sensing_written, tipo_summary
                     ),
                     level='info'
                 )
@@ -898,9 +1029,9 @@ else:
                 'tag': 'display_notification',
                 'params': {
                     'title': VERSION_ID,
-                    'message': 'target=%s | purged=%s | creadas=%s | %s | tipos=%s' % (
+                    'message': 'target=%s | purged=%s | creadas=%s | sensing=%s | %s | tipos=%s' % (
                         target_week_start, purge_count, total_created,
-                        diag, tipo_summary[:180]
+                        sensing_written, diag, tipo_summary[:160]
                     ),
                     'type': 'success', 'sticky': True,
                 }
