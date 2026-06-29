@@ -1,7 +1,18 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.2.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.3.1 (ver CHANGELOG.md para historial completo)
+#
+# v9.3.1 (2026-06-29): cap de cobertura SOLO en la sala surtida por CD
+#   (sala_work_weeks = min(period_weeks, MAX_COVER_WEEKS), 15d default). Los SKU
+#   con delay 30d dejan de cargar un mes en sala. NO capa la compra del CD ni la
+#   compra-directa-a-proveedor (necesitan el ciclo completo; capar ahi = quiebre).
+#
+# v9.3.0 (2026-06-29): elimina el tratamiento diferencial CD->sala. La sala
+#   surtida por CD usa period_weeks (delay = frecuencia de compra) para el stock
+#   de TRABAJO, igual que la compra a proveedor (antes forzaba sala_H=1 semana).
+#   El safety se mantiene sobre el ciclo logistico de 7d, desacoplado del horizonte
+#   de trabajo. Ver proyectos/2026-06-28-envio-periodo-fair-share/.
 #
 # v9.2.0 (2026-06-09): CD pass-through diferencial. solo_bodega: la sala SOLO
 #   transfiere desde CD; el faltante se consolida en UNA compra_cd en la fila CD
@@ -54,7 +65,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_1_87_PHANTOM_CD_REPLENISH_PADRE'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_3_1_CD_SALA_DELAY_CAP15D'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -101,6 +112,7 @@ HARD_RESET_DEFAULT = True
 PAYMENT_DAYS_DEFAULT        = 30.0
 CD_ELIGIBLE_ABCXYZ_DEFAULT  = ('AX', 'AY', 'AZ', 'BX', 'BY', 'BZ')
 PURCHASE_CYCLE_DAYS_DEFAULT = 7.0
+MAX_COVER_WEEKS_DEFAULT     = 15.0 / 7.0  # v9.3.1: cap cobertura 15d indep. del delay
 DEMAND_FLOOR_WEEK           = 1.0 / 4.345  # ~0.23
 MOQ_COVER_GUARD_DEFAULT      = 2.5
 SMART_MOQ_ROUNDING_DEFAULT    = True
@@ -640,6 +652,7 @@ DISPLAY_MIN_DEMAND_WEEK = _safe_float(CTX.get('display_min_demand_week', DISPLAY
 DISPLAY_MAX_UNITS = _safe_float(CTX.get('display_max_units', DISPLAY_MAX_UNITS_DEFAULT), DISPLAY_MAX_UNITS_DEFAULT)
 DISPLAY_PCT_TOP_CASH = _safe_float(CTX.get('display_pct_top_cash', DISPLAY_PCT_TOP_CASH_DEFAULT), DISPLAY_PCT_TOP_CASH_DEFAULT)
 TOP_CASH_WEEKLY_MIN = _safe_float(CTX.get('top_cash_weekly_min', TOP_CASH_WEEKLY_MIN_DEFAULT), TOP_CASH_WEEKLY_MIN_DEFAULT)
+MAX_COVER_WEEKS = _safe_float(CTX.get('max_cover_weeks', MAX_COVER_WEEKS_DEFAULT), MAX_COVER_WEEKS_DEFAULT)
 TOP_CASH_RANK_MAX = _safe_int(CTX.get('top_cash_rank_max', TOP_CASH_RANK_MAX_DEFAULT), TOP_CASH_RANK_MAX_DEFAULT)
 TOP_CASH_SAFETY_FACTOR = _safe_float(CTX.get('top_cash_safety_factor', TOP_CASH_SAFETY_FACTOR_DEFAULT), TOP_CASH_SAFETY_FACTOR_DEFAULT)
 
@@ -1969,13 +1982,21 @@ else:
                                 price_cash_source = kit_component_cost_source
 
                         solo_bodega = bool(meta.get('solo_bodega'))
-                        # Sala solo_bodega usa la misma regla que proveedor->CD.
-                        # Horizonte = 1 sem (CD entrega 1 vez por semana) + buffer.
-                        # Safety stock = Z * sigma * sqrt(H), Z desde _SAFETY_FACTOR por ABCXYZ.
-                        sala_H = (1.0 + CD_DELIVERY_EXTRA_WEEKS) if solo_bodega else 0.0
+                        # v9.3.0: se elimina el tratamiento diferencial CD->sala. La sala
+                        # surtida por CD usa period_weeks (delay = frecuencia de compra) para
+                        # el stock de TRABAJO, igual que la compra a proveedor (antes forzaba
+                        # 1 semana). El SAFETY se mantiene sobre el ciclo logistico (7d),
+                        # desacoplado del trabajo: target = mu * sala_work_weeks + Z*sigma*sqrt(7d).
+                        # v9.3.1: cap de cobertura SOLO aca (sala surtida por CD). El CD
+                        # refill seguido, asi que la sala no necesita cargar mas de
+                        # MAX_COVER_WEEKS (15d) aunque el delay sea 30d. NO se capa la compra
+                        # del CD ni la compra-directa-a-proveedor: esas necesitan el ciclo
+                        # completo del proveedor; capar ahi causaria quiebre.
+                        sala_work_weeks   = min(period_weeks, MAX_COVER_WEEKS) if solo_bodega else 0.0  # antes: 1.0 (regla 1 sem)
+                        sala_safety_weeks = (1.0 + CD_DELIVERY_EXTRA_WEEKS) if solo_bodega else 0.0
 
                         if solo_bodega:
-                            financial_ceiling_sku = max(1.5, sala_H * 2.0)
+                            financial_ceiling_sku = max(1.5, sala_work_weeks * 2.0)
                             payment_days_sku = PAYMENT_DAYS
                         else:
                             # Techo financiero por proveedor: si el supplier tiene
@@ -1988,13 +2009,13 @@ else:
                         if solo_bodega:
                             if mu_for_target > DEMAND_FLOOR_WEEK:
                                 z_sala = _safety_factor_for(abcxyz_efectivo, is_top_cash, is_cigarros)
-                                safety_stock_units = z_sala * max(sigma_week, 0.0) * (sala_H ** 0.5)
-                                target_units = mu_for_target * sala_H + safety_stock_units
+                                safety_stock_units = z_sala * max(sigma_week, 0.0) * (sala_safety_weeks ** 0.5)
+                                target_units = mu_for_target * sala_work_weeks + safety_stock_units
                                 reorder_target_weeks = target_units / mu_for_target
                             else:
                                 target_units = 0.0
                                 safety_stock_units = 0.0
-                                reorder_target_weeks = sala_H
+                                reorder_target_weeks = sala_work_weeks
                         elif mu_for_target > DEMAND_FLOOR_WEEK and sigma_week >= 0.0 and protection_weeks > 0.0:
                             target_units, safety_stock_units, reorder_target_weeks = _calc_target_units(
                                 abcxyz_efectivo, mu_for_target, sigma_week, protection_weeks, moq, financial_ceiling_sku, is_top_cash, is_cigarros
@@ -2157,7 +2178,7 @@ else:
                             'period_weeks': period_weeks,
                             'lead_weeks': lead_weeks,
                             'protection_weeks': protection_weeks,
-                            'sala_target_weeks': sala_H,
+                            'sala_target_weeks': sala_work_weeks,
                             'cd_delivery_extra_weeks': CD_DELIVERY_EXTRA_WEEKS if solo_bodega else 0.0,
                             'moq': moq,
                             'share_of_pool': share_of_pool,
