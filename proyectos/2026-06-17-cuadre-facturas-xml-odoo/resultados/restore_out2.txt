@@ -1,0 +1,36 @@
+lineas totales: 105 | infladas (material): 52
+
+factura            estado    lineas_infladas
+  FAC 007005       draft    5
+  FAC 007086       draft    2
+  FAC 007087       draft    3
+  FAC 007088       draft    3
+  FAC 1809791      draft    1
+  FAC 2293523      draft    4
+  FAC 2368496      posted   7
+  FAC 2368497      posted   8
+  FAC 2368498      posted   1
+  FAC 2368970      posted   6
+  FAC 2368971      posted   9
+  FAC 2368972      draft    1
+  FAC 2376293      draft    2
+
+factura        linea                            sub_actual   monto_dte
+  FAC 007088     Hazy IPA Lata 473ml               6,254,203       97440
+  FAC 007088     West Coast IPA Lata 473ml         3,752,274       72000
+  FAC 007088     Delivery Latas                      312,000      171216
+  FAC 007087     Hazy IPA Lata 473ml               6,254,203       97440
+  FAC 007087     West Coast IPA Lata 473ml         3,126,895       60000
+  FAC 007087     Delivery Latas                      312,000      142680
+  FAC 007086     West Coast IPA Lata 473ml         3,126,895       60000
+  FAC 007086     Hazy IPA Lata 473ml               6,254,203       97440
+  FAC 007005     Blonde Ale Lata 473ml             1,044,240       12000
+  FAC 007005     Irish Red Ale Lata 473ml          1,044,240       12000
+  FAC 007005     Cranberry Ale Lata 473ml          1,239,222       24000
+  FAC 007005     American Amber Ale Lata 473ml     1,566,373       18000
+  FAC 007005     Stout Lata 473ml                  3,752,546       72000
+  FAC 2368496    ALTEZACLASICA ObleaFrutilla 24x140gN1 CL      115,073        6390
+  FAC 2368496    ALTEZA Oblea Bocado 24x140g CL 24x140g      110,568        6264
+  FAC 2368496    ALTEZA Oblea Helado 24x140g CL 24x140g      120,072        6390
+  FAC 2368496    TRITON Regular Vainilla 30x116g CL 30x11      125,188        6230
+  FAC 2368496    TRITON Regular Chocolate 30x116g CL 30x1      132,280        6230

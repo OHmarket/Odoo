@@ -1,4 +1,8 @@
-# AGENTS.md - Proceso OH Market
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## AGENTS.md - Proceso OH Market
 
 Documento de referencia para Codex y asistentes tecnicos. Leer antes de tocar
 scripts productivos de OH Market.
@@ -34,6 +38,48 @@ No escribir codigo hasta cerrar estas preguntas:
 7. Que casos canonicos validaran el resultado.
 
 Si no esta claro que estamos midiendo, detenerse y volver a disenar.
+
+## Modelo de ejecucion (arquitectura tecnica)
+
+Entender esto antes de leer cualquier script:
+
+- **Los scripts productivos NO se corren localmente.** Son `ir.actions.server`
+  (Server Actions) que se pegan en Odoo y corren bajo **safe_eval** con `env`,
+  `cr`, `model`, `log` inyectados. No hay `import`, no hay `fields`, no hay
+  `getattr`/`open`. Antes de escribir o depurar uno, usar la skill
+  `odoo-server-action-safe-eval` (gotchas confirmados: usar `datetime.date.today`,
+  `.write()` en vez de `obj.attr=x`, retorno en `action`).
+- **Dos mundos en `shared/`:**
+  - `shared/*_reader.py`, `field_map.py`, `calendar_rules.py`,
+    `combo_explosion.py`, `cost_reader.py`, `odoo_safe_eval_helpers.py` son
+    **PLANTILLAS DE REFERENCIA**, no importables desde safe_eval. Se copian/pegan
+    dentro del Server Action o sirven de molde al migrar a modulo Odoo nativo.
+  - `shared/odoo_xmlrpc.py` es lo opuesto: corre **DESDE FUERA** de Odoo (tu PC)
+    via XML-RPC, **read-only** (whitelist de metodos; create/write/unlink lanzan
+    `PermissionError`). Es la via para diagnostico, inspeccion de estructura y
+    backtests locales. Se corre con `python` desde la raiz del repo; credenciales
+    en `.env` (gitignored).
+- **Odoo es PRODUCTIVO, no hay staging.** Cuidado con el COSTO de las queries:
+  usar `search_count`/`read_group`, NO `search_read` masivo (traer cientos de
+  miles de filas mata la cache del POS). Llenar modelos `x_*` con datos de
+  prueba esta OK; el riesgo es la query cara, no el dato.
+- **Campos Studio dinamicos.** Los nombres llevan prefijos `x_studio_*` y pueden
+  variar entre versiones (`detailed_type` vs `type`, `crm_team_id` vs `team_id`).
+  Inspeccionar estructura on-demand via `ir.model.fields` (search_read de
+  name/ttype/relation), nunca asumir; verificar `fields_get()['relation']` antes
+  de filtrar un Many2one.
+- **No hay build / lint / test suite.** No existe `requirements.txt`, `pytest`,
+  ni CI. La unica "prueba" es el **backtest** (`02_forecast/OH Forecast
+  Backtest.py` y la carpeta `analisis backtest/`): forecast vs venta real POS.
+  Validar = correr el backtest y comparar WAPE/BIAS/FVA en casos canonicos.
+
+## Documentacion de gobierno
+
+`governance/` contiene los contratos y formatos que un cambio debe respetar:
+`CHANGELOG.md`, `VALIDATION_CHECKLIST.md`, `IMPACT_MATRIX.md`,
+`BACKTEST_SNAPSHOT_FORMAT.md`, `HANDOFF_GUIDE.md`, `contracts/`. Consultar antes
+de promover. `SISTEMA_REABASTECIMIENTO_COMPLETO.md` (raiz) es el documento
+maestro del pipeline de reabastecimiento.
 
 ## Fase 1: Implementacion Controlada
 
@@ -96,21 +142,26 @@ El orden de ejecucion del pipeline productivo es:
 ```
 1. 01_segmentacion/  OH Calculo ABCXYZ.py          (segmentacion base)
 2. 02_forecast/      OH Price Correccion.py        (ajusta factor por precio)
-3. 02_forecast/      HM SI Forecast.py             (motor de demanda)
+3. 02_forecast/      OH Forecast Base.py           (motor de demanda; SES/SMA por forma de serie local)
 4. 03_stock/         OH Analisis de Stock.py       (calcula compra/transfer)
 5. 03_stock/         OH Generacion de Documentos.py (crea OC + traslados)
 ```
 
+Motor de demanda: desde 2026-06-03 el motor productivo es `OH Forecast Base.py`
+(v1.6). HM-SI quedo LEGACY (`_legacy/HM SI Forecast.py`). Backtests con model
+codes `hm_si_*` son del motor viejo; los `ses_*`/`sma6_*` son del motor actual.
+
 Paralelo / cron diario:
-- `03_stock/Stock Balance Daily.py` (reconstruye stock diario, incremental)
+- `03_stock/OH Quiebre de Stock.py` (detector de quiebres v3 por evidencia: la venta
+  prueba stock; insumo de de-censura para el forecast)
 - `05_finanzas/OH Presupuesto ventas.py` (recalc ayer + futuro)
 
 Validacion post-pipeline:
-- `02_forecast/OH Forecast Backtest.py` (HM-SI vs venta real POS)
+- `02_forecast/OH Forecast Backtest.py` (forecast vs venta real POS)
 
 Capas paralelas (no bloquean el pipeline):
 - `02_forecast/OH Cambio de Precio.py` (snapshot de eventos -> insumo de Price Correccion)
-- `04_analitica/` (Team, Categoria, SKU, Margen)
+- `04_analitica/` (Team, Categoria, SKU, Margen, Precios Competencia Trebol)
 - `05_finanzas/OH Flujo de Caja.py` (proyeccion 90 dias)
 
 Laboratorio (solo backtests):
@@ -127,8 +178,12 @@ Proyectos en diseno:
   script productivo se mueve al dominio correspondiente (`02_forecast/`,
   `03_stock/`, etc.) y la carpeta del proyecto queda como historial.
 
-Legacy:
-- `_legacy/OH Forecast Semanal.py` (reemplazado por HM-SI Forecast el 2026-05-13).
+Legacy (`_legacy/`, no usar — solo historial):
+- `OH Forecast Semanal.py` (reemplazado por HM-SI el 2026-05-13).
+- `HM SI Forecast.py`, `OH SMA4 Forecast.py` (reemplazados por OH Forecast Base
+  el 2026-06-03).
+- `OH Calib Factors.py`, `OH Cobertura ABCXYZ por Sala.py`, `OH Normalizacion
+  Demanda.py`.
 
 ## Checklist Rapido
 

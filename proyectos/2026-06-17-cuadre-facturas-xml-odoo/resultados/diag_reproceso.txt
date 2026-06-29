@@ -1,0 +1,15 @@
+OdooReader(url='https://www.ohmarket.cl', db='ohmarket17', uid=239) 
+
+=== account.move.line.product_id ===
+  type     = many2one
+  readonly = False
+  states   = None
+
+=== Universo reproceso: líneas producto sin product_id por state del move ===
+  posted  : 89306
+  draft   : 132
+  cancel  : 73
+
+=== Idem solo junio 2026 ===
+  posted  : 484
+  draft   : 132

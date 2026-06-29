@@ -1,0 +1,105 @@
+OdooReader(url='https://www.ohmarket.cl', db='ohmarket17', uid=239) 
+
+=== Modulos l10n_cl instalados ===
+  l10n_cl                             Chile - Accounting
+  l10n_cl_comunas_all_solid           Chilean Cities localization
+  l10n_cl_dte_pos                     Boleta / Factura Electrónica / Nota de Credito Chilena para punto de ventas     
+  l10n_cl_edi                         Chile - E-invoicing
+  l10n_cl_edi_boletas                 Chile - Electronic Receipt
+  l10n_cl_edi_pos                     Chilean module for Point of Sale
+  l10n_cl_edi_stock                   Chile - E-Invoicing Delivery Guide
+  l10n_cl_edi_stock_delivery_guide    Chile - Custom E-Invoicing Delivery Guide
+  l10n_cl_edi_stock_mods              Mods Localizacion chilena
+  l10n_cl_edi_website_sale            Chilean eCommerce
+  l10n_cl_hr                          Chilean Payroll
+  l10n_cl_hr_payroll                  Chilean Payroll salary rules
+  l10n_cl_reports                     Chile - Accounting Reports
+
+=== account.move: campos localizacion ===
+  edi_blocking_level                     selection                            | Edi Blocking Level
+  edi_document_ids                       one2many   account.edi.document      | Edi Document
+  edi_error_count                        integer                              | Edi Error Count
+  edi_error_message                      html                                 | Edi Error Message
+  edi_show_abandon_cancel_button         boolean                              | Edi Show Abandon Cancel Button
+  edi_show_cancel_button                 boolean                              | Edi Show Cancel Button
+  edi_show_force_cancel_button           boolean                              | Edi Show Force Cancel Button
+  edi_state                              selection                            | Electronic invoicing
+  edi_web_services_to_process            text                                 | Edi Web Services To Process
+  invoice_outstanding_credits_debits_widget binary                               | Invoice Outstanding Credits Debits Widget
+  l10n_cl_claim                          selection                            | Claim
+  l10n_cl_claim_description              char                                 | Claim Detail
+  l10n_cl_dte_acceptation_status         selection                            | DTE Accept status
+  l10n_cl_dte_file                       many2one   ir.attachment             | DTE file
+  l10n_cl_dte_partner_status             selection                            | Partner DTE status
+  l10n_cl_dte_status                     selection                            | SII DTE status
+  l10n_cl_journal_point_of_sale_type     selection                            | Point Of Sale Type
+  l10n_cl_reference_ids                  one2many   l10n_cl.account.invoice.reference | Reference Records
+  l10n_cl_sii_barcode                    char                                 | SII Barcode
+  l10n_cl_sii_send_file                  many2one   ir.attachment             | SII Send file
+  l10n_cl_sii_send_ident                 text                                 | SII Send Identification(Track ID)
+  l10n_latam_available_document_type_ids many2many  l10n_latam.document.type  | L10N Latam Available Document Type
+  l10n_latam_document_number             char                                 | Document Number
+  l10n_latam_document_type_id            many2one   l10n_latam.document.type  | Document Type
+  l10n_latam_document_type_id_code       char                                 | Doc Type
+  l10n_latam_internal_type               selection                            | L10n Latam Internal Type
+  l10n_latam_manual_document_number      boolean                              | Manual Number
+  l10n_latam_use_documents               boolean                              | Use Documents?
+  medium_id                              many2one   utm.medium                | Medium
+  partner_credit                         monetary                             | Partner Credit
+  partner_credit_warning                 text                                 | Partner Credit Warning
+  quick_edit_mode                        boolean                              | Quick Edit Mode
+  quick_edit_total_amount                monetary                             | Total (Tax inc.)
+
+=== account.move (in_invoice) ===
+  total in_invoice: 61725
+
+=== Muestra 3 facturas de compra (campos que existen) ===
+  campos pedidos presentes: ['name', 'move_type', 'state', 'partner_id', 'amount_total', 'amount_untaxed', 'amount_tax', 'l10n_latam_document_type_id', 'l10n_latam_document_number', 'l10n_cl_dte_status', 'l10n_cl_dte_acceptation_status', 'edi_state', 'invoice_date']
+  ---
+    name                               = FAC 003564
+    move_type                          = in_invoice
+    state                              = draft
+    partner_id                         = [14333, '76853601-5 COMERCIAL TIGO LIMITADA']
+    amount_total                       = 188283.0
+    amount_untaxed                     = 158221.0
+    amount_tax                         = 30062.0
+    l10n_latam_document_type_id        = [1, '(33) Electronic Invoice']
+    l10n_latam_document_number         = 003564
+    l10n_cl_dte_status                 = False
+    l10n_cl_dte_acceptation_status     = ack_sent
+    edi_state                          = False
+    invoice_date                       = 2026-06-17
+  ---
+    name                               = FAC 103835524
+    move_type                          = in_invoice
+    state                              = draft
+    partner_id                         = [306, '93281000-K COCA-COLA EMBONOR S.A.']
+    amount_total                       = 2389.0
+    amount_untaxed                     = 1780.0
+    amount_tax                         = 609.0
+    l10n_latam_document_type_id        = [1, '(33) Electronic Invoice']
+    l10n_latam_document_number         = 103835524
+    l10n_cl_dte_status                 = False
+    l10n_cl_dte_acceptation_status     = ack_sent
+    edi_state                          = False
+    invoice_date                       = 2026-06-17
+  ---
+    name                               = FAC 17263580
+    move_type                          = in_invoice
+    state                              = draft
+    partner_id                         = [301, '88502900-0 BAT CHILE S.A.']
+    amount_total                       = 349030.0
+    amount_untaxed                     = 222313.0
+    amount_tax                         = 126717.0
+    l10n_latam_document_type_id        = [1, '(33) Electronic Invoice']
+    l10n_latam_document_number         = 17263580
+    l10n_cl_dte_status                 = False
+    l10n_cl_dte_acceptation_status     = ack_sent
+    edi_state                          = False
+    invoice_date                       = 2026-06-17
+
+=== ir.attachment XML/DTE ===
+  attachments name~DTE: 3898777 | name~.xml: 10365297
+  modelo l10n_cl.rcv               NO accesible: Fault
+  modelo l10n_cl.daily.book        NO accesible: Fault
+  modelo account.move              accesible, count=17638494

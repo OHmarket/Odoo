@@ -1,0 +1,36 @@
+OdooReader(url='https://www.ohmarket.cl', db='ohmarket17', uid=239) 
+
+=== in_invoice JUNIO 2026: 431 facturas ===
+
+--- por state ---
+  draft    count=   77 monto=32,047,966
+  posted   count=  354 monto=128,489,674
+
+--- XML del DTE ---
+  con l10n_cl_dte_file: 429 | sin: 2
+
+--- acuse SII ---
+  ack_sent       count=  421
+  received       count=    8
+  False          count=    2
+
+--- tipos doc ---
+  [1, '(33) Electronic Invoice']             count=  428
+  [2, '(34) Unaffected or Exempt Electronic Invoice'] count=    3
+
+--- proveedores top (por monto) ---
+  [269, '76021267-9 DISTRIBUIDORA DIANSE LIMITADA'] count=   4 monto=379,529
+  [691, '76052927-3 AUTOPISTA VESPUCIO SUR S.A.'] count=   1 monto=44
+  [530, '76073162-5 SOCIEDAD AUSTRAL DE ELECTRICIDAD S.A.'] count=   2 monto=1,367,916
+  [277, '76215428-5 TRANSPORTES CESAR ALEJANDRO ASENJO ROSAS EIRL'] count=   1 monto=2,879,800
+  [590, '76390094-0 SOCIEDAD COMERCIAL BELEN SPA'] count=   1 monto=2,153,599
+  [282, '76484106-9 NORKOSHE']                  count=  17 monto=1,610,625
+  [12320, '76516950-K Mercado Pago Operadora S.A.'] count=   1 monto=3,356,990
+  [600, '76564480-1 INMOBILIARIA E INVERSIONES LILY'] count=   1 monto=2,729,322
+  [283, '76587754-7 INMOBILIARIA E INVERSIONES FUTRONO SPA'] count=   1 monto=897,941
+  [558, '76691442-K BUK SPA']                   count=   1 monto=360,647
+  [286, '76706610-4 COMERCIAL HAMBURGO LTDA.']  count=  15 monto=1,670,074
+  [14333, '76853601-5 COMERCIAL TIGO LIMITADA'] count=   1 monto=188,283
+
+--- hueco SKU en lineas de junio ---
+  lineas producto: 2760 | sin product_id: 616 (22.3%)

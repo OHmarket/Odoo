@@ -1,0 +1,13 @@
+BAT 2026: 522 facturas | codigos distintos: 135
+  en maestro: 21 | faltan: 114
+  imp adicional (CodImpAdic) por codigo: {'14': 95, '': 40}
+
+codigo       imp    mae  nombre
+Traceback (most recent call last):
+  File "D:\Desarrollo\Odoo\proyectos\2026-06-17-cuadre-facturas-xml-odoo\diag_bat_codigos.py", line 123, in <module>
+    main()
+    ~~~~^^
+  File "D:\Desarrollo\Odoo\proyectos\2026-06-17-cuadre-facturas-xml-odoo\diag_bat_codigos.py", line 119, in main
+    print(f"  {r['codigo']:12} {r['cod_imp_adic']:6} {r['existe_maestro']:4} {r['nombre'][:44]}")
+               ~^^^^^^^^^^
+KeyError: 'codigo'

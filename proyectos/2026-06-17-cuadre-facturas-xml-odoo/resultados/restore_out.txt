@@ -1,0 +1,48 @@
+lineas totales: 105 | infladas a restaurar: 72
+
+estado por factura:
+  FAC 007005       draft
+  FAC 007086       draft
+  FAC 007087       draft
+  FAC 007088       draft
+  FAC 1809791      draft
+  FAC 2293523      draft
+  FAC 2368496      posted
+  FAC 2368497      posted
+  FAC 2368498      posted
+  FAC 2368970      posted
+  FAC 2368971      posted
+  FAC 2368972      draft
+  FAC 2376293      draft
+
+factura        linea                             price_act  price_dte
+  FAC 007088     Hazy IPA Lata 473ml                  26,059        406
+  FAC 007088     West Coast IPA Lata 473ml            26,057        500
+  FAC 007088     Delivery Latas                        1,300       1189
+  FAC 007087     Hazy IPA Lata 473ml                  26,059        406
+  FAC 007087     West Coast IPA Lata 473ml            26,057        500
+  FAC 007087     Delivery Latas                        1,300       1189
+  FAC 007086     West Coast IPA Lata 473ml            26,057        500
+  FAC 007086     Hazy IPA Lata 473ml                  26,059        406
+  FAC 007086     Delivery Latas                        1,189       1300
+  FAC 007005     Blonde Ale Lata 473ml                21,755        250
+  FAC 007005     Irish Red Ale Lata 473ml             21,755        250
+  FAC 007005     Cranberry Ale Lata 473ml             25,817        500
+  FAC 007005     American Amber Ale Lata 473ml        21,755        250
+  FAC 007005     Stout Lata 473ml                     26,059        500
+  FAC 2368496    ALTEZACLASICA ObleaFrutilla 24x140gN1 CL     19,179       1065
+  FAC 2368496    ALTEZA Oblea Bocado 24x140g CL 24x140g     18,428       1044
+  FAC 2368496    ALTEZA Oblea Helado 24x140g CL 24x140g     20,012       1065
+  FAC 2368496    TRITON Regular Vainilla 30x116g CL 30x11     12,519        623
+  FAC 2368496    TRITON Regular Chocolate 30x116g CL 30x1     13,228        623
+  FAC 2368496    CAPRI Frutilla Fondant Bar  6(24x30g)      6,244       7576
+  FAC 2368496    CAPRI Almendra Fondant Bar ra 6(24x30g      6,243       7576
+  FAC 2368496    TRENCITO Galleta Cubierta 40x130g CL     40,731       1127
+  FAC 2368496    CAPRI Trufa 20x90g CL 20x90g            848       1072
+  FAC 2368496    Galleta KUKY ChipChipers Chocolate Blanc     18,664       1270
+  FAC 2368497    ALTEZA Oblea ChocoVainilla 24x140g CL 24        878       1044
+  FAC 2368497    Galleta chip KUKY ChipChipers 20 x 190gr     17,800       1270
+  FAC 2368497    TRENCITO Chocolate Barra 14x150g N2 CL 1     24,877       2470
+  FAC 2368497    Chocolate SAHNE NUSS Barra 15 x 250 GRS      3,352       4480
+  FAC 2368497    Galleta chip KUKY Clasica 30  x 120 GRM     19,831        882
+  FAC 2368497    Galleta chip KUKY Chocolate 30 x 120 GRM     18,553        882

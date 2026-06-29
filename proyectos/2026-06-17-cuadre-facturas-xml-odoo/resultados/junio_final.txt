@@ -1,0 +1,8 @@
+moves junio: 441
+adjuntos: 439 | lineas: 2833
+por color: {'rojo': 128, 'amarillo': 219, 'verde': 94}
+no_contabilizado: 85 | sin_xml: 2
+descuadre_total: 126 | impuesto_mal: 6
+sin_sku (facturas mercaderia): 208 | lineas: 284
+flete/transporte en 210230 (no error): 42
+facturas con proveedor SIN tipo cargado: 2

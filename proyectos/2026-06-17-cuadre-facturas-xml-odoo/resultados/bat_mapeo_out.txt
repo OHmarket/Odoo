@@ -1,0 +1,29 @@
+universo tabaco: 223 productos en 5 categorias
+match: {'barcode': 90, 'nombre': 7, 'sin_match': 38}
+
+cod_bat    ->dc       modo         nombre_dte / interno
+  10209274   78012523   barcode      2523 Pall Mall Azul SC20s  | PALL MALL AZUL 20 BLANDO
+  10209277   10138154   barcode      9324 LS SinAditivos Blu 20 | CIGARRILLO LUCKY STRIKE PATT
+  10209285   10102124   barcode      8853 Pall Mall Azul 10s    | PALL MALL AZUL 10
+  10213944   10107101   barcode      5219 Kent Neo Ikon DS90 20 | CIGARRILLO KENT NEO IKON MIX
+  10209321   10168963   barcode      8791 LS Compact Click 20s  | CIGARRILLO LUCKY STRIKE COMP
+  10209297   10159647   barcode      8043 Pall Mall Azul XL 20s | CIGARRILLO PALL MALL AZUL XL
+  10209266   10091121   barcode      5059 Pall Mall Boost XL 20 | PALL MALL BOOST XL 20
+  10214282   10107016   barcode      6438 Kent Neo Tropic DS90  | KENT NEO TROPIC 20
+  10209300   10177120   barcode      9071 Pall Mall Sunrise XL2 | CIGARRILLO PALL MALL SUNRISE
+  10209292   10106938   barcode      6384 Kent Neo B2K Azul 20s | KENT NEO BELMONT 20
+  10209314   10119781   barcode      5035 Pall Mall Clic On XL2 | PALL MALL CLICK ON XL 20
+  10214360   10107043   barcode      6414 Kent Neo Rose DS90 20 | KENT NEO ROSE 20
+  10209283   10102304   barcode      9065 Pall Mall Boost 10s   | PALL MALL BOOST 10
+  10206437   10107161   barcode      4878 Lucky Strike Click Fr | CIGARRILLO LUCKY STRIKE CLIC
+  10209270   10102204   barcode      2578 Pall Mall Rojo SC20s  | PALL MALL ROJO 20 BLANDO
+  10206504   10189131   barcode      0442 Lucky Strike Eclipse2 | CIGARRILLO LUCKY STRIKE ECLI
+  10209269   10116575   barcode      1020 Kent Neo B2K Azul 10s | KENT NEO BELMONT 10
+  10206445   10107253   barcode      4892 Lucky Crush HL20      | LUCKY STRIKE SHARP CRUSH 20
+  10209296   10102361   barcode      9041 Pall Mall Click On 10 | PALL MALL CLICK ON 10
+  10206059   10089420   barcode      5332 Kent Silver UP 20s    | KENT SILVER UP 20
+  10234398   10234398   barcode      1678 VUSE GO 1K Berry Blen | VAPE VUSE GO BERRY BLEND 1K 
+  10206091   10089581   barcode      5288 Kent White UP 20 LEP  | KENT WHITE UP 20
+  10209290   10116457   barcode      8074 Lucky Strike Blue 20s | CIGARRILLO LUCKY STRIKE BLUE
+  10206444   10076494   barcode      4717 Lucky Strike Wild 20  | LUCKY STRIKE PURPLE WILD 20
+  10215542   10089440   barcode      5318 Kent Boost Up 20s     | KENT BOOST UP 20
