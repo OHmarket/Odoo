@@ -143,6 +143,17 @@ NO_CD_PARENT_CATEGORY_IDS_DEFAULT = [1715, 1716, 1717, 1718, 1719, 1653]
 
 # Politica de exhibicion + top caja
 # Reserva comercial que se suma al target operativo (no a la demanda).
+#
+# ── Piso de exhibicion (presentation stock) — ADITIVO ────────────────────────
+# stock_minimo se SUMA al target (no es max): siempre aumenta el stock en sala.
+# Solo rotadores (demanda_semanal > umbral); PRESENTATION_DIAS de cobertura;
+# redondeo a packs (multiplos de PRESENTATION_PACK; lo menor a un pack pero >0 -> 3).
+# Reemplaza la politica DISPLAY_* por % (queda apagada). Canon: Oracle presentation stock.
+PRESENTATION_ENABLED    = True
+PRESENTATION_DIAS       = 3.0
+PRESENTATION_UMBRAL_SEM = 3.0
+PRESENTATION_PACK       = 6
+#
 DISPLAY_STOCK_ENABLED_DEFAULT = False
 DISPLAY_MIN_DEMAND_WEEK_DEFAULT = 1.0
 DISPLAY_MAX_UNITS_DEFAULT = 6.0
@@ -175,9 +186,9 @@ PHANTOM_COST_SOURCE_DEFAULT = 'product_first'
 PHANTOM_PROCUREMENT_MODE_DEFAULT = 'buy_parent_block_children'  # block_parent | allow_parent | buy_parent_block_children
 
 _SAFETY_FACTOR = {
-    'AX': 1.95, 'BX': 1.68,   # 2026-06-22: subido (mas servicio en A-X de alto volumen)
-    'AY': 1.68, 'BY': 1.28,   # 2026-06-22: subido
-    'AZ': 1.28, 'BZ': 0.35,   # 2026-06-22: subido
+    'AX': 1.95, 'BX': 1.96,   # 2026-06-22: subido (mas servicio en A-X de alto volumen)
+    'AY': 1.95, 'BY': 1.28,   # 2026-06-22: subido
+    'AZ': 1.68, 'BZ': 0.35,   # 2026-06-22: subido
     'CX': 0.84, 'CY': 0.35,   # 2026-06-02: bajado de 0.52 (sobre-protegido)
     'CZ': 0.0,
 }
@@ -283,14 +294,24 @@ def _display_pct_for(abcxyz, is_top_cash=False, is_cigarros=False):
 
 
 def _calc_display_stock_units(abcxyz, mu_week, is_top_cash=False, is_cigarros=False):
-    mu = max(_safe_float(mu_week, 0.0), 0.0)
-    if (not DISPLAY_STOCK_ENABLED) or mu < DISPLAY_MIN_DEMAND_WEEK:
+    # Piso de exhibicion (presentation stock), ADITIVO. mu_week aqui = demanda_semanal
+    # (ver call site). Solo rotadores (demanda > umbral); cigarros excluidos.
+    #   raw = ceil(PRESENTATION_DIAS/7 * demanda)
+    #   raw >= pack -> multiplo de pack mas cercano ; 0 < raw < pack -> 3 ; raw 0 -> 0
+    if (not PRESENTATION_ENABLED) or is_cigarros:
         return 0.0
-    pct = _display_pct_for(abcxyz, is_top_cash, is_cigarros)
-    units = mu * pct
-    if DISPLAY_MAX_UNITS > 0.0:
-        units = min(units, DISPLAY_MAX_UNITS)
-    return max(units, 0.0)
+    mu = max(_safe_float(mu_week, 0.0), 0.0)
+    if mu <= PRESENTATION_UMBRAL_SEM:
+        return 0.0
+    raw_f = PRESENTATION_DIAS / 7.0 * mu
+    raw = int(raw_f)
+    if raw_f > raw:                      # ceil sin math
+        raw = raw + 1
+    if raw <= 0:
+        return 0.0
+    if raw < PRESENTATION_PACK:          # menor a un pack -> media presencia
+        return 3.0
+    return float(int(round(float(raw) / float(PRESENTATION_PACK))) * PRESENTATION_PACK)
 
 
 def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceiling_weeks, is_top_cash=False, is_cigarros=False):
@@ -1986,10 +2007,11 @@ else:
                             reorder_target_weeks = (target_units / demanda_semanal if demanda_semanal > DEMAND_FLOOR_WEEK else H_fb)
                             reorder_target_weeks = _clamp(reorder_target_weeks, 0.0, financial_ceiling_sku)
 
-                        # Reserva comercial de exhibicion.
-                        # No es demanda adicional; es stock que no queremos consumir antes de reponer.
+                        # Piso de exhibicion (presentation stock) -- ADITIVO.
+                        # Se SUMA al target operativo y es reserva no consumible (ver _smart_moq).
+                        # Gate sobre demanda_semanal (no mu_for_target) para calzar con la regla.
                         target_units_stat = target_units
-                        display_stock_units = _calc_display_stock_units(abcxyz, mu_for_target, is_top_cash, is_cigarros)
+                        display_stock_units = _calc_display_stock_units(abcxyz, demanda_semanal, is_top_cash, is_cigarros)
                         if display_stock_units > 0.0:
                             target_units = target_units + display_stock_units
                             if mu_for_target > DEMAND_FLOOR_WEEK:
@@ -2594,6 +2616,7 @@ else:
                     sigma_sq_red = 0.0
                     period_weeks_sku = 0.0
                     sala_stock_sum = 0.0
+                    piso_red = 0.0
                     for rec in records_by_tmpl.get(tid, []):
                         mu_i = _safe_float(rec.get('mu_week'), 0.0)
                         if mu_i > 0.0:
@@ -2602,6 +2625,7 @@ else:
                         if sig_i > 0.0:
                             sigma_sq_red += sig_i ** 2.0
                         sala_stock_sum += _safe_float(rec.get('stock_effective'), 0.0)
+                        piso_red += _safe_float(rec.get('display_stock_units'), 0.0)
                         if period_weeks_sku <= 0.0:
                             pw = _safe_float(rec.get('period_weeks'), 0.0)
                             if pw > 0.0:
@@ -2617,7 +2641,9 @@ else:
                     sigma_red = sigma_sq_red ** 0.5
                     z_cd = _safe_float(_SAFETY_FACTOR.get(abcxyz_cd, _SAFETY_FACTOR_DEFAULT), _SAFETY_FACTOR_DEFAULT)
                     safety_red = z_cd * max(sigma_red, 0.0) * (period_weeks_sku ** 0.5)
-                    target_red = (mu_red * period_weeks_sku) + safety_red
+                    # + piso de exhibicion (presentation stock) sumado de las salas, para
+                    # que el CD efectivamente compre el piso de los rotadores solo_bodega.
+                    target_red = (mu_red * period_weeks_sku) + safety_red + piso_red
 
                     # Disponible de red = fisico CD + fisico salas + POs inbound del CD.
                     stock_cd_fisico  = _safe_float(base.get('stock_real'), 0.0)
@@ -3089,6 +3115,7 @@ else:
                         'x_studio_target_units':               target_units,
                         'x_studio_target_stat_units':          _safe_float(rec.get('target_units_stat'), 0.0),
                         'x_studio_display_stock_units':        _safe_float(rec.get('display_stock_units'), 0.0),
+                        'x_studio_stock_minimo':               _safe_float(rec.get('display_stock_units'), 0.0),
                         'x_studio_is_top_cash':                bool(rec.get('is_top_cash')),
                         'x_studio_safety_factor_used':         _safe_float(rec.get('safety_factor_used'), 0.0),
                         'x_studio_venta_bruta_week_est_raw':   _safe_float(rec.get('venta_bruta_week_est_raw'), 0.0),
