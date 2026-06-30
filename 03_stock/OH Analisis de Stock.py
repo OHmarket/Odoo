@@ -1,7 +1,16 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.3.1 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.4.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.4.0 (2026-06-29): Fair Share Rule C (run-out leveling) en el reparto CD->salas.
+#   Cuando stock_CD < Sigma need_salas, reparte igualando dias de cobertura
+#   (water-filling) en vez de servir en cascada por prioridad (que vaciaba el CD
+#   en las primeras salas y dejaba la cola en 0). Helper _runout_level_alloc:
+#   busca el nivel comun de cobertura L tal que Sigma clamp(d*(L-c),0,need)=stock_CD,
+#   reparte enteros por mayor resto (desempate por _priority_tuple). Cap por sala =
+#   need (no supera su target). Invariante: sin escasez cada sala recibe su need
+#   completo. Canon DRP SAP APO Rule C. Ver proyectos/2026-06-29-fair-share-cd-salas/
 #
 # v9.3.1 (2026-06-29): cap de cobertura SOLO en la sala surtida por CD
 #   (sala_work_weeks = min(period_weeks, MAX_COVER_WEEKS), 15d default). Los SKU
@@ -65,7 +74,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_3_1_CD_SALA_DELAY_CAP15D'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_4_0_FAIR_SHARE_RUNOUT_LEVELING'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -620,6 +629,97 @@ def _priority_tuple(rec):
         -gap_target,
         team_id,
     )
+
+
+def _runout_level_alloc(arr_sorted, available):
+    # Fair Share Rule C: igualar dias de cobertura (run-out leveling / water-filling).
+    # Reparte el stock fisico del CD para llevar a todas las salas a la MISMA
+    # cobertura post-transfer (semanas), priorizando las de menor cobertura. Cap
+    # por sala = need (no sube por encima de su target). Canon DRP: SAP APO Fair
+    # Share Rule C / Oracle RDF / Blue Yonder. Ver proyectos/2026-06-29-fair-share-cd-salas/
+    #
+    # Base por sala: s_i = stock_proyectado (incluye inbound pendiente, coherente
+    # con need = target_units - stock_proyectado), d_i = max(demanda_semanal,
+    # DEMAND_FLOOR_WEEK), need_i = qty_neta_pre_central.
+    #   c_i = s_i / d_i (cobertura actual)   t_i = c_i + need_i/d_i (cobertura target)
+    # Se busca el nivel comun L tal que  Sigma clamp(d_i*(L-c_i), 0, need_i) = avail.
+    n = len(arr_sorted)
+    needs = []
+    deff  = []
+    cov   = []
+    alloc = []
+    total_need = 0.0
+    hi = 0.0
+    for i in range(n):
+        r  = arr_sorted[i]
+        nd = _round_units(_safe_float(r.get('qty_neta_pre_central'), 0.0))
+        di = max(_safe_float(r.get('demanda_semanal'), 0.0), DEMAND_FLOOR_WEEK)
+        si = max(_safe_float(r.get('stock_proyectado'), 0.0), 0.0)
+        ci = si / di
+        ti = ci + (nd / di)
+        needs.append(nd)
+        deff.append(di)
+        cov.append(ci)
+        alloc.append(0.0)
+        total_need += nd
+        if ti > hi:
+            hi = ti
+    avail = _round_units(available)
+    if avail <= 0.0 or total_need <= 0.0:
+        return alloc
+    if avail >= total_need:
+        return needs          # sin escasez: cada sala recibe su need completo
+
+    # busqueda binaria del nivel comun L (water-filling)
+    lo = 0.0
+    for _it in range(60):
+        mid = (lo + hi) / 2.0
+        tot = 0.0
+        for i in range(n):
+            t = deff[i] * (mid - cov[i])
+            if t < 0.0:
+                t = 0.0
+            elif t > needs[i]:
+                t = needs[i]
+            tot += t
+        if tot > avail:
+            hi = mid
+        else:
+            lo = mid
+    L = lo
+
+    # transfer continuo en L -> enteros por mayor resto (Hamilton), cap = need
+    assigned = 0.0
+    rema = []
+    for i in range(n):
+        t = deff[i] * (L - cov[i])
+        if t < 0.0:
+            t = 0.0
+        elif t > needs[i]:
+            t = needs[i]
+        base = float(int(t))
+        if base > needs[i]:
+            base = needs[i]
+        alloc[i] = base
+        assigned += base
+        rema.append((-(t - base), i))   # -resto: orden asc = mayor resto primero
+
+    leftover = int(avail - assigned + 0.5)
+    if leftover > 0:
+        rema = sorted(rema)              # desempate por indice = _priority_tuple
+        k = 0
+        while leftover > 0 and k < n:
+            idx = rema[k][1]
+            if alloc[idx] < needs[idx]:
+                alloc[idx] += 1.0
+                leftover -= 1
+            k += 1
+        if leftover > 0:                 # 2a pasada por prioridad si quedaron caps
+            for i in range(n):
+                while leftover > 0 and alloc[i] < needs[i]:
+                    alloc[i] += 1.0
+                    leftover -= 1
+    return alloc
 
 
 # ----------------------
@@ -2313,17 +2413,16 @@ else:
                     if CENTRAL_RESERVE_PCT > 0.0 and available > 0.0:
                         available = max(available * (1.0 - CENTRAL_RESERVE_PCT), 0.0)
                     arr_sorted = sorted(arr, key=_priority_tuple)
+                    # v9.4.0: Fair Share Rule C (run-out leveling). Bajo escasez
+                    # (stock_CD < Sigma need) reparte igualando dias de cobertura en
+                    # vez de servir en cascada por prioridad (que dejaba la cola en 0).
+                    # Si no hay escasez, devuelve el need completo de cada sala.
+                    fs_alloc = _runout_level_alloc(arr_sorted, available)
+                    _fs_i = 0
                     for rec in arr_sorted:
                         need = _safe_float(rec.get('qty_neta_pre_central'), 0.0)
-                        need_units = _round_units(need)
-                        available_units = _round_units(available)
-                        if available_units > 0.0 and need_units > 0.0:
-                            transfer_qty = min(need_units, available_units)
-                        else:
-                            transfer_qty = 0.0
-                        available -= transfer_qty
-                        if available < 0.0:
-                            available = 0.0
+                        transfer_qty = fs_alloc[_fs_i] if _fs_i < len(fs_alloc) else 0.0
+                        _fs_i += 1
                         rec['transfer_qty'] = transfer_qty
                         if transfer_qty > 0.0:
                             central_alloc_units += transfer_qty
