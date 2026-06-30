@@ -1,7 +1,14 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.6.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.6.1 (ver CHANGELOG.md para historial completo)
+#
+# v9.6.1 (2026-06-30): persiste el lote de cola larga (order-up-to ~30d) en
+#   x_studio_stock_minimo para los SKU gated (antes 0; el display no aplica a mu<=3).
+#   Logica comun: el campo guarda el piso de exhibicion (rotadores) o el lote mensual
+#   (cola larga). Es valor de reporte (output), NO se re-suma al target en este script.
+#   PRECAUCION: si algun orderpoint nativo de Odoo lee x_studio_stock_minimo, ahora veria
+#   el lote -> revisar antes de asumir que es inocuo.
 #
 # v9.6.0 (2026-06-30): cola larga -> lote minimo (s,S) por caja autofinanciada en el
 #   traslado CD->sala. Para SKU solo_bodega con mu_for_target <= COLA_UMBRAL_WEEK (3/sem):
@@ -2214,7 +2221,8 @@ else:
                         # Solo solo_bodega y mu <= umbral. Order-up-to = caja/fraccion ~mensual;
                         # el gate por ROP (mas abajo) evita el goteo semanal. Ver
                         # proyectos/2026-06-30-cola-larga-lote-caja/diseno.md
-                        cola_larga_rop = None
+                        cola_larga_rop  = None
+                        cola_larga_lote = 0.0   # v9.6.1: lote de cola larga -> se persiste en x_studio_stock_minimo (0 si no aplica)
                         if solo_bodega and DEMAND_FLOOR_WEEK < mu_for_target <= COLA_UMBRAL_WEEK:
                             _cl_S, _cl_rop = _calc_cola_larga_lote(
                                 mu_for_target, moq, lead_weeks,
@@ -2224,6 +2232,7 @@ else:
                                 safety_stock_units   = 0.0
                                 reorder_target_weeks = _cl_S / mu_for_target
                                 cola_larga_rop       = _cl_rop
+                                cola_larga_lote      = _cl_S
 
                         # Piso de exhibicion (presentation stock) -- ADITIVO.
                         # Se SUMA al target operativo y es reserva no consumible (ver _smart_moq).
@@ -2419,6 +2428,7 @@ else:
                             'target_units': target_units,
                             'target_units_stat': target_units_stat,
                             'display_stock_units': display_stock_units,
+                            'cola_larga_lote': cola_larga_lote,
                             'is_top_cash': is_top_cash,
                             'is_cigarros': is_cigarros,
                             'venta_bruta_week_est_raw': _venta_bruta_week_est_raw,
@@ -3351,7 +3361,7 @@ else:
                         'x_studio_target_units':               target_units,
                         'x_studio_target_stat_units':          _safe_float(rec.get('target_units_stat'), 0.0),
                         'x_studio_display_stock_units':        _safe_float(rec.get('display_stock_units'), 0.0),
-                        'x_studio_stock_minimo':               _safe_float(rec.get('display_stock_units'), 0.0),
+                        'x_studio_stock_minimo':               (_safe_float(rec.get('cola_larga_lote'), 0.0) or _safe_float(rec.get('display_stock_units'), 0.0)),
                         'x_studio_is_top_cash':                bool(rec.get('is_top_cash')),
                         'x_studio_safety_factor_used':         _safe_float(rec.get('safety_factor_used'), 0.0),
                         'x_studio_venta_bruta_week_est_raw':   _safe_float(rec.get('venta_bruta_week_est_raw'), 0.0),
