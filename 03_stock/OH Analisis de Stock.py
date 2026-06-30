@@ -2970,6 +2970,14 @@ else:
                         qty_a_pedir  = 0.0
                         transfer_qty = 0.0
 
+                    # Invariante x_studio_qty_transferir: el campo SOLO debe cargar
+                    # acciones de traslado (CD->sala 'transferir_desde_cd' o sala->CD
+                    # retorno). En cualquier otra accion queda en 0; asi no infla las
+                    # sumas crudas del campo ni deja residuo que Generacion de
+                    # Documentos (que filtra por buy_action) jamas consume.
+                    if buy_action not in ('transferir_desde_cd', RETURN_TO_CD_ACTION_SAFE):
+                        transfer_qty = 0.0
+
                     transfer_qty = _round_units(transfer_qty)
                     qty_a_pedir  = _ceil_units(qty_a_pedir)
                     qty_retorno_cd = _round_units(qty_retorno_cd)
@@ -3340,6 +3348,12 @@ else:
                     venta_bruta_estimada = _safe_float(c.get('venta_bruta_estimada'), 0.0)
                     buy_action = 'compra_cd' if qty_a_pedir > 0.0 else 'no_comprar_esta_semana'
                     supply_source = 'buy_only' if qty_a_pedir > 0.0 else 'no_action'
+                    # Invariante x_studio_qty_transferir (ver fila sala): la pseudo-fila
+                    # CD nunca es accion de traslado (siempre compra_cd / no_comprar). El
+                    # despacho a salas ya vive en las filas transferir_desde_cd de cada
+                    # sala; dejar el agregado aqui doble-contaba al sumar el campo crudo.
+                    if buy_action not in ('transferir_desde_cd', RETURN_TO_CD_ACTION_SAFE):
+                        qty_transferir = 0.0
                     decision_reason_full = 'central_team=1 | team_id=%s | cd_stock=1 | cd_pedido_total=%s | cd_proyectado=%s' % (
                         CENTRAL_TEAM_ID,
                         round(stock_pedido_total, 2),
