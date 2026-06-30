@@ -1,8 +1,21 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.5.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.6.0 (ver CHANGELOG.md para historial completo)
 #
+# v9.6.0 (2026-06-30): cola larga -> lote minimo (s,S) por caja autofinanciada en el
+#   traslado CD->sala. Para SKU solo_bodega con mu_for_target <= COLA_UMBRAL_WEEK (3/sem):
+#   order-up-to S por 3 vias: (a) caja rinde 30-45d (COLA_OBJETIVO_DIAS..COLA_PLAZO_PAGO_DIAS,
+#   ~1 mes y autofinanciada) -> CAJA LIMPIA S=moq; (b) caja chica (<30d) -> CAJA+UNIDADES,
+#   S = floor(mu*30/7)+piso (sube a ~1 mes con sueltas, el traslado interno fracciona);
+#   (c) cola profunda (>45d) -> FRACCION S = floor(mu*30/7)+piso. El ciclo mensual va SOBRE
+#   el piso de presencia (ROP), no incluyendolo -> ciclo real (S-ROP)/mu ~= 30d (medido:
+#   target de cobertura 94% en 4-6 sem, goteo <7d y band <4 sem eliminados). ROP
+#   = mu*lead + presencia (~1u); el traslado se suprime mientras stock > ROP -> drena el
+#   lote antes de reponer (cadencia ~mensual emergente por local, elimina el goteo de 1u/sem).
+#   El pack solo ata la compra; el traslado interno fracciona. No toca compra a proveedor ni
+#   fair-share. PROXY: plazo de pago global. Tuneable: cola_umbral_week, cola_objetivo_dias,
+#   cola_plazo_pago_dias, cola_piso_unidades. Ver proyectos/2026-06-30-cola-larga-lote-caja/
 # v9.5.0 (2026-06-30): clasificacion de cobertura CANONICA (SAP Range of Coverage /
 #   Oracle Days of Cover), anclada al TARGET PLANIFICADO, no al techo financiero.
 #   _cover_label ahora: critico < 3d (piso absoluto), bajo < 50% C, normal 50%-100% C,
@@ -188,6 +201,14 @@ PRESENTATION_ENABLED    = True
 PRESENTATION_DIAS       = 3.0
 PRESENTATION_UMBRAL_SEM = 3.0
 PRESENTATION_PACK       = 6
+
+# Politica de cola larga (CD->sala): lote minimo (s,S) por caja autofinanciada.
+# Completa hacia abajo la curva de minimos (presentacion solo cubre mu>3/sem).
+# Ver proyectos/2026-06-30-cola-larga-lote-caja/diseno.md
+COLA_UMBRAL_WEEK_DEFAULT     = 3.0     # gate: mu_for_target <= umbral entra a la politica
+COLA_OBJETIVO_DIAS_DEFAULT   = 30.0    # cobertura objetivo del lote (1 mes); dimensiona la fraccion
+COLA_PLAZO_PAGO_DIAS_DEFAULT = 45.0    # techo: caja entera si rinde <= esto; sino fracciona. PROXY: global, no por proveedor
+COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
 #
 DISPLAY_STOCK_ENABLED_DEFAULT = False
 DISPLAY_MIN_DEMAND_WEEK_DEFAULT = 1.0
@@ -368,6 +389,32 @@ def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceili
     target_units = target_weeks * eff_mu
 
     return target_units, safety, target_weeks
+
+
+def _calc_cola_larga_lote(mu_week, moq, lead_weeks, objetivo_dias, plazo_pago_dias, piso_units):
+    # Politica (s,S) de lote minimo para la cola larga, traslado CD->sala.
+    # Devuelve (S_units, rop_units).
+    #   S (order-up-to): 1 caja entera si la caja rinde <= plazo_pago (autofinanciada,
+    #     limpia); si no, fraccion dimensionada al objetivo mensual (~30d). El traslado
+    #     interno fracciona caja: el pack/MOQ solo ata la compra al proveedor.
+    #   ROP (s): mu*lead + presencia. Lead CD->sala ~0-1d -> ROP ~= piso (dispara casi vacio).
+    # PROXY: plazo de pago global (no por proveedor).
+    mu   = max(_safe_float(mu_week,    0.0), 0.0)
+    moq  = max(_safe_float(moq,        1.0), 1.0)
+    piso = max(_safe_float(piso_units, 1.0), 1.0)
+    if mu <= 0.0:
+        return 0.0, 0.0
+    obj  = max(_safe_float(objetivo_dias,   30.0), 1.0)
+    pago = max(_safe_float(plazo_pago_dias, 45.0), obj)
+    cobertura_caja_dias = (moq / mu) * 7.0
+    q30 = float(int(mu * obj / 7.0)) + piso                           # order-up-to mensual: ciclo ~obj SOBRE el piso (ROP)
+    if obj <= cobertura_caja_dias <= pago:
+        S = moq                                                       # caja rinde ~1 mes y autofinanciada -> caja limpia
+    else:
+        S = q30                                                       # caja chica (<obj): caja+unidades a ~obj ; cola profunda (>pago): fraccion a ~obj. Siempre q30>moq cuando caja chica
+    lead = max(_safe_float(lead_weeks, 0.0), 0.0)
+    rop  = mu * lead + piso                                           # ROP = demanda en lead + presencia
+    return S, rop
 
 
 def _cover_label(cover_weeks, mu_real, coverage_target_weeks):
@@ -786,6 +833,10 @@ MAX_COVER_WEEKS = _safe_float(CTX.get('max_cover_weeks', MAX_COVER_WEEKS_DEFAULT
 CRITICO_COVER_WEEKS = _safe_float(CTX.get('critico_cover_days', CRITICO_COVER_DAYS_DEFAULT), CRITICO_COVER_DAYS_DEFAULT) / 7.0
 TOP_CASH_RANK_MAX = _safe_int(CTX.get('top_cash_rank_max', TOP_CASH_RANK_MAX_DEFAULT), TOP_CASH_RANK_MAX_DEFAULT)
 TOP_CASH_SAFETY_FACTOR = _safe_float(CTX.get('top_cash_safety_factor', TOP_CASH_SAFETY_FACTOR_DEFAULT), TOP_CASH_SAFETY_FACTOR_DEFAULT)
+COLA_UMBRAL_WEEK     = _safe_float(CTX.get('cola_umbral_week',     COLA_UMBRAL_WEEK_DEFAULT),     COLA_UMBRAL_WEEK_DEFAULT)
+COLA_OBJETIVO_DIAS   = _safe_float(CTX.get('cola_objetivo_dias',   COLA_OBJETIVO_DIAS_DEFAULT),   COLA_OBJETIVO_DIAS_DEFAULT)
+COLA_PLAZO_PAGO_DIAS = _safe_float(CTX.get('cola_plazo_pago_dias', COLA_PLAZO_PAGO_DIAS_DEFAULT), COLA_PLAZO_PAGO_DIAS_DEFAULT)
+COLA_PISO_UNIDADES   = _safe_float(CTX.get('cola_piso_unidades',   COLA_PISO_UNIDADES_DEFAULT),   COLA_PISO_UNIDADES_DEFAULT)
 
 # XYZ local por team: si esta activo, el Z del safety se elige por
 # ABC_global + XYZ_local (cuando viene poblado desde el forecast).
@@ -2159,6 +2210,21 @@ else:
                             reorder_target_weeks = (target_units / demanda_semanal if demanda_semanal > DEMAND_FLOOR_WEEK else H_fb)
                             reorder_target_weeks = _clamp(reorder_target_weeks, 0.0, financial_ceiling_sku)
 
+                        # v9.6.0: cola larga -> lote minimo (s,S) por caja autofinanciada.
+                        # Solo solo_bodega y mu <= umbral. Order-up-to = caja/fraccion ~mensual;
+                        # el gate por ROP (mas abajo) evita el goteo semanal. Ver
+                        # proyectos/2026-06-30-cola-larga-lote-caja/diseno.md
+                        cola_larga_rop = None
+                        if solo_bodega and DEMAND_FLOOR_WEEK < mu_for_target <= COLA_UMBRAL_WEEK:
+                            _cl_S, _cl_rop = _calc_cola_larga_lote(
+                                mu_for_target, moq, lead_weeks,
+                                COLA_OBJETIVO_DIAS, COLA_PLAZO_PAGO_DIAS, COLA_PISO_UNIDADES)
+                            if _cl_S > 0.0:
+                                target_units         = _cl_S
+                                safety_stock_units   = 0.0
+                                reorder_target_weeks = _cl_S / mu_for_target
+                                cola_larga_rop       = _cl_rop
+
                         # Piso de exhibicion (presentation stock) -- ADITIVO.
                         # Se SUMA al target operativo y es reserva no consumible (ver _smart_moq).
                         # Gate sobre demanda_semanal (no mu_for_target) para calzar con la regla.
@@ -2203,6 +2269,11 @@ else:
                             qty_retorno_cd = max(stock_proyectado - _hold_units_return, 0.0)
 
                         qty_neta_pre = max(target_units - stock_proyectado, 0.0)
+                        # v9.6.0: cola larga (s,S) -> solo transferir cuando el stock cae
+                        # al ROP; si esta por encima, dejar drenar el lote (cadencia ~mensual,
+                        # no goteo semanal). Al disparar, refilla al lote completo S.
+                        if cola_larga_rop is not None and stock_proyectado > cola_larga_rop:
+                            qty_neta_pre = 0.0
                         qty_buy_pre  = (_smart_moq_box_or_wait(qty_neta_pre, moq, stock_proyectado, demanda_semanal, target_units, reorder_target_weeks, cover_label, False, abcxyz, display_stock_units) if SMART_MOQ_ROUNDING else _ceil_moq(qty_neta_pre, moq))
 
                         if qty_buy_pre > 0.0:
