@@ -1,7 +1,20 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.4.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.5.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.5.0 (2026-06-30): clasificacion de cobertura CANONICA (SAP Range of Coverage /
+#   Oracle Days of Cover), anclada al TARGET PLANIFICADO, no al techo financiero.
+#   _cover_label ahora: critico < 3d (piso absoluto), bajo < 50% C, normal 50%-100% C,
+#   alto 100%-150% C, exceso > 150% C. C = TARGET COMPLETO (reorder_target_weeks =
+#   demanda x lead + safety + vitrina): el canon clasifica la salud de stock contra
+#   el nivel planificado (Max=order-up-to), por eso 'normal'=en target y 'alto'/'exceso'
+#   =sobrestock real. Safety y vitrina son piso defendido pero stock real -> cuentan
+#   en la cobertura, NO se netean. El reorden NO cambia de mecanismo (label ->
+#   _buy_action_from_cover: critico/bajo -> reponer); como 'bajo' es < 50% C, queda
+#   PROPORCIONAL a la cobertura de cada SKU sin gate aparte. PROXY: el ROP canonico es
+#   demanda*(lead+review)+safety; usamos 50%*target como aproximacion. Antes 'bajo'
+#   caia en ceiling*0.5 (~15d para lead 15) -> pedia con 13-14d. Tuneable: critico_cover_days.
 #
 # v9.4.0 (2026-06-29): Fair Share Rule C (run-out leveling) en el reparto CD->salas.
 #   Cuando stock_CD < Sigma need_salas, reparte igualando dias de cobertura
@@ -122,6 +135,7 @@ PAYMENT_DAYS_DEFAULT        = 30.0
 CD_ELIGIBLE_ABCXYZ_DEFAULT  = ('AX', 'AY', 'AZ', 'BX', 'BY', 'BZ')
 PURCHASE_CYCLE_DAYS_DEFAULT = 7.0
 MAX_COVER_WEEKS_DEFAULT     = 15.0 / 7.0  # v9.3.1: cap cobertura 15d indep. del delay
+CRITICO_COVER_DAYS_DEFAULT  = 3.0  # v9.5.0: piso absoluto de 'critico' (<3d), independiente de la cobertura objetivo C. El resto de las bandas son relativas a C (ver _cover_label).
 DEMAND_FLOOR_WEEK           = 1.0 / 4.345  # ~0.23
 MOQ_COVER_GUARD_DEFAULT      = 2.5
 SMART_MOQ_ROUNDING_DEFAULT    = True
@@ -356,18 +370,34 @@ def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceili
     return target_units, safety, target_weeks
 
 
-def _cover_label(cover_weeks, mu_real, financial_ceiling_weeks):
+def _cover_label(cover_weeks, mu_real, coverage_target_weeks):
+    # v9.5.0: clasificacion de cobertura canonica (SAP Range of Coverage / Oracle
+    # Days of Cover). C = TARGET COMPLETO planificado (reorder_target_weeks =
+    # demanda x lead + safety + vitrina), NO la demanda sola: el canon ancla la
+    # salud de stock al nivel planificado (ROP abajo, Max arriba). Safety y vitrina
+    # son piso defendido pero stock real -> cuentan en cover_weeks, no se netean.
+    # Bandas:
+    #   sin_salida: sin demanda    sin_stock: cover = 0
+    #   critico: < 3d (piso absoluto, CRITICO_COVER_WEEKS)
+    #   bajo:    < 50% C           normal: 50%-100% C (en target)
+    #   alto:    100%-150% C       exceso: > 150% C (sobrestock real)
+    # El reorden (label -> accion, _buy_action_from_cover) dispara en
+    # sin_stock/critico/bajo => cover < 50% C. PROXY: el ROP canonico es
+    # demanda*(lead+review)+safety; aca usamos 50%*target como aproximacion (para
+    # ciclo semanal con target ~15d, 50%*target ~= lead+safety). Proporcional a la
+    # cobertura de cada SKU (uno de ciclo corto dispara antes en dias absolutos).
     if mu_real <= DEMAND_FLOOR_WEEK:
         return 'sin_salida'
     if cover_weeks <= 0.0:
         return 'sin_stock'
-    if cover_weeks < 1.5:
+    C = max(_safe_float(coverage_target_weeks, 0.0), DEMAND_FLOOR_WEEK)
+    if cover_weeks < CRITICO_COVER_WEEKS:
         return 'critico'
-    if cover_weeks < financial_ceiling_weeks * 0.5:
+    if cover_weeks < C * 0.5:
         return 'bajo'
-    if cover_weeks <= financial_ceiling_weeks:
+    if cover_weeks <= C:
         return 'normal'
-    if cover_weeks <= financial_ceiling_weeks * 1.5:
+    if cover_weeks <= C * 1.5:
         return 'alto'
     return 'exceso'
 
@@ -753,6 +783,7 @@ DISPLAY_MAX_UNITS = _safe_float(CTX.get('display_max_units', DISPLAY_MAX_UNITS_D
 DISPLAY_PCT_TOP_CASH = _safe_float(CTX.get('display_pct_top_cash', DISPLAY_PCT_TOP_CASH_DEFAULT), DISPLAY_PCT_TOP_CASH_DEFAULT)
 TOP_CASH_WEEKLY_MIN = _safe_float(CTX.get('top_cash_weekly_min', TOP_CASH_WEEKLY_MIN_DEFAULT), TOP_CASH_WEEKLY_MIN_DEFAULT)
 MAX_COVER_WEEKS = _safe_float(CTX.get('max_cover_weeks', MAX_COVER_WEEKS_DEFAULT), MAX_COVER_WEEKS_DEFAULT)
+CRITICO_COVER_WEEKS = _safe_float(CTX.get('critico_cover_days', CRITICO_COVER_DAYS_DEFAULT), CRITICO_COVER_DAYS_DEFAULT) / 7.0
 TOP_CASH_RANK_MAX = _safe_int(CTX.get('top_cash_rank_max', TOP_CASH_RANK_MAX_DEFAULT), TOP_CASH_RANK_MAX_DEFAULT)
 TOP_CASH_SAFETY_FACTOR = _safe_float(CTX.get('top_cash_safety_factor', TOP_CASH_SAFETY_FACTOR_DEFAULT), TOP_CASH_SAFETY_FACTOR_DEFAULT)
 
@@ -2148,7 +2179,13 @@ else:
                             cover_label = 'sin_salida'
                         else:
                             cover_weeks = stock_effective / demanda_semanal
-                            cover_label = _cover_label(cover_weeks, demanda_semanal, financial_ceiling_sku)
+                            # Cobertura objetivo C = TARGET COMPLETO (reorder_target_weeks =
+                            # demanda x lead + safety + vitrina). Canon SAP/Oracle: la cobertura
+                            # se clasifica contra el nivel PLANIFICADO (Max = order-up-to), no
+                            # contra la demanda sola; asi 'normal' = en target, 'alto'/'exceso' =
+                            # sobrestock real. Safety y vitrina son stock real (piso defendido):
+                            # cuentan en la cobertura, NO se netean.
+                            cover_label = _cover_label(cover_weeks, demanda_semanal, reorder_target_weeks)
 
                         if demanda_semanal <= 0.0:
                             projected_cover_weeks = 999.0
