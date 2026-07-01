@@ -119,9 +119,6 @@ FWD_MODEL      = 'x_hm_si_forecast'
 # v3.35 (S5) escribe team con x_studio_team_id, no x_studio_local.
 FWD_TEAM_FIELD = 'x_studio_team_id'
 
-SNAPSHOT_FIELD = 'x_studio_fecha_1'
-COMPANY_FIELD  = 'x_studio_company_id'
-
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 
 # Mapa fallback correcto team_id -> stock.warehouse.id
@@ -217,18 +214,6 @@ COLA_OBJETIVO_DIAS_DEFAULT   = 30.0    # cobertura objetivo del lote (1 mes); di
 COLA_PLAZO_PAGO_DIAS_DEFAULT = 45.0    # techo: caja entera si rinde <= esto; sino fracciona. PROXY: global, no por proveedor
 COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
 #
-DISPLAY_STOCK_ENABLED_DEFAULT = False
-DISPLAY_MIN_DEMAND_WEEK_DEFAULT = 1.0
-DISPLAY_MAX_UNITS_DEFAULT = 6.0
-DISPLAY_PCT_DEFAULT = 0.0
-DISPLAY_PCT_TOP_CASH_DEFAULT = 0.30
-DISPLAY_PCT_BY_ABCXYZ = {
-    'AX': 0.20, 'AY': 0.20,
-    'BX': 0.15, 'BY': 0.15,
-    'AZ': 0.10, 'BZ': 0.10,
-    'CX': 0.0,  'CY': 0.0,
-    'CZ': 0.0,
-}
 TOP_CASH_WEEKLY_MIN_DEFAULT = 25000.0
 TOP_CASH_RANK_MAX_DEFAULT = 300
 TOP_CASH_SAFETY_FACTOR_DEFAULT = 1.65
@@ -238,7 +223,6 @@ TOP_CASH_ABCXYZ_ALLOWED = ('AX', 'AY', 'BX', 'BY')
 # multiplicador 0.778 sobre el safety factor global (baja AX/AY de z=1.645 a z=1.28).
 CIGARROS_CATEGORY_IDS_DEFAULT = [1628]
 CIGARROS_SAFETY_MULT_DEFAULT = 0.778
-CIGARROS_DISPLAY_MULT_DEFAULT = 0.0
 
 # Valoracion de packs/kit phantom.
 # component_first: costo pack = suma(componentes * cantidad BOM); fallback a costo propio.
@@ -342,18 +326,6 @@ def _safety_factor_for(abcxyz, is_top_cash=False, is_cigarros=False):
         base = base * CIGARROS_SAFETY_MULT
 
     return base
-
-
-def _display_pct_for(abcxyz, is_top_cash=False, is_cigarros=False):
-    if not DISPLAY_STOCK_ENABLED:
-        return 0.0
-    abc = (abcxyz or '').strip()
-    pct = _safe_float(DISPLAY_PCT_BY_ABCXYZ.get(abc, DISPLAY_PCT_DEFAULT), DISPLAY_PCT_DEFAULT)
-    if is_top_cash:
-        pct = max(pct, DISPLAY_PCT_TOP_CASH)
-    if is_cigarros:
-        pct = pct * CIGARROS_DISPLAY_MULT
-    return _clamp(pct, 0.0, 1.0)
 
 
 def _calc_display_stock_units(abcxyz, mu_week, is_top_cash=False, is_cigarros=False):
@@ -508,28 +480,6 @@ def _ceil_moq(qty, moq):
     if n == 0:
         n = 1
     return float(n * moq)
-
-
-def _round_moq_nearest(qty, moq, force_min=False):
-    # Fallback simple: redondeo al multiplo MOQ/caja mas cercano.
-    moq = max(_safe_float(moq, 1.0), 1.0)
-    qty = max(_safe_float(qty, 0.0), 0.0)
-    if qty <= 0.0:
-        return 0.0
-    if moq <= 1.0:
-        return _ceil_units(qty) if force_min else _round_units(qty)
-    n_floor = int(qty / moq)
-    q_floor = float(n_floor * moq)
-    q_ceil = q_floor
-    if q_ceil < qty - 0.0000001:
-        q_ceil += moq
-    if force_min and q_floor <= 0.0:
-        return q_ceil if q_ceil > 0.0 else moq
-    diff_floor = qty - q_floor
-    diff_ceil = q_ceil - qty
-    if q_floor > 0.0 and diff_floor <= diff_ceil + 0.0000001:
-        return q_floor
-    return q_ceil
 
 
 def _smart_moq_box_or_wait(qty_need, moq, stock_base, mu_week, target_units, target_weeks, cover_label, force_min=False, abcxyz=None, display_stock_units=0.0):
@@ -831,10 +781,6 @@ COVER_WEEKS_THRESHOLD_FOR_CD = _safe_float(
 )
 NO_CD_PARENT_CATEGORY_IDS = _to_int_list(CTX.get('no_cd_parent_category_ids')) or list(NO_CD_PARENT_CATEGORY_IDS_DEFAULT)
 
-DISPLAY_STOCK_ENABLED = bool(CTX.get('display_stock_enabled', DISPLAY_STOCK_ENABLED_DEFAULT))
-DISPLAY_MIN_DEMAND_WEEK = _safe_float(CTX.get('display_min_demand_week', DISPLAY_MIN_DEMAND_WEEK_DEFAULT), DISPLAY_MIN_DEMAND_WEEK_DEFAULT)
-DISPLAY_MAX_UNITS = _safe_float(CTX.get('display_max_units', DISPLAY_MAX_UNITS_DEFAULT), DISPLAY_MAX_UNITS_DEFAULT)
-DISPLAY_PCT_TOP_CASH = _safe_float(CTX.get('display_pct_top_cash', DISPLAY_PCT_TOP_CASH_DEFAULT), DISPLAY_PCT_TOP_CASH_DEFAULT)
 TOP_CASH_WEEKLY_MIN = _safe_float(CTX.get('top_cash_weekly_min', TOP_CASH_WEEKLY_MIN_DEFAULT), TOP_CASH_WEEKLY_MIN_DEFAULT)
 MAX_COVER_WEEKS = _safe_float(CTX.get('max_cover_weeks', MAX_COVER_WEEKS_DEFAULT), MAX_COVER_WEEKS_DEFAULT)
 CRITICO_COVER_WEEKS = _safe_float(CTX.get('critico_cover_days', CRITICO_COVER_DAYS_DEFAULT), CRITICO_COVER_DAYS_DEFAULT) / 7.0
@@ -860,8 +806,6 @@ ENABLE_XYZ_LOCAL = bool(CTX.get('enable_xyz_local', False))
 CIGARROS_CATEGORY_IDS = _to_int_list(CTX.get('cigarros_category_ids')) or list(CIGARROS_CATEGORY_IDS_DEFAULT)
 CIGARROS_SAFETY_MULT = _safe_float(CTX.get('cigarros_safety_mult', CIGARROS_SAFETY_MULT_DEFAULT), CIGARROS_SAFETY_MULT_DEFAULT)
 CIGARROS_SAFETY_MULT = _clamp(CIGARROS_SAFETY_MULT, 0.0, 1.0)
-CIGARROS_DISPLAY_MULT = _safe_float(CTX.get('cigarros_display_mult', CIGARROS_DISPLAY_MULT_DEFAULT), CIGARROS_DISPLAY_MULT_DEFAULT)
-CIGARROS_DISPLAY_MULT = _clamp(CIGARROS_DISPLAY_MULT, 0.0, 1.0)
 
 VALUE_PHANTOM_KITS = bool(CTX.get('value_phantom_kits', VALUE_PHANTOM_KITS_DEFAULT))
 PHANTOM_COST_SOURCE = CTX.get('phantom_cost_source', PHANTOM_COST_SOURCE_DEFAULT) or PHANTOM_COST_SOURCE_DEFAULT
@@ -3173,7 +3117,6 @@ else:
                     if rec.get('is_cigarros'):
                         decision_parts.append('cat=cigarros')
                         decision_parts.append('cigar_safety_mult=' + str(round(CIGARROS_SAFETY_MULT, 3)))
-                        decision_parts.append('cigar_display_mult=' + str(round(CIGARROS_DISPLAY_MULT, 3)))
                     if _safe_float(rec.get('display_stock_units'), 0.0) > 0.0:
                         decision_parts.append('display_stock=' + str(round(_safe_float(rec.get('display_stock_units'), 0.0), 2)))
                     if _safe_float(rec.get('safety_factor_used'), 0.0) > 0.0:
