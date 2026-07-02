@@ -1,7 +1,16 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.6.1 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.7.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.7.0 (2026-07-02): reposicion CD solo_bodega -> INSTALLATION STOCK (no pooling).
+#   El CD es pass-through (entrega todo, stock_real ~0); el safety debe sentarse fisico
+#   en cada sala. target_red pasa de mu_red*period + z*sqrt(Σσ²)*sqrt(period) + piso
+#   (echelon pooling) a Σ target de las salas (cada uno ya con safety+vitrina+cola_larga+
+#   cap). Antes el CD apuntaba ~sqrt(N) mas bajo que la suma de las salas y estas quedaban
+#   cronicamente bajo target (1756: CD 117 vs Σsalas 138). Validable a mano: suma los
+#   target de las salas, resta lo que hay y lo que viene. Sube la compra de la cola larga
+#   por la diferencia Σσ - sqrt(Σσ²). Ver proyectos/2026-07-02-cd-installation-stock/.
 #
 # v9.6.1 (2026-06-30): persiste el lote de cola larga (order-up-to ~30d) en
 #   x_studio_stock_minimo para los SKU gated (antes 0; el display no aplica a mu<=3).
@@ -2794,13 +2803,23 @@ else:
                 # siguen apuntando a ~1 sem y solo transfieren (la distribucion no cambia);
                 # lo unico que cambia es CUANTO compra el CD al proveedor.
                 #
-                # Modelo canonico: base-stock multi-echelon (SAP IBP / Oracle). El nodo
-                # central planifica contra su periodo de revision usando "echelon stock"
-                # = inventario fisico propio + inventario fisico aguas abajo + en transito.
+                # Modelo canonico: INSTALLATION STOCK (no echelon pooling). El CD es
+                # pass-through: entrega todo a las salas y NO retiene buffer central
+                # (stock_real ~0). Por eso el safety tiene que sentarse FISICAMENTE en
+                # cada sala, y el target del CD = suma de los target de las salas.
                 #
-                #   target_red    = mu_red * period_weeks + z * sigma_red * sqrt(period_weeks)
+                #   target_red    = Σ target_salas   (cada uno ya trae safety+vitrina+cola_larga+cap)
                 #   disponible_red = stock_CD_fisico + Σ stock_salas_fisico + POs_pendientes
                 #   compra_CD      = max(0, target_red - disponible_red)   (MOQ 1 vez en build CD)
+                #
+                # v9.7.0 (2026-07-02): antes se pooleaba el safety (z*sqrt(Σσ²)*sqrt(period)),
+                # ~sqrt(N) mas chico que Σσᵢ. El pooling SOLO es valido si el CD guarda el
+                # colchon y despacha reactivo; con entrega-todo el colchon pooleado no vive
+                # en ninguna parte y las salas quedan cronicamente bajo target (1756: CD
+                # apuntaba a 117 vs Σtarget salas 138). Se vuelve installation stock: el CD
+                # compra para que, entregando todo, cada sala cuadre a su target. Validable
+                # a mano: suma los target de las salas, resta lo que hay y lo que viene.
+                # Ver proyectos/2026-07-02-cd-installation-stock/diseno.md
                 #
                 # Netea TODO el stock (NO solo el del CD) -> evita el doble conteo que
                 # mato la rama vieja (sobre-compra ~-$78,7M, ver bloque DESACTIVADO abajo).
@@ -2836,6 +2855,8 @@ else:
                     period_weeks_sku = 0.0
                     sala_stock_sum = 0.0
                     piso_red = 0.0
+                    target_installation = 0.0    # Σ target de las salas (installation stock)
+                    safety_installation = 0.0    # Σ safety de las salas (sin poolear, solo reporte)
                     for rec in records_by_tmpl.get(tid, []):
                         mu_i = _safe_float(rec.get('mu_week'), 0.0)
                         if mu_i > 0.0:
@@ -2845,6 +2866,8 @@ else:
                             sigma_sq_red += sig_i ** 2.0
                         sala_stock_sum += _safe_float(rec.get('stock_effective'), 0.0)
                         piso_red += _safe_float(rec.get('display_stock_units'), 0.0)
+                        target_installation += _safe_float(rec.get('target_units'), 0.0)
+                        safety_installation += _safe_float(rec.get('safety_stock_units'), 0.0)
                         if period_weeks_sku <= 0.0:
                             pw = _safe_float(rec.get('period_weeks'), 0.0)
                             if pw > 0.0:
@@ -2857,12 +2880,14 @@ else:
                         base['qty_a_pedir'] = 0.0
                         continue
 
-                    sigma_red = sigma_sq_red ** 0.5
+                    sigma_red = sigma_sq_red ** 0.5   # se conserva solo para reporte (decision_reason)
                     z_cd = _safe_float(_SAFETY_FACTOR.get(abcxyz_cd, _SAFETY_FACTOR_DEFAULT), _SAFETY_FACTOR_DEFAULT)
-                    safety_red = z_cd * max(sigma_red, 0.0) * (period_weeks_sku ** 0.5)
-                    # + piso de exhibicion (presentation stock) sumado de las salas, para
-                    # que el CD efectivamente compre el piso de los rotadores solo_bodega.
-                    target_red = (mu_red * period_weeks_sku) + safety_red + piso_red
+                    # v9.7.0: installation stock. target_red = Σ target de las salas, que ya
+                    # incluye por sala safety + vitrina + cola_larga + techo de cobertura. NO se
+                    # poolea el safety ni se re-suma piso_red (ya viene dentro de cada
+                    # target_sala). El CD compra para que, entregando todo, las salas cuadren.
+                    safety_red = safety_installation
+                    target_red = target_installation
 
                     # Disponible de red = fisico CD + fisico salas + POs inbound del CD.
                     stock_cd_fisico  = _safe_float(base.get('stock_real'), 0.0)
