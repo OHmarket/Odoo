@@ -213,6 +213,14 @@ COLA_UMBRAL_WEEK_DEFAULT     = 3.0     # gate: mu_for_target <= umbral entra a l
 COLA_OBJETIVO_DIAS_DEFAULT   = 30.0    # cobertura objetivo del lote (1 mes); dimensiona la fraccion
 COLA_PLAZO_PAGO_DIAS_DEFAULT = 45.0    # techo: caja entera si rinde <= esto; sino fracciona. PROXY: global, no por proveedor
 COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
+
+# Techo de cobertura por rotacion (proyectos/2026-07-01-cobertura-30-15-por-rotacion).
+# Cap SOLO recorta el order-up-to; no sube stock. Libera caja del sobrestock de cola.
+# Rapido (>= K cajas/sem) -> 15d: el cash se concentra ahi (fila fast ~4.6x mas densa
+# en capital). Resto -> 30d. Diagnostico: cap libera ~-9.3% (-$16M) del cash a target.
+COVER_CAP_FAST_DAYS_DEFAULT    = 15.0
+COVER_CAP_SLOW_DAYS_DEFAULT    = 30.0
+COVER_CAP_K_BOXES_WEEK_DEFAULT = 2.0   # "varias cajas semanales" (PROXY de negocio, tunable)
 #
 TOP_CASH_WEEKLY_MIN_DEFAULT = 25000.0
 TOP_CASH_RANK_MAX_DEFAULT = 300
@@ -394,6 +402,16 @@ def _calc_cola_larga_lote(mu_week, moq, lead_weeks, objetivo_dias, plazo_pago_di
     lead = max(_safe_float(lead_weeks, 0.0), 0.0)
     rop  = mu * lead + piso                                           # ROP = demanda en lead + presencia
     return S, rop
+
+
+def _cover_cap_days(mu_week, moq):
+    # Techo de dias de cobertura por rotacion. >= K cajas/sem -> 15d (rapido, cash
+    # concentrado); si no -> 30d. Ver proyectos/2026-07-01-cobertura-30-15-.../diseno.md
+    mu  = max(_safe_float(mu_week, 0.0), 0.0)
+    moq = max(_safe_float(moq, 1.0), 1.0)
+    if (mu / moq) >= COVER_CAP_K_BOXES_WEEK:
+        return COVER_CAP_FAST_DAYS
+    return COVER_CAP_SLOW_DAYS
 
 
 def _cover_label(cover_weeks, mu_real, coverage_target_weeks):
@@ -790,6 +808,9 @@ COLA_UMBRAL_WEEK     = _safe_float(CTX.get('cola_umbral_week',     COLA_UMBRAL_W
 COLA_OBJETIVO_DIAS   = _safe_float(CTX.get('cola_objetivo_dias',   COLA_OBJETIVO_DIAS_DEFAULT),   COLA_OBJETIVO_DIAS_DEFAULT)
 COLA_PLAZO_PAGO_DIAS = _safe_float(CTX.get('cola_plazo_pago_dias', COLA_PLAZO_PAGO_DIAS_DEFAULT), COLA_PLAZO_PAGO_DIAS_DEFAULT)
 COLA_PISO_UNIDADES   = _safe_float(CTX.get('cola_piso_unidades',   COLA_PISO_UNIDADES_DEFAULT),   COLA_PISO_UNIDADES_DEFAULT)
+COVER_CAP_FAST_DAYS    = _safe_float(CTX.get('cover_cap_fast_days',    COVER_CAP_FAST_DAYS_DEFAULT),    COVER_CAP_FAST_DAYS_DEFAULT)
+COVER_CAP_SLOW_DAYS    = _safe_float(CTX.get('cover_cap_slow_days',    COVER_CAP_SLOW_DAYS_DEFAULT),    COVER_CAP_SLOW_DAYS_DEFAULT)
+COVER_CAP_K_BOXES_WEEK = _safe_float(CTX.get('cover_cap_k_boxes_week', COVER_CAP_K_BOXES_WEEK_DEFAULT), COVER_CAP_K_BOXES_WEEK_DEFAULT)
 
 # XYZ local por team: si esta activo, el Z del safety se elige por
 # ABC_global + XYZ_local (cuando viene poblado desde el forecast).
@@ -2188,6 +2209,21 @@ else:
                             if mu_for_target > DEMAND_FLOOR_WEEK:
                                 reorder_target_weeks = _clamp(target_units / mu_for_target, 0.0, financial_ceiling_sku)
 
+                        # Techo de cobertura por rotacion: S = min(target, d*cap), piso en
+                        # vitrina+safety. SOLO recorta (nunca sube). OJO: al recomputar
+                        # reorder_target_weeks tambien baja el gatillo de reorden (_cover_label
+                        # usa ese valor como C) -> repone mas tarde, sube algo el quiebre. Es
+                        # el costo de servicio del ahorro de caja (Caja > Quiebre), medir en
+                        # backtest. Ver proyectos/2026-07-01-cobertura-30-15-por-rotacion/diseno.md
+                        cover_cap_days_used = _cover_cap_days(mu_for_target, moq)
+                        if mu_for_target > DEMAND_FLOOR_WEEK and cover_cap_days_used > 0.0:
+                            cap_units = (mu_for_target / 7.0) * cover_cap_days_used
+                            piso_cap  = _safe_float(display_stock_units, 0.0) + _safe_float(safety_stock_units, 0.0)
+                            target_capped = max(min(target_units, cap_units), piso_cap)
+                            if target_capped < target_units:
+                                target_units = target_capped
+                                reorder_target_weeks = _clamp(target_units / mu_for_target, 0.0, financial_ceiling_sku)
+
                         over_target_units = max(stock_proyectado - target_units, 0.0)
 
                         if stock_effective <= 0.0:
@@ -2371,6 +2407,7 @@ else:
                             'payment_days_sku': payment_days_sku,
                             'target_units': target_units,
                             'target_units_stat': target_units_stat,
+                            'cover_cap_days_used': cover_cap_days_used,
                             'display_stock_units': display_stock_units,
                             'cola_larga_lote': cola_larga_lote,
                             'is_top_cash': is_top_cash,
