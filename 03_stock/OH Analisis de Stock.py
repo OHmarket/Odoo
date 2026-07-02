@@ -3364,6 +3364,16 @@ else:
                         'x_studio_valor_reponer':              valor_reponer,
                         'x_studio_qty_a_pedir':                qty_a_pedir,
                         'x_studio_qty_a_pedir_cajas':          qty_a_pedir_cajas,
+                        # ── [NUEVO] Necesidad pedida a bodega (pull sala -> CD) ───────────
+                        # Unidades que esta sala solo_bodega requiere del CD, exista o no
+                        # stock en el CD (a diferencia de x_studio_qty_transferir, que solo
+                        # se carga cuando el CD tiene stock para repartir). Fuente:
+                        # qty_neta_pre_central = max(target - stock_proy, 0) YA ajustado por
+                        # politica ((s,S) cola larga, retorno, phantom, no_disponible -> 0).
+                        # Solo aplica a solo_bodega (las demas no tiran del CD). Consolidado
+                        # por SKU y alarma de CD-idle se derivan por pivote (no se persisten).
+                        # Requiere campo Studio Float x_studio_necesidad_bodega.
+                        'x_studio_necesidad_bodega':           (_safe_float(rec.get('qty_neta_pre_central'), 0.0) if meta.get('solo_bodega') else 0.0),
                         'x_studio_valor_orden_compra':         valor_orden_compra,
                         'x_studio_compra_mensual_estimada':    _compra_mensual_estimada,
                         'x_studio_venta_bruta_mensual_estimada': _venta_bruta_mensual_estimada,
