@@ -230,16 +230,13 @@ COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
 COVER_CAP_FAST_DAYS_DEFAULT    = 15.0
 COVER_CAP_SLOW_DAYS_DEFAULT    = 30.0
 COVER_CAP_K_BOXES_WEEK_DEFAULT = 2.0   # "varias cajas semanales" (PROXY de negocio, tunable)
-#
-TOP_CASH_WEEKLY_MIN_DEFAULT = 25000.0
-TOP_CASH_RANK_MAX_DEFAULT = 300
-TOP_CASH_SAFETY_FACTOR_DEFAULT = 1.65
-TOP_CASH_ABCXYZ_ALLOWED = ('AX', 'AY', 'BX', 'BY')
 
-# Ajuste de estimacion para cigarros (categ_id=1628):
-# multiplicador 0.778 sobre el safety factor global (baja AX/AY de z=1.645 a z=1.28).
+# Cigarros (categ_id=1628): techo de nivel de servicio. El z se topa a
+# normal-inversa(CIGARROS_SERVICE_LEVEL). 0.50 -> z=0 (sin colchon: margen bajo
+# 8-10% y el CD repone seguido). Se expresa como % de servicio, no como
+# multiplicador heredado (que driftaba al cambiar el z base).
 CIGARROS_CATEGORY_IDS_DEFAULT = [1628]
-CIGARROS_SAFETY_MULT_DEFAULT = 0.778
+CIGARROS_SERVICE_LEVEL_DEFAULT = 0.50
 
 # Valoracion de packs/kit phantom.
 # component_first: costo pack = suma(componentes * cantidad BOM); fallback a costo propio.
@@ -316,36 +313,40 @@ def _payment_days_from_term(term, default_days):
     return default_days
 
 
-def _is_top_cash_sku(abcxyz, rank_abcxyz, venta_bruta_week):
-    abc = (abcxyz or '').strip()
-    if abc not in TOP_CASH_ABCXYZ_ALLOWED:
-        return False
-    rank = _safe_int(rank_abcxyz, 0)
-    venta = _safe_float(venta_bruta_week, 0.0)
-    if rank > 0 and rank <= TOP_CASH_RANK_MAX:
-        return True
-    if venta >= TOP_CASH_WEEKLY_MIN:
-        return True
-    return False
+_SERVICE_Z_TABLE = [
+    (0.50, 0.000), (0.75, 0.674), (0.80, 0.842), (0.85, 1.036),
+    (0.90, 1.282), (0.95, 1.645), (0.975, 1.960), (0.99, 2.326),
+    (0.995, 2.576), (0.999, 3.090),
+]
 
 
-def _safety_factor_for(abcxyz, is_top_cash=False, is_cigarros=False):
+def _z_from_service(service_level):
+    # Nivel de servicio (prob. de no-quiebre por ciclo) -> z (normal inversa).
+    # safe_eval no tiene scipy/math.log: tabla de puntos estandar + interpolacion
+    # lineal. Suficiente para un knob que se setea en numeros redondos.
+    p = _clamp(_safe_float(service_level, 0.5), _SERVICE_Z_TABLE[0][0], _SERVICE_Z_TABLE[-1][0])
+    for i in range(1, len(_SERVICE_Z_TABLE)):
+        p0, z0 = _SERVICE_Z_TABLE[i - 1]
+        p1, z1 = _SERVICE_Z_TABLE[i]
+        if p <= p1:
+            frac = (p - p0) / (p1 - p0) if p1 > p0 else 0.0
+            return z0 + frac * (z1 - z0)
+    return _SERVICE_Z_TABLE[-1][1]
+
+
+def _safety_factor_for(abcxyz, is_cigarros=False):
     abc = (abcxyz or '').strip()
     base = _safe_float(_SAFETY_FACTOR.get(abc, _SAFETY_FACTOR_DEFAULT), _SAFETY_FACTOR_DEFAULT)
 
-    # Política global/top cash.
-    if is_top_cash and abc in TOP_CASH_ABCXYZ_ALLOWED:
-        base = max(base, TOP_CASH_SAFETY_FACTOR)
-
-    # Cigarros mantiene el mismo modelo estadistico, pero reduce exposicion.
-    # Se aplica despues de top_cash para evitar que top_cash vuelva a inflar el z.
+    # Cigarros: TECHO de nivel de servicio (margen bajo + repone seguido del CD).
+    # z_cap = normal-inversa(CIGARROS_SERVICE_LEVEL); es min, nunca sube el colchon.
     if is_cigarros:
-        base = base * CIGARROS_SAFETY_MULT
+        base = min(base, _z_from_service(CIGARROS_SERVICE_LEVEL))
 
     return base
 
 
-def _calc_display_stock_units(abcxyz, mu_week, is_top_cash=False, is_cigarros=False):
+def _calc_display_stock_units(abcxyz, mu_week, is_cigarros=False):
     # Piso de exhibicion (presentation stock), ADITIVO. mu_week aqui = demanda_semanal
     # (ver call site). Solo rotadores (demanda > umbral); cigarros excluidos.
     #   raw = ceil(PRESENTATION_DIAS/7 * demanda)
@@ -366,7 +367,7 @@ def _calc_display_stock_units(abcxyz, mu_week, is_top_cash=False, is_cigarros=Fa
     return float(int(round(float(raw) / float(PRESENTATION_PACK))) * PRESENTATION_PACK)
 
 
-def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceiling_weeks, is_top_cash=False, is_cigarros=False):
+def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceiling_weeks, is_cigarros=False):
     mu    = max(_safe_float(mu,               0.0), 0.0)
     sigma = max(_safe_float(sigma,            0.0), 0.0)
     H     = max(_safe_float(protection_weeks, 0.5), 0.5)
@@ -376,7 +377,7 @@ def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceili
         raw_units = min(2.0, H) * max(mu, DEMAND_FLOOR_WEEK)
         safety    = 0.0
     else:
-        z         = _safety_factor_for(abcxyz, is_top_cash, is_cigarros)
+        z         = _safety_factor_for(abcxyz, is_cigarros)
         safety    = z * sigma * (H ** 0.5)
         raw_units = mu * H + safety
 
@@ -808,11 +809,8 @@ COVER_WEEKS_THRESHOLD_FOR_CD = _safe_float(
 )
 NO_CD_PARENT_CATEGORY_IDS = _to_int_list(CTX.get('no_cd_parent_category_ids')) or list(NO_CD_PARENT_CATEGORY_IDS_DEFAULT)
 
-TOP_CASH_WEEKLY_MIN = _safe_float(CTX.get('top_cash_weekly_min', TOP_CASH_WEEKLY_MIN_DEFAULT), TOP_CASH_WEEKLY_MIN_DEFAULT)
 MAX_COVER_WEEKS = _safe_float(CTX.get('max_cover_weeks', MAX_COVER_WEEKS_DEFAULT), MAX_COVER_WEEKS_DEFAULT)
 CRITICO_COVER_WEEKS = _safe_float(CTX.get('critico_cover_days', CRITICO_COVER_DAYS_DEFAULT), CRITICO_COVER_DAYS_DEFAULT) / 7.0
-TOP_CASH_RANK_MAX = _safe_int(CTX.get('top_cash_rank_max', TOP_CASH_RANK_MAX_DEFAULT), TOP_CASH_RANK_MAX_DEFAULT)
-TOP_CASH_SAFETY_FACTOR = _safe_float(CTX.get('top_cash_safety_factor', TOP_CASH_SAFETY_FACTOR_DEFAULT), TOP_CASH_SAFETY_FACTOR_DEFAULT)
 COLA_UMBRAL_WEEK     = _safe_float(CTX.get('cola_umbral_week',     COLA_UMBRAL_WEEK_DEFAULT),     COLA_UMBRAL_WEEK_DEFAULT)
 COLA_OBJETIVO_DIAS   = _safe_float(CTX.get('cola_objetivo_dias',   COLA_OBJETIVO_DIAS_DEFAULT),   COLA_OBJETIVO_DIAS_DEFAULT)
 COLA_PLAZO_PAGO_DIAS = _safe_float(CTX.get('cola_plazo_pago_dias', COLA_PLAZO_PAGO_DIAS_DEFAULT), COLA_PLAZO_PAGO_DIAS_DEFAULT)
@@ -823,7 +821,7 @@ COVER_CAP_K_BOXES_WEEK = _safe_float(CTX.get('cover_cap_k_boxes_week', COVER_CAP
 
 # XYZ local por team: si esta activo, el Z del safety se elige por
 # ABC_global + XYZ_local (cuando viene poblado desde el forecast).
-# is_top_cash y display reserve siguen con ABCXYZ global (importancia comercial).
+# display reserve sigue con ABCXYZ global (importancia comercial).
 # Default False para primer despliegue; activar tras validar Fase 0.
 ENABLE_XYZ_LOCAL = bool(CTX.get('enable_xyz_local', False))
 
@@ -831,11 +829,11 @@ ENABLE_XYZ_LOCAL = bool(CTX.get('enable_xyz_local', False))
 # Ejemplo:
 #   env['ir.actions.server'].browse(ID).with_context(
 #       cigarros_category_ids=[1628],
-#       cigarros_safety_mult=0.778,
+#       cigarros_service_level=0.50,
 #   ).run()
 CIGARROS_CATEGORY_IDS = _to_int_list(CTX.get('cigarros_category_ids')) or list(CIGARROS_CATEGORY_IDS_DEFAULT)
-CIGARROS_SAFETY_MULT = _safe_float(CTX.get('cigarros_safety_mult', CIGARROS_SAFETY_MULT_DEFAULT), CIGARROS_SAFETY_MULT_DEFAULT)
-CIGARROS_SAFETY_MULT = _clamp(CIGARROS_SAFETY_MULT, 0.0, 1.0)
+CIGARROS_SERVICE_LEVEL = _safe_float(CTX.get('cigarros_service_level', CIGARROS_SERVICE_LEVEL_DEFAULT), CIGARROS_SERVICE_LEVEL_DEFAULT)
+CIGARROS_SERVICE_LEVEL = _clamp(CIGARROS_SERVICE_LEVEL, 0.50, 0.999)
 
 VALUE_PHANTOM_KITS = bool(CTX.get('value_phantom_kits', VALUE_PHANTOM_KITS_DEFAULT))
 PHANTOM_COST_SOURCE = CTX.get('phantom_cost_source', PHANTOM_COST_SOURCE_DEFAULT) or PHANTOM_COST_SOURCE_DEFAULT
@@ -2080,7 +2078,7 @@ else:
                         # herencia. Si falta algun input valido, forzar a 'CZ' como
                         # tratamiento conservador (alta variabilidad + baja
                         # importancia = no comprar mucho hasta que llegue senal).
-                        # is_top_cash y display reserve siguen con abcxyz global.
+                        # display reserve sigue con abcxyz global.
                         xyz_local = (fwd.get('xyz_local') or '').strip().upper()
                         _abc_letter = abcxyz[0] if (len(abcxyz) == 2 and abcxyz[0] in ('A', 'B', 'C')) else ''
                         if ENABLE_XYZ_LOCAL:
@@ -2096,12 +2094,10 @@ else:
                             else:
                                 abcxyz_efectivo = 'CZ'
 
-                        # Top caja / venta estimada semanal.
-                        # Se calcula temprano porque afecta factor de seguridad y exhibicion.
+                        # Venta bruta semanal estimada (insumo del monitor de error / reporte).
                         _pvp_bruto_for_top = _safe_float(meta.get('list_price'), 0.0)
                         _venta_bruta_week_est_raw = _pvp_bruto_for_top * max(demanda_semanal, 0.0)
-                        is_top_cash = _is_top_cash_sku(abcxyz, rank_abcxyz, _venta_bruta_week_est_raw)
-                        safety_factor_used = _safety_factor_for(abcxyz_efectivo, is_top_cash, is_cigarros)
+                        safety_factor_used = _safety_factor_for(abcxyz_efectivo, is_cigarros)
 
                         stock_real = _safe_float(stock_real_map.get(tid), 0.0)
                         is_phantom_pool = bool(kit_components_tmpl.get(tid))
@@ -2171,7 +2167,7 @@ else:
                         mu_for_target = mu_week if mu_week > DEMAND_FLOOR_WEEK else demanda_semanal
                         if solo_bodega:
                             if mu_for_target > DEMAND_FLOOR_WEEK:
-                                z_sala = _safety_factor_for(abcxyz_efectivo, is_top_cash, is_cigarros)
+                                z_sala = _safety_factor_for(abcxyz_efectivo, is_cigarros)
                                 safety_stock_units = z_sala * max(sigma_week, 0.0) * (sala_safety_weeks ** 0.5)
                                 target_units = mu_for_target * sala_work_weeks + safety_stock_units
                                 reorder_target_weeks = target_units / mu_for_target
@@ -2181,10 +2177,10 @@ else:
                                 reorder_target_weeks = sala_work_weeks
                         elif mu_for_target > DEMAND_FLOOR_WEEK and sigma_week >= 0.0 and protection_weeks > 0.0:
                             target_units, safety_stock_units, reorder_target_weeks = _calc_target_units(
-                                abcxyz_efectivo, mu_for_target, sigma_week, protection_weeks, moq, financial_ceiling_sku, is_top_cash, is_cigarros
+                                abcxyz_efectivo, mu_for_target, sigma_week, protection_weeks, moq, financial_ceiling_sku, is_cigarros
                             )
                         else:
-                            z_fb                 = _safety_factor_for(abcxyz_efectivo, is_top_cash, is_cigarros)
+                            z_fb                 = _safety_factor_for(abcxyz_efectivo, is_cigarros)
                             H_fb                 = PURCHASE_CYCLE_WEEKS
                             safety_stock_units   = z_fb * max(demanda_semanal, 0.0) * (H_fb ** 0.5)
                             target_units         = demanda_semanal * H_fb + safety_stock_units
@@ -2212,7 +2208,7 @@ else:
                         # Se SUMA al target operativo y es reserva no consumible (ver _smart_moq).
                         # Gate sobre demanda_semanal (no mu_for_target) para calzar con la regla.
                         target_units_stat = target_units
-                        display_stock_units = _calc_display_stock_units(abcxyz, demanda_semanal, is_top_cash, is_cigarros)
+                        display_stock_units = _calc_display_stock_units(abcxyz, demanda_semanal, is_cigarros)
                         if display_stock_units > 0.0:
                             target_units = target_units + display_stock_units
                             if mu_for_target > DEMAND_FLOOR_WEEK:
@@ -2419,7 +2415,6 @@ else:
                             'cover_cap_days_used': cover_cap_days_used,
                             'display_stock_units': display_stock_units,
                             'cola_larga_lote': cola_larga_lote,
-                            'is_top_cash': is_top_cash,
                             'is_cigarros': is_cigarros,
                             'venta_bruta_week_est_raw': _venta_bruta_week_est_raw,
                             'safety_factor_used': safety_factor_used,
@@ -3174,11 +3169,9 @@ else:
                         decision_parts.append('share_for_purchase=1.0')
                     if rec.get('motivo_eliminar'):
                         decision_parts.append('abc_motivo=' + rec.get('motivo_eliminar'))
-                    if rec.get('is_top_cash'):
-                        decision_parts.append('top_cash=1')
                     if rec.get('is_cigarros'):
                         decision_parts.append('cat=cigarros')
-                        decision_parts.append('cigar_safety_mult=' + str(round(CIGARROS_SAFETY_MULT, 3)))
+                        decision_parts.append('cigar_service_lvl=' + str(round(CIGARROS_SERVICE_LEVEL, 3)))
                     if _safe_float(rec.get('display_stock_units'), 0.0) > 0.0:
                         decision_parts.append('display_stock=' + str(round(_safe_float(rec.get('display_stock_units'), 0.0), 2)))
                     if _safe_float(rec.get('safety_factor_used'), 0.0) > 0.0:
@@ -3367,7 +3360,6 @@ else:
                         'x_studio_target_stat_units':          _safe_float(rec.get('target_units_stat'), 0.0),
                         'x_studio_display_stock_units':        _safe_float(rec.get('display_stock_units'), 0.0),
                         'x_studio_stock_minimo':               (_safe_float(rec.get('cola_larga_lote'), 0.0) or _safe_float(rec.get('display_stock_units'), 0.0)),
-                        'x_studio_is_top_cash':                bool(rec.get('is_top_cash')),
                         'x_studio_safety_factor_used':         _safe_float(rec.get('safety_factor_used'), 0.0),
                         'x_studio_venta_bruta_week_est_raw':   _safe_float(rec.get('venta_bruta_week_est_raw'), 0.0),
                         'x_studio_over_target_units':          over_target_units,
