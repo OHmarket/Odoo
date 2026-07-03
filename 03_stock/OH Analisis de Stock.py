@@ -3457,6 +3457,15 @@ else:
                         created += len(batch)
                         batch = []
 
+                # Flush del ultimo batch parcial de salas. Sin esto, las filas de la
+                # ultima sala procesada (cola < BATCH_SIZE) se descartaban silenciosamente
+                # (bug: Panguipulli 790 perdia ~370 SKU/corrida -> el CD compraba pero no
+                # se generaba el traslado). El central_batch mas abajo ya tenia su flush.
+                if batch:
+                    _anal_create(batch)
+                    created += len(batch)
+                    batch = []
+
                 # Filas pseudo-sucursal Bodega Central (team analitico)
                 central_batch = []
                 for tid in sorted(central_team_map.keys()):
