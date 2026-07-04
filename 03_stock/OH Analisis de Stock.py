@@ -161,6 +161,10 @@ PAYMENT_DAYS_DEFAULT        = 30.0
 CD_ELIGIBLE_ABCXYZ_DEFAULT  = ('AX', 'AY', 'AZ', 'BX', 'BY', 'BZ')
 PURCHASE_CYCLE_DAYS_DEFAULT = 7.0
 MAX_COVER_WEEKS_DEFAULT     = 15.0 / 7.0  # v9.3.1: cap cobertura 15d indep. del delay
+# Flag on/off del cap de cobertura de sala (los 15d que recortan a los SKU con
+# frecuencia de compra > 15d). True = como hoy (capa a MAX_COVER_WEEKS). False =
+# la sala respeta el delay/frecuencia completo del proveedor (delay 30d -> 30d).
+MAX_COVER_CAP_ENABLED_DEFAULT = True
 CRITICO_COVER_DAYS_DEFAULT  = 3.0  # v9.5.0: piso absoluto de 'critico' (<3d), independiente de la cobertura objetivo C. El resto de las bandas son relativas a C (ver _cover_label).
 DEMAND_FLOOR_WEEK           = 1.0 / 4.345  # ~0.23
 MOQ_COVER_GUARD_DEFAULT      = 2.5
@@ -810,6 +814,7 @@ COVER_WEEKS_THRESHOLD_FOR_CD = _safe_float(
 NO_CD_PARENT_CATEGORY_IDS = _to_int_list(CTX.get('no_cd_parent_category_ids')) or list(NO_CD_PARENT_CATEGORY_IDS_DEFAULT)
 
 MAX_COVER_WEEKS = _safe_float(CTX.get('max_cover_weeks', MAX_COVER_WEEKS_DEFAULT), MAX_COVER_WEEKS_DEFAULT)
+MAX_COVER_CAP_ENABLED = bool(CTX.get('max_cover_cap_enabled', MAX_COVER_CAP_ENABLED_DEFAULT))
 CRITICO_COVER_WEEKS = _safe_float(CTX.get('critico_cover_days', CRITICO_COVER_DAYS_DEFAULT), CRITICO_COVER_DAYS_DEFAULT) / 7.0
 COLA_UMBRAL_WEEK     = _safe_float(CTX.get('cola_umbral_week',     COLA_UMBRAL_WEEK_DEFAULT),     COLA_UMBRAL_WEEK_DEFAULT)
 COLA_OBJETIVO_DIAS   = _safe_float(CTX.get('cola_objetivo_dias',   COLA_OBJETIVO_DIAS_DEFAULT),   COLA_OBJETIVO_DIAS_DEFAULT)
@@ -2044,7 +2049,10 @@ else:
                         mu_week       = _safe_float(fwd.get('mu_week'),       0.0)
                         sigma_week    = _safe_float(fwd.get('sigma_week'),    0.0)
                         period_weeks  = _safe_float(fwd.get('lead_weeks'),    PURCHASE_CYCLE_WEEKS)
-                        if period_weeks <= 0.0:
+                        # Piso de ciclo: si el delay viene < 7d (vacio=0, placeholder=1,
+                        # o lead mal cargado) se usa el ciclo por defecto. Regla operativa:
+                        # delay < 7d => 7d. Evita que un delay=1 deje 1 dia de cobertura.
+                        if period_weeks < PURCHASE_CYCLE_WEEKS:
                             period_weeks = PURCHASE_CYCLE_WEEKS
                         lead_weeks    = 0.0
                         protection_weeks = period_weeks
@@ -2151,7 +2159,12 @@ else:
                         # MAX_COVER_WEEKS (15d) aunque el delay sea 30d. NO se capa la compra
                         # del CD ni la compra-directa-a-proveedor: esas necesitan el ciclo
                         # completo del proveedor; capar ahi causaria quiebre.
-                        sala_work_weeks   = min(period_weeks, MAX_COVER_WEEKS) if solo_bodega else 0.0  # antes: 1.0 (regla 1 sem)
+                        # Flag MAX_COVER_CAP_ENABLED: si False, la sala respeta el delay
+                        # completo (frecuencia de compra) sin el techo de 15d.
+                        if solo_bodega:
+                            sala_work_weeks = min(period_weeks, MAX_COVER_WEEKS) if MAX_COVER_CAP_ENABLED else period_weeks
+                        else:
+                            sala_work_weeks = 0.0
                         sala_safety_weeks = (1.0 + CD_DELIVERY_EXTRA_WEEKS) if solo_bodega else 0.0
 
                         if solo_bodega:
