@@ -1,7 +1,18 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.7.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.8.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.8.0 (2026-07-11): lead de trabajo corto para la rotacion alta surtida por CD.
+#   Las salas solo_bodega de rotacion ALTA usan un LEAD DE TRABAJO de 7d (CD_FAST_LEAD_DAYS)
+#   en vez del ciclo completo (period, cap 15d): el CD repone seguido (pass-through), la
+#   sala no necesita cargar el ciclo entero de un rapido. NO es un cap sobre el total (eso
+#   estriparia el colchon); es el horizonte de trabajo. El target sigue canonico base-stock:
+#     S = mu*lead(7d) + z*sigma*sqrt(lead_seguridad) + vitrina  -> da 7d + colchon.
+#   Rotacion alta se mide en UNIDADES/sem por sala (CD_FAST_UNITS_WEEK, def 2), NO en cajas:
+#   el moq distorsiona (una caja de 6 hace ver 'lento' a un SKU que vende harto). min() solo
+#   recorta: si el ciclo ya es < 7d no lo sube. NO toca compra directa a sala ni los lentos
+#   solo_bodega. Baja el gatillo de reorden (reorder_target_weeks) -> repone algo mas tarde.
 #
 # v9.7.0 (2026-07-02): reposicion CD solo_bodega -> INSTALLATION STOCK (no pooling).
 #   El CD es pass-through (entrega todo, stock_real ~0); el safety debe sentarse fisico
@@ -234,6 +245,15 @@ COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
 COVER_CAP_FAST_DAYS_DEFAULT    = 15.0
 COVER_CAP_SLOW_DAYS_DEFAULT    = 30.0
 COVER_CAP_K_BOXES_WEEK_DEFAULT = 2.0   # "varias cajas semanales" (PROXY de negocio, tunable)
+# v9.8.0: rotacion ALTA surtida por CD -> LEAD DE TRABAJO corto (7d) en vez del ciclo
+# completo (period, cap 15d). El CD repone seguido (pass-through): la sala no necesita
+# cargar el ciclo entero de un rapido. NO es un cap sobre el total (eso estriparia el
+# colchon); es el horizonte de trabajo. El target sigue siendo canonico base-stock:
+#   S = mu*lead(7d) + z*sigma*sqrt(lead_seguridad) + vitrina  -> da 7d + colchon.
+# Rotacion alta se mide en UNIDADES/sem por sala (el moq distorsiona: caja de 6 hace ver
+# 'lento' a algo que vende harto). Solo toca solo_bodega; compra directa a sala intacta.
+CD_FAST_LEAD_DAYS_DEFAULT  = 7.0   # dias de trabajo para la sala rapida surtida por CD
+CD_FAST_UNITS_WEEK_DEFAULT = 2.0   # umbral rotacion alta, unidades/sem por sala
 
 # Cigarros (categ_id=1628): techo de nivel de servicio. El z se topa a
 # normal-inversa(CIGARROS_SERVICE_LEVEL). 0.50 -> z=0 (sin colchon: margen bajo
@@ -823,6 +843,8 @@ COLA_PISO_UNIDADES   = _safe_float(CTX.get('cola_piso_unidades',   COLA_PISO_UNI
 COVER_CAP_FAST_DAYS    = _safe_float(CTX.get('cover_cap_fast_days',    COVER_CAP_FAST_DAYS_DEFAULT),    COVER_CAP_FAST_DAYS_DEFAULT)
 COVER_CAP_SLOW_DAYS    = _safe_float(CTX.get('cover_cap_slow_days',    COVER_CAP_SLOW_DAYS_DEFAULT),    COVER_CAP_SLOW_DAYS_DEFAULT)
 COVER_CAP_K_BOXES_WEEK = _safe_float(CTX.get('cover_cap_k_boxes_week', COVER_CAP_K_BOXES_WEEK_DEFAULT), COVER_CAP_K_BOXES_WEEK_DEFAULT)
+CD_FAST_LEAD_DAYS  = _safe_float(CTX.get('cd_fast_lead_days',  CD_FAST_LEAD_DAYS_DEFAULT),  CD_FAST_LEAD_DAYS_DEFAULT)
+CD_FAST_UNITS_WEEK = _safe_float(CTX.get('cd_fast_units_week', CD_FAST_UNITS_WEEK_DEFAULT), CD_FAST_UNITS_WEEK_DEFAULT)
 
 # XYZ local por team: si esta activo, el Z del safety se elige por
 # ABC_global + XYZ_local (cuando viene poblado desde el forecast).
@@ -2162,13 +2184,27 @@ else:
                         # Flag MAX_COVER_CAP_ENABLED: si False, la sala respeta el delay
                         # completo (frecuencia de compra) sin el techo de 15d.
                         if solo_bodega:
-                            sala_work_weeks = min(period_weeks, MAX_COVER_WEEKS) if MAX_COVER_CAP_ENABLED else period_weeks
+                            _work_base = min(period_weeks, MAX_COVER_WEEKS) if MAX_COVER_CAP_ENABLED else period_weeks
+                            # v9.8.0: rotacion ALTA surtida por CD -> lead de trabajo corto (7d).
+                            # El CD repone seguido (pass-through), la sala no necesita el ciclo
+                            # completo de un rapido. Rotacion en UNIDADES/sem (el moq distorsiona:
+                            # caja de 6 hace ver 'lento' a algo que vende harto). safety(z) y
+                            # vitrina se suman aparte -> el target da 7d + colchon, no 7d pelado.
+                            # min() -> solo recorta: si el ciclo ya es < 7d, no lo sube.
+                            _mu_rot = mu_week if mu_week > DEMAND_FLOOR_WEEK else demanda_semanal
+                            if _mu_rot >= CD_FAST_UNITS_WEEK:
+                                sala_work_weeks = min(_work_base, CD_FAST_LEAD_DAYS / 7.0)
+                            else:
+                                sala_work_weeks = _work_base
                         else:
+                            _work_base = 0.0
                             sala_work_weeks = 0.0
                         sala_safety_weeks = (1.0 + CD_DELIVERY_EXTRA_WEEKS) if solo_bodega else 0.0
 
                         if solo_bodega:
-                            financial_ceiling_sku = max(1.5, sala_work_weeks * 2.0)
+                            # Techo financiero sobre el horizonte BASE (no el lead acortado):
+                            # acortar el trabajo no debe apretar la guardia de sobre-compra.
+                            financial_ceiling_sku = max(1.5, _work_base * 2.0)
                             payment_days_sku = PAYMENT_DAYS
                         else:
                             # Techo financiero por proveedor: si el supplier tiene
