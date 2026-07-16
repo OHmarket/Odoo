@@ -34,10 +34,11 @@ Usada en Fase 4 (Implementación + Backtest) para validar que el cambio es segur
 - [ ] No hay cambios en campos críticos (abcxyz, ciclo_de_vida)
 - [ ] Si cambio: verificar 5-10 SKUs manualmente
 
-**Script 2 (HM-SI Forecast):**
+**Script 2 (OH Forecast Base — motor; HM-SI = LEGACY):**
 - [ ] Backtest WAPE por regimen: REG-1, REG-7, REG-8
 - [ ] Verify: forecast values positivos, <max histórico × 2
-- [ ] Si cambio modelo: validar contra Syntetos-Boylan / SAP IBP
+- [ ] Si cambio modelo: validar contra Syntetos-Boylan / SAP IBP (auto-model SES/SMA + VN gating)
+- [ ] FVA vs naive (SMA4): el motor debe ganarle al naive; si no, revisar
 
 **Script 3 (Stock):**
 - [ ] qty_a_pedir positivo o 0 (no negativo)
@@ -77,8 +78,13 @@ Usada en Fase 4 (Implementación + Backtest) para validar que el cambio es segur
 - [ ] IMPACT_MATRIX.md actualizado (si cambio nueva área)
 - [ ] AGENTE_DESARROLLO_FLUJO.md actualizado (si afecta a proceso)
 - [ ] memory/ actualizado con lecciones aprendidas
+- [ ] **repo == prod validado vía API** (si el script ya corre en Odoo): el `.py`
+      coincide con el `python_code` del **motor** Server Action (XML-RPC read-only
+      sobre `ir.actions.server`; comparar contra el motor, NO el wrapper del cron —
+      mapeo en `memory/ref_sa_motor_cron_mapping.md`)
 - [ ] Git commit message describe "por qué", no "qué"
-- [ ] Git push a main (sin force)
+- [ ] Git merge/push a **main** (único lugar de la verdad; rama de trabajo se borra; sin force)
+- [ ] `proyectos/` NO se commitea (gitignored — es experimento/consulta local)
 
 ---
 
@@ -91,6 +97,7 @@ Usada en Fase 4 (Implementación + Backtest) para validar que el cambio es segur
 - ❌ Studio tiene campos missing o types desactualizados
 - ❌ Script corre >90 segundos (timeout en cron)
 - ❌ CHANGELOG.md no actualizado (OBLIGATORIO)
+- ❌ repo != prod: el `.py` no coincide con el motor SA en Odoo (resolver antes de mergear a main)
 
 ---
 
@@ -130,5 +137,5 @@ LISTO PARA COMMIT
 
 ---
 
-**Última actualización:** 2026-05-30
-**Relacionado:** `IMPACT_MATRIX.md`, `CHANGELOG.md`, `AGENTE_DESARROLLO_FLUJO.md`
+**Última actualización:** 2026-07-16
+**Relacionado:** `IMPACT_MATRIX.md`, `CHANGELOG.md`, `AGENTE_DESARROLLO_FLUJO.md`, `memory/ref_sa_motor_cron_mapping.md`

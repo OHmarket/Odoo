@@ -11,6 +11,31 @@ descendente (versión más reciente arriba).
 
 ---
 
+## Hitos / Consolidación
+
+### 2026-07-16 — Unificación de repo + validación repo==prod vía API
+
+Consolidación de todo el trabajo productivo en `main` como único lugar de la verdad.
+
+- **Estado productivo validado contra Odoo** (XML-RPC read-only sobre
+  `ir.actions.server.code`): los 7 scripts del repo coinciden con el `python_code`
+  del **motor** Server Action que corre en producción. Patrón confirmado: el cron
+  ejecuta un wrapper fino `browse(<motor>).run()`; el repo espeja el motor.
+  Mapeo motor↔wrapper documentado en `memory/ref_sa_motor_cron_mapping.md`.
+- **Versiones productivas actuales:** ABCXYZ v19.4 · Forecast Base **v1.8** (motor;
+  VN gating ON por default, HM-SI en `_legacy/`) · Price Correccion v6.0 ·
+  Analisis de Stock **v9.8.0** · Quiebre de Stock v3.2 · Generacion de Documentos v1.7 ·
+  **Cuadre Fiscal DTE v0.6** (nuevo dominio `06_contabilidad`, SA 1590).
+- **Cron del motor SES:** cron 119 (lunes 08:00) → SA 1591 → `browse(1576).run()`.
+  Corre ANTES de Análisis de Stock.
+- **`proyectos/` deja de versionarse** (gitignore): son consultas/experimentos
+  ad-hoc que viven solo en disco local. Al promover, sube el script movido al
+  dominio, no la carpeta del proyecto.
+- **Ramas unificadas:** se borraron 5 ramas `claude/*` (solo tocaban `proyectos/`)
+  y la rama de trabajo `stock-cd-passthrough` tras mergear a `main`.
+
+---
+
 ## 01_segmentacion / OH Calculo ABCXYZ.py
 
 ### v19.4 — Vista corta de series_type (2026-05-12)
@@ -90,7 +115,7 @@ Requiere que `x_studio_product_id` sea Many2one a `product.product`.
 
 ---
 
-## 02_forecast / HM SI Forecast.py
+## 02_forecast / HM SI Forecast.py  ⚠️ LEGACY (reemplazado por OH Forecast Base el 2026-06-03; ver `_legacy/`)
 
 ### v3.42 — Fair share canon SAP IBP / Blue Yonder (2026-05-23)
 

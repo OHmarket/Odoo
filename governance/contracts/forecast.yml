@@ -16,7 +16,7 @@ description: >
 written_by: 02_forecast/OH Cambio de Precio.py
 read_by:
   - 02_forecast/OH Price Correccion.py
-  - 02_forecast/HM SI Forecast.py
+  - 02_forecast/OH Forecast Base.py
 
 granularity: (x_studio_product_id, x_studio_period_start)
 
@@ -62,7 +62,7 @@ refresh_policy:
 
 written_by: 02_forecast/OH Price Correccion.py
 read_by:
-  - 02_forecast/HM SI Forecast.py
+  - 02_forecast/OH Forecast Base.py
 
 granularity: (x_studio_product_id, x_studio_target_week_start)
 
@@ -106,7 +106,7 @@ critical_fields:
     description: Clasificación ABC-XYZ al momento del cálculo (auditoría).
 
 refresh_policy:
-  trigger: ejecutar después de OH Cambio de Precio, antes de HM SI Forecast
+  trigger: ejecutar después de OH Cambio de Precio, antes de OH Forecast Base
   full_rebuild: true
   advisory_lock: 99009612
   notes: >
@@ -117,7 +117,7 @@ refresh_policy:
 
 # x_hm_si_forecast
 
-written_by: 02_forecast/HM SI Forecast.py
+written_by: 02_forecast/OH Forecast Base.py
 read_by:
   - 02_forecast/OH Forecast Backtest.py
   - 03_stock/OH Analisis de Stock.py
@@ -170,6 +170,13 @@ refresh_policy:
   advisory_lock: 99009438
 
 notes:
+  - >
+    PRODUCTOR: desde 2026-06-03 el modelo lo escribe OH Forecast Base (v1.8),
+    NO el motor HM-SI (LEGACY, `_legacy/`). El nombre del modelo (x_hm_si_forecast)
+    se conserva por compatibilidad. Algunos valores enum de esquema HM-SI
+    (x_studio_demand_method: heuristic/sba/croston; x_studio_forecast_zone: Z1-Z4)
+    reflejan el motor viejo; Forecast Base usa auto-model SES/SMA. Verificar contra
+    el header del script vivo antes de asumir el valor.
   - >
     x_studio_mu_week = 0 para Z4 (no_forecast). Stock Analisis debe tratar 0
     como "sin señal" y no como demanda cero confirmada.

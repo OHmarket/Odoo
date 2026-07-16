@@ -17,7 +17,7 @@ Antes de proponer nada, leo (en este orden):
 2. `governance/CHANGELOG.md` — historial de versiones y qué funcionó/qué no
 3. `governance/IMPACT_MATRIX.md` — cómo cambios en X afectan Y, Z, W
 4. `governance/contracts/` — especificación de modelos y campos Studio
-5. `02_forecast/HM SI Forecast.py` header (líneas 1-100) — reglas vivas actuales
+5. `02_forecast/OH Forecast Base.py` header (líneas 1-100) — reglas vivas del motor (v1.8, VN gating ON por default). HM-SI quedó LEGACY (`_legacy/HM SI Forecast.py`).
 6. `memory/` — intentos pasados, lecciones, por qué fallaron
 7. `CLAUDE.md` — constraints no-negociables (canon SAP/Oracle, REG-1 control)
 
@@ -58,24 +58,36 @@ Luego presento tabla de validación (paso a paso de `governance/VALIDATION_CHECK
 
 ### Fase 5: Commit + Documentación
 Si OK:
-1. **ACTUALIZO `CHANGELOG.md`** con versión nueva (v3.48a)
+1. **ACTUALIZO `CHANGELOG.md`** con la versión nueva del script (ej: Forecast Base v1.8)
    - Fecha
    - Qué problema resuelve
    - Cambios técnicos
    - Impacto (WAPE delta, safety checks)
    - Esto es **OBLIGATORIO antes de commitear** (no negociable)
 
-2. Propongo mensaje commit (describe el POR QUÉ, no el QUÉ)
+2. **Valido repo == prod vía API** (si el script ya corre en Odoo): comparo el `.py`
+   contra el `python_code` del **motor** Server Action vía XML-RPC read-only
+   (`shared/odoo_xmlrpc.py`). Ojo: el cron ejecuta un wrapper fino que hace
+   `browse(<motor>).run()`; hay que comparar contra el MOTOR, no contra el wrapper.
+   Mapeo motor↔wrapper en `memory/ref_sa_motor_cron_mapping.md`.
 
-3. Actualizo `02_forecast/HM SI Forecast.py` header (reglas vivas)
+3. Propongo mensaje commit (describe el POR QUÉ, no el QUÉ)
 
-4. Creo/actualizo memory con learnings
+4. Actualizo `02_forecast/OH Forecast Base.py` header (reglas vivas del motor)
 
-5. Espero confirmación explícita: **"Dale"**
+5. Creo/actualizo memory con learnings
+
+6. Espero confirmación explícita: **"Dale"**
 
 **Recién entonces ejecuto git add/commit/push.**
 
 **REGLA:** Cada commit debe tener su entrada en CHANGELOG. Sin excepción.
+
+**GIT — un solo lugar de la verdad:** `main` es la rama productiva y la única
+fuente de verdad. Las ramas de trabajo son cortas: se mergean a `main` y se
+borran. No dejar ramas colgando. Antes de mergear código productivo a `main`,
+validar repo == prod vía API (paso 2). `proyectos/` NO se versiona (gitignored):
+son consultas/experimentos que viven solo en el disco local.
 
 ## II. GUARDRAILS (Lo Que NO Hago)
 
@@ -122,11 +134,12 @@ YO (FASE 3-4):
 MARCO: "Dale"
 
 YO (FASE 5):
-├─ git add 02_forecast/HM SI Forecast.py
-├─ git commit -m "fix: bias-outlier skip REG-8 seasonal..."
-├─ git push
+├─ Valido repo == prod vía API (motor SA 1576) — coinciden ✅
+├─ git add 02_forecast/OH Forecast Base.py
+├─ git commit -m "forecast: bias-outlier skip REG-8 seasonal..."
+├─ git push a main
 ├─ Actualizo CHANGELOG/memory
-└─ "Hecho. Versión v3.48a en main."
+└─ "Hecho. Motor en main, validado contra Odoo."
 ```
 
 ## V. Cómo se Ve en Práctica
@@ -134,7 +147,7 @@ YO (FASE 5):
 Cada sesión, esto es automático:
 - Leo `memory/` → conozco intentos pasados
 - Leo `CHANGELOG.md` → sé qué versión es baseline
-- Leo `HM SI Forecast.py` header → entiendo reglas vivas
+- Leo `OH Forecast Base.py` header → entiendo reglas vivas del motor
 - Si me pides un cambio → sigo el flujo de 5 fases
 - Nunca cambio sin "Dale" explícito
 
@@ -142,5 +155,5 @@ Cada sesión, esto es automático:
 
 ---
 
-**Versión:** 2026-05-30  
-**Relacionado:** `CLAUDE.md`, `SISTEMA_REABASTECIMIENTO_COMPLETO.md`, `CHANGELOG.md`
+**Versión:** 2026-07-16  
+**Relacionado:** `CLAUDE.md`, `SISTEMA_REABASTECIMIENTO_COMPLETO.md`, `CHANGELOG.md`, `memory/ref_sa_motor_cron_mapping.md`

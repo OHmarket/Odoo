@@ -2,7 +2,7 @@
 ## Arquitectura, Pipeline y Modelo de Decisión Completo (2026)
 
 **Documento de Referencia Técnica**  
-**Última Actualización:** 2026-05-29  
+**Última Actualización:** 2026-07-16  
 **Propietario:** Marco Sanhueza (OH Market)
 
 ---
@@ -12,10 +12,11 @@
 ### Propósito del Sistema
 
 OH Market es una bebida franquiciada con 12 sucursales en regiones de Chile. El sistema de reabastecimiento automatiza:
-- **Pronóstico de demanda** semanal por SKU y sala usando SMA + SI + trend correction.
+- **Pronóstico de demanda** semanal por SKU y sala con auto-model per SKU (SES/SMA según forma de serie local, patrón SAP IBP; motor `OH Forecast Base` v1.8).
 - **Análisis de stock** operativo (reorden, safety stock, MOQ, reservas).
 - **Generación de documentos** (órdenes de compra, traslados internos).
 - **Analítica** para seguimiento de margen, cobertura, performance.
+- **Cuadre fiscal** de facturas de compra al XML DTE (dominio 06_contabilidad).
 
 ### Valores Fundamentales (Filosófia)
 
@@ -44,7 +45,7 @@ ENTRADA: pos.order, product.product, product.category, stock.quant
    └─ OUTPUT: x_calculo_abc_xyz (unica verdad de segmentacion)
 
     ↓
-2A. OH PRICE CORRECCION (Detector v5.8) [PARALELO, servidor independiente]
+2A. OH PRICE CORRECCION (Detector v6.0) [PARALELO, servidor independiente]
     ├─ Lee eventos de precio y promo desde x_loyalty_promo_event
     ├─ Calcula factor de ajuste por elasticidad (A×1.3, B×1.0, C×0.7)
     ├─ Incluye CPI canibal ponderado por importancia competidor
@@ -56,21 +57,20 @@ ENTRADA: pos.order, product.product, product.category, stock.quant
     └─ OUTPUT: margin tracking (insumo para margen en analítica)
 
     ↓
-3. HM SI FORECAST (Motor v3.48) — [CORE]
-   ├─ Demanda base: SMA blend (short=6w, long=16w) + auto-model
-   ├─ Estacionalidad SI multi-nivel (local_categ → categ_global → global)
-   ├─ Fair Share (rescate SKUs A sin historia local)
-   ├─ Correcciones P1/P3/P6 (declinantes, zero-gate, anti-spike)
-   ├─ Corrección por precio (factor externo detector v5.8)
-   ├─ Calibración por (categ, abc_letter) v3.47
-   ├─ Trend correction YoY asimétrico por team v3.43
-   ├─ Bias-outlier correction Pareto-80% v3.48
-   ├─ Router forecast (Z1-Z4, forecast_scope, regimen_local)
+3. OH FORECAST BASE (Motor v1.8) — [CORE]  (cron semanal lunes 08:00: SA 1591 → browse(1576).run())
+   ├─ Auto-model per SKU (patrón SAP IBP): SES/SMA(6) según forma de serie local (ADI/CV² Syntetos-Boylan)
+   ├─ VN gating ON por default (v1.8): erratic con estructura (von Neumann bajo) → smooth-SES
+   ├─ De-censura por quiebre (LOCF; solo semanas de quiebre real; insumo de OH Quiebre de Stock)
+   ├─ Corrección por precio (factor externo detector v6.0)
+   ├─ Calibración safety por clase ABCXYZ
+   ├─ σ = std 4 sem de la serie des-censurada (sigma_week)
    └─ OUTPUT: x_hm_si_forecast (mu_week, sigma_week + auditoria)
+   NOTA: HM-SI (Motor v3.x) quedó LEGACY el 2026-06-03 (`_legacy/HM SI Forecast.py`).
+         Backtests con model codes `hm_si_*` son del motor viejo; `ses_*`/`sma6_*` del actual.
 
     ↓
-4. OH ANALISIS DE STOCK (v9.1.86) — [CORE]
-   ├─ Lee demanda desde x_hm_si_forecast (fallback x_forecast_weekly_data)
+4. OH ANALISIS DE STOCK (v9.8.0) — [CORE]
+   ├─ Lee demanda desde x_hm_si_forecast (mu_week; fallback x_forecast_weekly_data)
    ├─ Calcula stock físico por sucursal y bodega central
    ├─ Calcula safety stock (Z × sigma × sqrt(period_weeks))
    ├─ MOQ inteligente (SMART_MOQ_ROUNDING)
@@ -80,7 +80,7 @@ ENTRADA: pos.order, product.product, product.category, stock.quant
    └─ OUTPUT: x_analisis_de_stock (buy_action, qty_a_comprar, etc.)
 
     ↓
-5. OH GENERACION DE DOCUMENTOS (v1.5)
+5. OH GENERACION DE DOCUMENTOS (v1.7)
    ├─ Crea purchase.order (compra a proveedor)
    ├─ Crea stock.picking (traslados internos CD <-> sala)
    ├─ Modo adopción: todo Borrador (revisar antes de confirmar)
@@ -107,13 +107,23 @@ FINANZAS (05_finanzas/)
 ├─ OH Presupuesto Ventas (forecast + evento, descontaminado)
 └─ OH Flujo de Caja (proyección 90 días)
 
+CONTABILIDAD (06_contabilidad/)
+└─ OH Cuadre Fiscal DTE (v0.6, SA 1590) — cuadra facturas de compra al XML DTE
+    (posición fiscal + ILA/Beb.Analc; no re-vincula product_id para no pisar precio)
+
 CRONS DIARIOS:
 ├─ Stock Balance Daily (x_stock_balance_daily, incremental)
+├─ OH Quiebre de Stock (v3.2, detector por evidencia; de-censura del forecast)
 └─ OH Presupuesto Ventas (recalc ayer + futuro)
 
+CRON SEMANAL (lunes 08:00):
+└─ OH Forecast Base (motor SES) — cron 119 → SA 1591 → browse(1576).run()
+    Corre ANTES de Análisis de Stock; si no, el forecast queda congelado.
+
 LABORATORIO (02_forecast/analisis backtest/):
-└─ 60 experimentos HM-SI + validaciones per-régimen
-    (NO productivo; resguardo histórico)
+└─ ~60 experimentos HM-SI + validaciones per-régimen
+    (NO productivo; resguardo histórico. Los proyectos EN DISEÑO viven en
+     proyectos/, que NO se versiona — gitignored, solo en disco local.)
 ```
 
 ---
@@ -189,7 +199,7 @@ LABORATORIO (02_forecast/analisis backtest/):
 | `x_studio_forecast_model_code` | Char | Modelo ganador: "heur", "sba_015", "croston_010", "seasonal_naive_52" |
 | `x_studio_forecast_scope_reason` | Char | Breve: por qué Z1/Z2/Z3/Z4 |
 | `x_studio_demand_method` | Char | Método base: "sma6_base_up", "blend_down_base", etc. |
-| `x_studio_correccion_factor` | Float | Factor precio (detector v5.8) |
+| `x_studio_correccion_factor` | Float | Factor precio (detector v6.0) |
 | `x_studio_correccion_tipo` | Char | Tipo alerta: "promo", "cambio_precio", etc. |
 | `x_studio_correccion_razon` | Text | Razon de la correccion |
 | `x_studio_mu_week_pre_corr` | Float | mu antes de correccion precio |
@@ -241,7 +251,7 @@ LABORATORIO (02_forecast/analisis backtest/):
 
 ---
 
-#### D. **x_price_coreccion** (Correcciones de Precio — Detector v5.8)
+#### D. **x_price_coreccion** (Correcciones de Precio — Detector v6.0)
 
 | Campo | Tipo | Propósito |
 |-------|------|----------|
@@ -255,7 +265,7 @@ LABORATORIO (02_forecast/analisis backtest/):
 | `x_studio_abcxyz` | Char(2) | ABC global para elasticidad |
 | `x_studio_active` | Boolean | Si está vigente |
 
-**Rol:** Fuente de correcciones para script 3. Escrita por detector v5.8 (paralelo, cron diario).
+**Rol:** Fuente de correcciones para script 3. Escrita por detector v6.0 (paralelo, cron diario).
 
 ---
 
@@ -358,7 +368,7 @@ SCRIPT 1: OH Calculo ABCXYZ
 └─ PERSISTE: x_calculo_abc_xyz (versión única)
             Ej: 5,241 SKUs clasificados
 
-SCRIPT 2A [PARALELO]: Detector Precio v5.8
+SCRIPT 2A [PARALELO]: Detector Precio v6.0
 ├─ Entrada: x_loyalty_promo_event (manual o cron)
 ├─ Calcula elasticidad ABC sobre factor base
 ├─ Incluye CPI canibal (competencia Trébol)
@@ -372,22 +382,19 @@ SCRIPT 2B [PARALELO]: Margen Costo v1435
 └─ PERSISTE: x_margen_por_producto_
             (insumo margen_unit para GMROI)
 
-SCRIPT 3: HM SI Forecast v3.48 [CORE]
+SCRIPT 3: OH Forecast Base v1.8 [CORE]  (cron semanal lunes 08:00: SA 1591 → browse(1576).run())
 ├─ Entrada: x_calculo_abc_xyz, x_price_coreccion, x_categ_calib_factor
-├─ Demanda base: SMA blend
-├─ SI multi-nivel: local_categ → categ_global → global (3-nivel fallback)
-├─ Fair Share: rescate A/B sin historia
-├─ P1/P3/P6: declinantes→0, zero-gate, anti-spike
-├─ Corrección precio (detector v5.8)
-├─ Categ calibration v3.47
-├─ Trend correction YoY v3.43 (asimetrico: solo recorta)
-├─ Bias-outlier correction v3.48 (Pareto-80%)
-├─ Router: Z1-Z4 + forecast_scope
-└─ PERSISTE: x_hm_si_forecast
+├─ Auto-model per SKU: SES/SMA(6) según forma de serie local (ADI/CV²)
+├─ VN gating ON (v1.8): erratic con estructura → smooth-SES
+├─ De-censura por quiebre (LOCF; solo semanas de quiebre real)
+├─ Corrección precio (detector v6.0)
+├─ Calibración safety por clase ABCXYZ
+├─ σ = std 4 sem de serie des-censurada
+└─ PERSISTE: x_hm_si_forecast   (HM-SI v3.x = LEGACY desde 2026-06-03)
             Ej: 5,241 × 12 × 1 = 62,892 registros/semana
             Tiempo ejecución: ~45 seg (12 teams × 5,241 SKUs)
 
-SCRIPT 4: OH Analisis de Stock v9.1.86 [CORE]
+SCRIPT 4: OH Analisis de Stock v9.8.0 [CORE]
 ├─ Entrada: x_hm_si_forecast, x_calculo_abc_xyz, stock.quant
 ├─ Calcula:
 │   - Stock físico por sucursal (suma locations)
@@ -444,7 +451,13 @@ BACKTEST [VALIDACION OFFLINE]
 
 ---
 
-## V. LÓGICA DE DECISIÓN CENTRAL (Script 3: HM SI Forecast)
+## V. LÓGICA DE DECISIÓN CENTRAL (Script 3)
+
+> ⚠️ **Esta sección describe la lógica del motor HM-SI (LEGACY, `_legacy/HM SI Forecast.py`).**
+> El motor productivo actual es `OH Forecast Base` v1.8 (auto-model per SKU SES/SMA +
+> VN gating), promovido el 2026-06-03. Para la lógica viva ver el header de
+> `02_forecast/OH Forecast Base.py`. Se conserva abajo como referencia histórica del
+> enfoque HM-SI multi-capa.
 
 ### 5.1 Heurística Base
 
@@ -686,7 +699,7 @@ Costo: despreciable. Safety: try/except, nunca rompe forecast.
 Scripts aceptan context dict para cambiar comportamiento sin codear:
 
 ```python
-# Script 3 (HM SI Forecast)
+# Script 3 (OH Forecast Base)
 context = {
     'fwd_model': 'x_hm_si_forecast',
     'hard_reset': True,
@@ -723,7 +736,7 @@ context['apply_bias_outlier'] = False      # sin v3.48
 
 ### 8.2 Detector Aprende Factores (2026-05-13+)
 
-**Pendiente:** Refactor detector v5.8 → factores empíricos por SKU.
+**Pendiente:** Refactor detector v6.0 → factores empíricos por SKU.
 
 **Hoy:** Tabla hardcoded (elasticidad ABC=1.3/1.0/0.7).
 
@@ -769,18 +782,18 @@ context['apply_bias_outlier'] = False      # sin v3.48
 1. Script 1: OH Calculo ABCXYZ (cron semanal, lunes 6am)
    └─ Actualiza x_calculo_abc_xyz (5,241 SKUs)
 
-2A. Detector Precio v5.8 (cron diario)
+2A. Detector Precio v6.0 (cron diario)
     └─ Actualiza x_price_coreccion (47 eventos aprox)
 
 2B. Margen SA 1435 (cron diario)
     └─ Actualiza x_margen_por_producto_
 
-3. Script 3: HM SI Forecast v3.48 (cron semanal, lunes 8am)
+3. Script 3: OH Forecast Base v1.8 (cron semanal, lunes 08:00 — SA 1591 → 1576)
    └─ Cálculo: ~45 seg (12 teams × 5,241 SKUs)
    └─ Salida: x_hm_si_forecast (62,892 registros/semana)
    └─ Auditoria: Full trail de transformaciones
 
-4. Script 4: OH Analisis de Stock v9.1.86 (cron semanal, lunes 9am)
+4. Script 4: OH Analisis de Stock v9.8.0 (cron semanal, lunes 9am)
    └─ Cálculo: ~30 seg (12 teams × 5,241 SKUs)
    └─ Salida: x_analisis_de_stock (decisiones compra)
 
@@ -827,10 +840,12 @@ context['apply_bias_outlier'] = False      # sin v3.48
 
 ### Scripts Productivos
 - [01_segmentacion/OH Calculo ABCXYZ.py](01_segmentacion/OH Calculo ABCXYZ.py) — v19.4
-- [02_forecast/HM SI Forecast.py](02_forecast/HM SI Forecast.py) — v3.48
-- [02_forecast/OH Price Correccion.py](02_forecast/OH Price Correccion.py) — v5.8
-- [03_stock/OH Analisis de Stock.py](03_stock/OH Analisis de Stock.py) — v9.1.86
-- [03_stock/OH Generacion de Documentos.py](03_stock/OH Generacion de Documentos.py) — v1.5
+- [02_forecast/OH Forecast Base.py](02_forecast/OH Forecast Base.py) — v1.8 (motor; HM-SI en `_legacy/`)
+- [02_forecast/OH Price Correccion.py](02_forecast/OH Price Correccion.py) — v6.0
+- [03_stock/OH Analisis de Stock.py](03_stock/OH Analisis de Stock.py) — v9.8.0
+- [03_stock/OH Quiebre de Stock.py](03_stock/OH Quiebre de Stock.py) — v3.2
+- [03_stock/OH Generacion de Documentos.py](03_stock/OH Generacion de Documentos.py) — v1.7
+- [06_contabilidad/OH Cuadre Fiscal DTE.py](06_contabilidad/OH Cuadre Fiscal DTE.py) — v0.6
 
 ### Backtests & Analítica
 - [02_forecast/OH Forecast Backtest.py](02_forecast/OH Forecast Backtest.py) — validación
@@ -854,7 +869,7 @@ context['apply_bias_outlier'] = False      # sin v3.48
 
 ## XI. CONCLUSIÓN
 
-El sistema OH Market integra 5 scripts productivos + capas paralelas en un pipeline robusto y auditable. El motor HM SI Forecast (script 3, v3.48) es el corazón: 7 capas de transformación determinísticas (demanda base → SI → correcciones → precio → categ → trend → bias-outlier) que generan pronósticos de demanda semanal consumidos por stock analysis para reorden.
+El sistema OH Market integra 5 scripts productivos + capas paralelas (Price Correccion, Margen, Quiebre, Cuadre Fiscal DTE) en un pipeline robusto y auditable. El motor `OH Forecast Base` v1.8 (script 3) es el corazón: auto-model per SKU (SES/SMA según forma de serie local, patrón SAP IBP) con VN gating y de-censura por quiebre, generando pronósticos de demanda semanal consumidos por stock analysis para reorden. (El motor HM-SI v3.x quedó LEGACY el 2026-06-03; su lógica multi-capa se conserva en la sección V como referencia histórica.)
 
 **Principios clave:**
 - Canon SAP IBP / Blue Yonder (fair share, bake-off, SI multi-nivel).

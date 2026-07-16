@@ -7,7 +7,7 @@ description: >
 written_by: 01_segmentacion/OH Calculo ABCXYZ.py
 read_by:
   - 02_forecast/OH Price Correccion.py
-  - 02_forecast/HM SI Forecast.py
+  - 02_forecast/OH Forecast Base.py
   - 03_stock/OH Analisis de Stock.py
   - 03_stock/Stock Balance Daily.py
 
@@ -53,7 +53,7 @@ critical_fields:
     type: char
     values: [smooth, erratic, lumpy, no_signal]
     description: >
-      La serie que consume HM SI Forecast. Es series_type_short si difiere de
+      La serie que consume OH Forecast Base. Es series_type_short si difiere de
       series_type (señal de cambio de comportamiento); si no difieren, usa series_type.
   x_studio_gmroi:
     type: float
@@ -69,7 +69,7 @@ critical_fields:
     values: [ramp_up, mature, declining, dead]
     description: >
       Ciclo de vida detectado comparando ventas recientes vs históricas.
-      HM SI Forecast usa esto para gate P1 (declining/dead → forecast = 0).
+      OH Forecast Base usa esto para gate P1 (declining/dead → forecast = 0).
   x_studio_snapshot_date:
     type: date
     description: Fecha del último cálculo completo.
@@ -85,7 +85,7 @@ refresh_policy:
 
 notes:
   - >
-    Sin datos frescos de x_calculo_abc_xyz, HM SI Forecast falla en la carga del
+    Sin datos frescos de x_calculo_abc_xyz, OH Forecast Base falla en la carga del
     router context (Z1/Z2/Z3/Z4) y Stock Analisis no puede filtrar por ABC.
   - >
     El campo x_studio_regimen es descriptivo. No debe usarse para lógica de cálculo;

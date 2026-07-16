@@ -9,8 +9,8 @@
 ```
 Script 1: OH Calculo ABCXYZ.py       ← Clasifica SKUs (A/B/C × X/Y/Z)
          ↓ output: x_calculo_abc_xyz
-Script 2: HM SI Forecast.py         ← Pronostica demanda (Croston, Holt-Winters, etc.)
-         ↓ output: x_hm_si_forecast
+Script 2: OH Forecast Base.py       ← Pronostica demanda (SES/SMA auto-model + VN gating). HM-SI = LEGACY
+         ↓ output: x_hm_si_forecast (mu_week)
 Script 3: OH Analisis de Stock.py   ← Calcula qty a pedir basado en forecast
          ↓ output: x_analisis_de_stock
 Script 4: OH Generacion de Docs.py  ← Crea OC, transferencias
@@ -21,6 +21,11 @@ Script 5: OH Forecast Backtest.py   ← Valida Script 2 (compara vs venta real)
 **Cron diario (paralelo):**
 - `Stock Balance Daily.py` — reconstruye stock histórico
 - `OH Presupuesto Ventas.py` — proyecta ingresos
+- `OH Quiebre de Stock.py` — detector de quiebres por evidencia (de-censura del forecast)
+
+**Cron semanal (lunes 08:00):**
+- `OH Forecast Base` (motor SES) — SA 1591 dispara `browse(1576).run()` (cron 119).
+  Corre ANTES de Análisis de Stock; si no, el forecast queda congelado.
 
 ---
 
@@ -28,11 +33,12 @@ Script 5: OH Forecast Backtest.py   ← Valida Script 2 (compara vs venta real)
 
 ### Scripts productivos
 - `01_segmentacion/` → Script 1 (ABCXYZ)
-- `02_forecast/` → Scripts 2 (HM-SI), 5 (Backtest), + helpers (Price Corr, Cambio de Precio)
-- `03_stock/` → Scripts 3, 4
+- `02_forecast/` → Scripts 2 (Forecast Base, motor), 5 (Backtest), + helpers (Price Corr, Cambio de Precio)
+- `03_stock/` → Scripts 3, 4, + Quiebre de Stock (detector)
 - `04_analitica/` → Análisis (Team, Categoría, SKU, Margen) — no bloquea pipeline
 - `05_finanzas/` → Flujo de Caja, Presupuesto — paralelo
-- `_legacy/` → Scripts reemplazados (referencia)
+- `06_contabilidad/` → OH Cuadre Fiscal DTE (cuadra facturas de compra al XML DTE; SA 1590) — paralelo
+- `_legacy/` → Scripts reemplazados (referencia; incluye `HM SI Forecast.py`)
 
 ### Configuración y documentación
 - `governance/` ← **AQUÍ ESTÁS** — Cambios, validación, impacto
@@ -51,6 +57,9 @@ Script 5: OH Forecast Backtest.py   ← Valida Script 2 (compara vs venta real)
   - **OBLIGATORIO**: `*.py` (scripts) y `resultados/` (output/logs) dentro del proyecto
   - **PROHIBIDO**: scripts sueltos en raíz (`/debug_*.py`, `/revisar_*.py`, etc.)
   - Cuando se promueve a productivo: mover script a `02_forecast/` (o dominio), carpeta queda como historial
+  - **NO SE VERSIONA (gitignored)**: `proyectos/` vive solo en el disco local; son
+    consultas/experimentos ad-hoc, no productivo. Al promover, lo que sube a `main`
+    es el script movido al dominio, NO la carpeta del proyecto.
   - **Sin excepciones**: esta es la única forma de mantener el repo limpio y rastreable
 
 ### Data
@@ -68,13 +77,15 @@ Script 5: OH Forecast Backtest.py   ← Valida Script 2 (compara vs venta real)
 - **Key fields**: x_studio_abcxyz, x_studio_ciclo_de_vida (gate declining)
 - **Cambio típico**: ajustar ventanas (52 sem, 12 sem), thresholds de CV²
 
-### Script 2: HM-SI Forecast
+### Script 2: OH Forecast Base (motor)
 - **Input**: x_calculo_abc_xyz, POS histórico (72 semanas)
 - **Output**: x_hm_si_forecast (mu_week = forecast)
-- **Modelo**: Syntetos-Boylan (detector) + SAP IBP (auto-select Croston vs Holt-Winters per SKU)
-- **Layers**: SI correction, trend factor, bias outlier gate, price factor
+- **Modelo**: Syntetos-Boylan (detector ADI/CV²) + auto-model per SKU (patrón SAP IBP):
+  SES/SMA(6) según forma local; VN gating ON por default (v1.8) rescata erratic-estructura → smooth-SES
+- **Layers**: de-censura por quiebre (LOCF), corrección por precio (detector v6.0), calibración safety por clase
 - **Key rule**: REG-1 es control — no puede empeorar >0.5pp WAPE
-- **Cambio típico**: ajustar SI bands, trend decay, outlier gate
+- **Cambio típico**: ajustar α SES, ventana SMA, umbral VN, gates de de-censura
+- **LEGACY**: `HM SI Forecast.py` (motor viejo, `_legacy/`) — backtests `hm_si_*` son de ese motor
 
 ### Script 3: Stock
 - **Input**: x_calculo_abc_xyz, x_hm_si_forecast, stock actual
@@ -108,6 +119,14 @@ Si empeora >0.5pp, el cambio NO va a producción.
 
 ### Regla 4: CHANGELOG primero
 Antes de hacer `git commit`, actualiza `governance/CHANGELOG.md` con nueva versión.
+
+### Regla 4b: `main` es el único lugar de la verdad
+El `.py` del repo es un **espejo** del `python_code` del Server Action que corre en
+Odoo. Antes de mergear código productivo a `main`, valida repo == prod vía API
+(XML-RPC read-only sobre `ir.actions.server`, campo `code`), comparando contra el
+**motor** SA (el cron ejecuta un wrapper que hace `browse(<motor>).run()`; mapeo en
+`memory/ref_sa_motor_cron_mapping.md`). Ramas de trabajo cortas: mergear a `main` y
+borrar. No dejar ramas colgando.
 
 ### Regla 5: Prueba en "cases canónicos"
 Antes de confiar en métricas globales, valida contra 5-10 SKUs manuales:
@@ -162,6 +181,6 @@ Antes de confiar en métricas globales, valida contra 5-10 SKUs manuales:
 
 ---
 
-**Última actualización:** 2026-05-30
+**Última actualización:** 2026-07-16
 **Documentación:** governance/*.md
 **Reglas:** CLAUDE.md

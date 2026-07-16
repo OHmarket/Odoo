@@ -14,7 +14,7 @@ description: >
 
 written_by: 05_finanzas/OH Presupuesto ventas.py
 read_by:
-  - 02_forecast/HM SI Forecast.py
+  - 02_forecast/OH Forecast Base.py
   - 05_finanzas/OH Flujo de Caja.py
 
 granularity: (x_studio_team_id, x_date_2025_eq)

@@ -56,7 +56,7 @@ critical_fields:
       Si el producto no tiene UoM caja configurada, se excluye del análisis.
 
 refresh_policy:
-  trigger: paso 4 del pipeline (después de HM SI Forecast)
+  trigger: paso 4 del pipeline (después de OH Forecast Base)
   full_rebuild: true
   advisory_lock: false
   notes: >

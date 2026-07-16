@@ -9,11 +9,16 @@ Usada en Fase 3 (Validación de Integración) para evaluar impacto de cambios an
 ## Scripts del Pipeline
 
 ```
-Script 1: ABCXYZ        ┐
-Script 2: HM-SI         ├─ Upstream (generan datos)
-Script 3: Stock         ├─ Consumer (consumen datos)
-Script 4: Documentos    ┘
-Script 5: Backtest      (validación)
+Script 1: ABCXYZ            ┐
+Script 2: Forecast Base     ├─ Upstream (generan datos)  [HM-SI = LEGACY]
+Script 3: Stock             ├─ Consumer (consumen datos)
+Script 4: Documentos        ┘
+Script 5: Backtest          (validación)
+
+Paralelo (no en la cadena de dependencia del pipeline):
+- Price Correccion, Margen → insumos de forecast/analítica
+- Quiebre de Stock         → de-censura del forecast
+- 06_contabilidad (Cuadre Fiscal DTE) → independiente; no alimenta el pipeline
 ```
 
 ---
@@ -93,5 +98,5 @@ Risk: [LOW / MEDIUM / HIGH]
 
 ---
 
-**Última actualización:** 2026-05-30
+**Última actualización:** 2026-07-16
 **Relacionado:** `CHANGELOG.md`, `VALIDATION_CHECKLIST.md`, `AGENTE_DESARROLLO_FLUJO.md`
