@@ -26,8 +26,18 @@ después de cuadrar vuelve a pisar el precio.**
 
 | Problema | Detección | Corrección en el SA |
 |---|---|---|
-| **Precio pisado** | `price_subtotal` ≠ `MontoItem` | `price_unit = MontoItem/qty_odoo` + `discount=0` |
+| **Precio pisado** | `price_subtotal` ≠ `MontoItem` **y `qty_odoo == QtyItem`** | `price_unit = MontoItem/qty_odoo` + `discount=0` |
 | **ILA sin mapear** | línea con impuesto ORIGEN "Compra (OC)" (ids 26/28/31/33/34) | re-aplicar posición fiscal: `fp.map_tax(product.supplier_taxes_id)` |
+| **Qty redondeada** (fracción de pack) | `qty_odoo != QtyItem` (DTE trae >2 decimales, ej `0,166666`) | **NINGUNA — se excluye.** Se reporta como warn, no entra al SA |
+
+**Por qué se excluye la qty redondeada:** `decimal.precision` de *Product Unit of
+Measure* = **2 decimales** (config global), así que Odoo guarda `0,166666`→`0,17`.
+En esas líneas el `price_unit` **ya es el correcto del DTE**; el descuadre (siempre
+diminuto, <$20 / <0,1%) es puro ruido de redondeo. Forzar `pu = MontoItem/qty_odoo`
+para cuadrar el total al peso **desviaría el precio unitario correcto** y
+contaminaría costo/WAC ([[project-costo-desde-facturas]], trampa UoM). Decisión de
+negocio 2026-07-06: **dejar el descuadre de redondeo fuera**, no tocar el precio.
+Solo se cuadra precio cuando `qty_odoo == QtyItem` (pisado genuino).
 
 **El ILA NO se corrige con tabla inventada** — lo mapea la posición fiscal id 12
 "Facturas de Compra" (mecanismo nativo de Odoo). Mapeo origen→destino:
@@ -73,5 +83,9 @@ todos los códigos (si re-vinculás un código después, vuelve a pisar el preci
   línea sin ILA); se ve en el DRY_RUN. El flete (sin producto) queda con solo IVA.
 - **Correr DRY_RUN=True siempre primero** y leer el diff antes de aplicar. `map_tax`
   no se puede probar por XML-RPC (read-only); la prueba real es el DRY_RUN en Odoo.
+- **Nunca cuadrar precio contra una qty redondeada.** Si `qty_odoo != QtyItem` la
+  línea se excluye del fix (el precio ya está bien; el descuadre es redondeo de la
+  UoM cap a 2 decimales). Desviar `pu` ahí es la trampa UoM. Una factura cuyo único
+  descuadre es de redondeo sale `OK` y **no emite SA**.
 - Casos de validación (lote CCU 2026-07-02): 49/53 facturas descuadraban; ramas
   cubiertas: bebida (ILA 10/18), vino/cerveza (20,5%), pisco/ron/licor (31,5%).

@@ -155,8 +155,13 @@ def diagnose(o: OdooReader, move: dict, src_oc: set[int]) -> dict:
         matched.add(ol['id'])
         qty = ol['quantity']
         if abs(qty - d['qty']) > 1e-6:
-            warns.append('qty distinta en %s: Odoo %s vs DTE %s (revisar a mano)'
+            # qty redondeada (fraccion de pack; Odoo cap 2 decimales en UoM):
+            # el price_unit YA es el correcto del DTE, el descuadre es ruido de
+            # redondeo. NO se cuadra el precio (desviarlo contamina costo/WAC).
+            # Solo se reporta y la linea queda EXCLUIDA del fix.
+            warns.append('qty distinta en %s: Odoo %s vs DTE %s -> EXCLUIDA (redondeo, no se cuadra el precio)'
                          % (d['nombre'][:30], qty, d['qty']))
+            continue
         if abs(ol['price_subtotal'] - d['monto']) > CENT:
             pu_target = round(d['monto'] / qty, 2) if qty else 0.0
             price_fixes.append((ol['id'], ol['name'][:38], ol['price_unit'], pu_target,
@@ -201,11 +206,14 @@ def emit_server_action(results: list[dict], out: Path) -> tuple[int, int]:
     for r in results:
         if r.get('error') or not r['afectado']:
             continue
+        if not r['price_fixes'] and not r['tax_dirty']:
+            continue  # solo descuadre por redondeo de qty (excluido): nada accionable
         move_ids.append((r['move']['id'], r['move']['name']))
         for (lid, nombre, _pn, pu_tgt, _sn, _st) in r['price_fixes']:
             price_rows.append('    %d: %r,  # %s | %s' % (lid, pu_tgt, r['move']['name'], nombre))
-    if not move_ids:
-        return 0, 0
+    # Siempre reescribir el archivo: si no hay nada que emitir, queda un SA no-op
+    # (MOVES vacio) en vez de un SA STALE de una corrida anterior. Un archivo stale
+    # se pega por error y aplica fixes ya obsoletos/incorrectos.
     moves_txt = '\n'.join('    %d,  # %s' % (mid, name) for mid, name in move_ids)
     body = (SA_TEMPLATE
             .replace('# __MOVES__', moves_txt)
@@ -305,7 +313,7 @@ def main() -> None:
         print('\n  Server Action: %d factura(s), %d precio(s) a cuadrar -> %s' % (nm, npr, out))
         print('  Pegar en Odoo (account.move, safe_eval). DRY_RUN=True primero.')
     else:
-        print('\n  Nada que corregir; no se emitio Server Action.')
+        print('\n  Nada que corregir. SA reescrito como no-op (MOVES vacio) -> %s' % out)
 
 
 if __name__ == '__main__':
