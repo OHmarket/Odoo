@@ -75,3 +75,9 @@ desktop.ini
 credentials.json
 secrets.yaml
 secrets.yml
+
+# --- Experimentos / consultas diarias (no productivo, no se versiona) ---
+proyectos/
+
+# --- Tooling local (framework superpowers) ---
+.superpowers/

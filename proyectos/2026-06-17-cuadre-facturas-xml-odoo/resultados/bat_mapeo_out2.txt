@@ -1,9 +1,0 @@
-universo tabaco: 223 productos en 5 categorias
-Traceback (most recent call last):
-  File "D:\Desarrollo\Odoo\proyectos\2026-06-17-cuadre-facturas-xml-odoo\diag_bat_mapeo.py", line 114, in <module>
-    main()
-    ~~~~^^
-  File "D:\Desarrollo\Odoo\proyectos\2026-06-17-cuadre-facturas-xml-odoo\diag_bat_mapeo.py", line 99, in main
-    with open(OUT / 'bat_mapeo.csv', 'w', newline='', encoding='utf-8-sig') as f:
-         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-PermissionError: [Errno 13] Permission denied: 'D:\\Desarrollo\\Odoo\\proyectos\\2026-06-17-cuadre-facturas-xml-odoo\\resultados\\bat_mapeo.csv'
