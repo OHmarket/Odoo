@@ -1,7 +1,17 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version activa: v1.6 (2026-06-04)  [reemplaza OH SMA4 Forecast v1.0]
+# Version PRODUCTIVA activa: v1.8 (2026-07-06)  [gating von Neumann ON por default]
+#   v1.8 (PROMOVIDO 2026-07-06): gating por ratio de von Neumann ENCENDIDO por default
+#         (VN_GATING_DEFAULT=True). El CV2 (sobre niveles) confunde varianza ESTACIONAL/
+#         tendencia con ruido -> estacionales caen en 'erratic' y reciben alfa=0.7 (el
+#         mas reactivo), que colapsa en el cambio de temporada (caso 9640/team16). vN
+#         separa estructura (vN bajo) de ruido (vN ~1); 'erratic' pero estructura -> trato
+#         'smooth' (SES 0.5/0.6, model_code sufijo _vn). Backtest rolling-origin
+#         (proyectos/2026-07-06-vn-gating-erratic): -3.5% WAPE en el grupo estructura,
+#         sanity limpio; al correr rescata 768/1135 erratic (68%). Apagar con context
+#         vn_gating=False. VERSION_ID sube a v1_7_VN_GATING cuando el gating corre (hoy,
+#         lo normal en productivo). Base v1.6 (2026-06-04, auto-modelo) intacta debajo.
 #   v1.1: de-censura por combo con quiebre -> SMA. v1.2: CLEANSING por SEMANA
 #         (reemplaza la venta suprimida de cada semana de quiebre por el promedio
 #         in-stock, solo-levanta) sobre TODO el periodo + cola SMA(6).
@@ -85,6 +95,9 @@
 # No toca stock, compras, transferencias ni OC. Solo escribe el forecast.
 # ============================================================
 
+# Base = comportamiento productivo v1.6. Solo sube a v1.7 si el gating vN se
+# activa (context vn_gating=True); asi los registros productivos no quedan
+# etiquetados v1.7 cuando el experimento esta OFF (trazabilidad de backtest).
 VERSION_ID = "OH_FORECAST_BASE_v1_6"
 
 TZ_NAME  = 'America/Santiago'
@@ -128,6 +141,14 @@ MIN_ACTIVE_WEEKS = 4
 ALPHA_SMOOTH_A = 0.5
 ALPHA_SMOOTH_BC = 0.6
 ALPHA_ERRATIC = 0.7
+# v1.8 (PROMOVIDO 2026-07-06, default ON): gating por ratio de von Neumann. El CV2 confunde
+# varianza ESTACIONAL/tendencia con ruido -> los estacionales caen en 'erratic' y
+# reciben alfa=0.7 (el mas reactivo), que colapsa en el cambio de temporada (9640).
+# vN separa estructura (vN bajo) de ruido aleatorio (vN ~1): erratic + vN<0.7 -> smooth-SES.
+# Backtest rolling-origin (proyectos/2026-07-06-vn-gating-erratic): -3.5% WAPE en el grupo
+# estructura, sanity limpio; 768/1135 erratic (68%) rescatadas. Apagar con context vn_gating=False.
+VN_GATING_DEFAULT = True
+VN_THRESHOLD_DEFAULT = 0.7
 BATCH_SIZE = 500
 
 
@@ -246,6 +267,40 @@ def _classify_series_type(vals):
     return 'erratic' if high_var else 'smooth'
 
 
+def _von_neumann(vals):
+    """Ratio de von Neumann = MSSD / (2*var). ~1 si la serie es aleatoria (ruido real);
+    <1 si tiene ESTRUCTURA (tendencia/estacion: valores consecutivos parecidos). Distingue
+    varianza estructural de ruido, que es lo que CV2 (sobre niveles) NO hace.
+    Loops explicitos por el safe_eval de Odoo (sin numpy ni closures)."""
+    n = 0
+    s = 0.0
+    for x in vals:
+        n += 1
+        s += x
+    if n < 5:
+        return 1.0
+    mu = s / n
+    var = 0.0
+    for x in vals:
+        d = x - mu
+        var += d * d
+    var = var / n
+    if var <= 0.0:
+        return 1.0
+    mssd = 0.0
+    cnt = 0
+    prev = None
+    for x in vals:
+        if prev is not None:
+            d = x - prev
+            mssd += d * d
+            cnt += 1
+        prev = x
+    if cnt <= 0:
+        return 1.0
+    return (mssd / cnt) / (2.0 * var)
+
+
 def _ses_level(vals, alpha):
     """Nivel SES (adjust=False) tras la ultima semana cerrada = forecast 1-paso."""
     level = None
@@ -272,7 +327,9 @@ def _cleanse_stockout(raw_vals, weeks_list, tid, pid, qweight, min_days, base_k,
     que quebraron -> un quiebre de sabado pesa ~21%, uno de lunes ~9%.
     En una semana con quiebre (n_days >= min_days y peso_perdido > 0):
       - quiebre LEVE (peso_perdido < severe_w): completa por disponibilidad ->
-        demanda = venta / (1 - peso_perdido). Sigue la demanda RECIENTE.
+        demanda = venta / (1 - peso_perdido), pero CAPADA al baseline in-stock (no
+        infla sobre el nivel de periodos similares; si la semana ya vendio sobre ese
+        nivel, no levanta). Corrige el salto del leve sobre semanas que ya rindieron.
       - quiebre SEVERO (peso_perdido >= severe_w, la semana perdio demasiada venta): cae
         al promedio de las base_k semanas CON stock previas (baseline).
     Siempre SOLO LEVANTA: nunca recorta. Loop explicito (sin comprehension que capture
@@ -287,16 +344,18 @@ def _cleanse_stockout(raw_vals, weeks_list, tid, pid, qweight, min_days, base_k,
         nd = info[0] if info else 0
         pw = info[1] if info else 0.0
         if nd >= min_days and pw > 0.0:
+            recent = instock[-base_k:] if instock else []
+            base = (sum(recent) / len(recent)) if recent else None   # nivel periodos similares
             if pw < severe_w and pw < 0.95:
-                # quiebre leve: escala por la fraccion de venta-semana disponible
+                # quiebre leve: escala por disponibilidad, capado al baseline (solo-levanta)
                 val = y / (1.0 - pw)
+                if base is not None and val > base:
+                    val = base if base > y else y    # nunca sobre el nivel vecino ni bajo y
                 out.append(val)
                 if val > y + 1e-9:
                     n_lift += 1
-            elif instock:
+            elif base is not None:
                 # quiebre severo: baseline de semanas in-stock previas (solo-levanta)
-                recent = instock[-base_k:]
-                base = sum(recent) / len(recent)
                 if base > y:
                     out.append(base)
                     n_lift += 1
@@ -318,6 +377,10 @@ FWD_MODEL  = str(CTX.get('fwd_model', FWD_MODEL_DEFAULT) or FWD_MODEL_DEFAULT)
 HARD_RESET = bool(CTX.get('hard_reset', HARD_RESET_DEFAULT))
 DEMAND_WINDOW_WEEKS = int(CTX.get('demand_window_weeks', DEMAND_WINDOW_WEEKS_DEFAULT))
 FORCE_ALPHA = CTX.get('force_alpha')          # diagnostico: SES(alpha) a todo
+VN_GATING = bool(CTX.get('vn_gating', VN_GATING_DEFAULT))   # v1.7 exp: estacional mal-llamado erratic -> smooth
+VN_THRESHOLD = _safe_float(CTX.get('vn_threshold', VN_THRESHOLD_DEFAULT), VN_THRESHOLD_DEFAULT)
+if VN_GATING:   # solo marca v1.7 cuando el experimento corre activo
+    VERSION_ID = "OH_FORECAST_BASE_v1_7_VN_GATING"
 FORCE_MEDIAN = bool(CTX.get('force_median'))  # diagnostico: Mediana(4) a todo
 DECENSOR = bool(CTX.get('decensor_stockout', True))  # etapa 2: cleansing de entrada (default ON)
 CLEANSE_MIN_DAYS = max(1, int(CTX.get('cleanse_min_days', CLEANSE_MIN_DAYS_DEFAULT)))
@@ -627,6 +690,15 @@ else:
                 stype = _classify_series_type(vals)
                 abc = abc_letter.get(pid, '')
 
+                # v1.7 (EXPERIMENTAL, default OFF via VN_GATING): si el CV2 lo llamo
+                # 'erratic' pero el ratio de von Neumann dice ESTRUCTURA (vN bajo), es un
+                # estacional/tendencia mal-clasificado. NO se toca el series_type (auditoria:
+                # el CV2 SI lo vio erratic); se cambia el TRATO -> alfa estable en vez de 0.7
+                # (que colapsa en el cambio de temporada, caso 9640/team16). model_code _vn
+                # marca la cohorte rescatada para aislarla en el backtest.
+                vn_rescue = (VN_GATING and stype == 'erratic'
+                             and _von_neumann(vals) < VN_THRESHOLD)
+
                 # --- seleccion de modelo (sobre la serie YA limpia) ---
                 if FORCE_MEDIAN:
                     model_code = 'median4'; mu = _median(last4)
@@ -636,7 +708,13 @@ else:
                     a = ALPHA_SMOOTH_A if abc == 'A' else ALPHA_SMOOTH_BC
                     model_code = 'ses_a%.2f' % a; mu = _ses_level(vals, a)
                 elif stype == 'erratic':
-                    a = ALPHA_ERRATIC; model_code = 'ses_a%.2f' % a; mu = _ses_level(vals, a)
+                    if vn_rescue:   # v1.7: estructura (vN bajo) -> alfa estable, no 0.7
+                        a = ALPHA_SMOOTH_A if abc == 'A' else ALPHA_SMOOTH_BC
+                        model_code = 'ses_a%.2f_vn' % a
+                    else:
+                        a = ALPHA_ERRATIC
+                        model_code = 'ses_a%.2f' % a
+                    mu = _ses_level(vals, a)
                 elif stype == 'no_signal':
                     # casi-muerto: <4 sem con venta en 26. v1.4: antes Mediana(4)=0 sub-stockeaba
                     # los intermitentes lentos VIVOS (venta esporadica reciente). SMA(SMA_TAIL_WEEKS)

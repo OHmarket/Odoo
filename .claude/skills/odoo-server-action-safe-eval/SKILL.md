@@ -30,9 +30,15 @@ Lists below are verified against the Odoo 17 source (see "Verify" section).
 | `fields.Date.today()` | `fields` is NOT injected | `datetime.date.today()` (has `.isoformat()`, `.replace()`, `timedelta`) |
 | `type(x)` / `eval` / `exec` / `open` / `print` / `vars` / `dir` | not in builtins | `isinstance(x, T)` ; `log(msg)` instead of `print` |
 | `x.__class__` / `x.__globals__` / `x.__code__` | `_UNSAFE_ATTRIBUTES` blocked | no introspection of internals |
+| nested `def`/`lambda` that captures an enclosing FUNCTION's local (closure) | opcodes `MAKE_CELL`/`LOAD_CLOSURE` → "forbidden opcode(s) in 'lambda'" | pass the value as an explicit parameter, or hoist the helper to top level and pre-compute the data at the call site (top-level defs referencing top-level names are fine — that's LOAD_NAME, not a cell) |
 
 **Gotcha:** `A and getattr(x, 'f', '')` only raises when `A` is truthy (short-circuit),
 so it fails *intermittently* and is easy to miss in a loop.
+
+**Gotcha (closures):** `def f(si): def g(w): return si.get(w)` fails — `g` captures `si`
+(MAKE_CELL). Comprehensions inside functions are fine in practice (verified in prod,
+Odoo 17), but an explicit nested def/lambda over a function local is rejected at
+validation time. Hoist or parameterize. (Caught 2026-06-10, OH Factor Semanal v1.5.)
 
 ## Allowed builtins (Odoo 17 `_BUILTINS`)
 

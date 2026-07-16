@@ -38,7 +38,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = "ABCXYZ_OH_MARGIN_v19_4_SERIES_SHORT"
+VERSION_ID = "ABCXYZ_OH_MARGIN_v19_5_ABC_VENTAS"
 
 TZ_NAME = 'America/Santiago'
 LOCK_KEY = 99009431
@@ -1237,6 +1237,26 @@ else:
                 if _it['total_margin_abc'] > 0.0:
                     grand += _it['total_margin_abc']
 
+            # === ABC por VENTAS (paralelo al de margen; misma ventana ABC_WEEKS y thresholds) ===
+            # XYZ se reusa (no cambia: es variabilidad de demanda, no valor).
+            items_by_rev = sorted(items, key=lambda _it: _it['total_rev_abc'], reverse=True)
+            grand_rev = 0.0
+            for _it in items_by_rev:
+                if _it['total_rev_abc'] > 0.0:
+                    grand_rev += _it['total_rev_abc']
+            abc_ventas_by_pid = {}
+            rank_ventas_by_pid = {}
+            _cum_rev = 0.0
+            for _rv, _it in enumerate(items_by_rev, 1):
+                _rev_base = _it['total_rev_abc'] if _it['total_rev_abc'] > 0.0 else 0.0
+                if grand_rev <= 0.0 or _rev_base <= 0.0:
+                    _abc_v = 'C'
+                else:
+                    _cum_rev += _rev_base / grand_rev
+                    _abc_v = 'A' if _cum_rev <= ABC_T1 else ('B' if _cum_rev <= ABC_T2 else 'C')
+                abc_ventas_by_pid[_it['product_id']] = _abc_v
+                rank_ventas_by_pid[_it['product_id']] = _rv
+
             batch = []
             total_created = 0
             log_lines = []
@@ -1456,6 +1476,14 @@ else:
                     vals['x_studio_weeks_since_last_sale'] = it.get('weeks_since_last_sale', len(all_weeks_list))
                 if fields_map.get('x_studio_mu_trend_method'):
                     vals['x_studio_mu_trend_method'] = it.get('mu_trend_method', '')[:120]
+
+                # ABC por VENTAS (clasificacion por venta $, ademas del margen)
+                if fields_map.get('x_studio_abc_ventas'):
+                    vals['x_studio_abc_ventas'] = abc_ventas_by_pid.get(product_id, 'C')
+                if fields_map.get('x_studio_abcxyz_ventas'):
+                    vals['x_studio_abcxyz_ventas'] = abc_ventas_by_pid.get(product_id, 'C') + xyz
+                if fields_map.get('x_studio_abc_rank_ventas'):
+                    vals['x_studio_abc_rank_ventas'] = rank_ventas_by_pid.get(product_id, rank)
 
                 # Compatibilidad: estos campos existen en tu modelo actual, pero quedan sin escribir:
                 # x_studio_demanda_semanal, x_studio_peso_dinmico,

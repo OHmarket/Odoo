@@ -1,7 +1,87 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.1.87 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.8.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.8.0 (2026-07-11): lead de trabajo corto para la rotacion alta surtida por CD.
+#   Las salas solo_bodega de rotacion ALTA usan un LEAD DE TRABAJO de 7d (CD_FAST_LEAD_DAYS)
+#   en vez del ciclo completo (period, cap 15d): el CD repone seguido (pass-through), la
+#   sala no necesita cargar el ciclo entero de un rapido. NO es un cap sobre el total (eso
+#   estriparia el colchon); es el horizonte de trabajo. El target sigue canonico base-stock:
+#     S = mu*lead(7d) + z*sigma*sqrt(lead_seguridad) + vitrina  -> da 7d + colchon.
+#   Rotacion alta se mide en UNIDADES/sem por sala (CD_FAST_UNITS_WEEK, def 2), NO en cajas:
+#   el moq distorsiona (una caja de 6 hace ver 'lento' a un SKU que vende harto). min() solo
+#   recorta: si el ciclo ya es < 7d no lo sube. NO toca compra directa a sala ni los lentos
+#   solo_bodega. Baja el gatillo de reorden (reorder_target_weeks) -> repone algo mas tarde.
+#
+# v9.7.0 (2026-07-02): reposicion CD solo_bodega -> INSTALLATION STOCK (no pooling).
+#   El CD es pass-through (entrega todo, stock_real ~0); el safety debe sentarse fisico
+#   en cada sala. target_red pasa de mu_red*period + z*sqrt(Σσ²)*sqrt(period) + piso
+#   (echelon pooling) a Σ target de las salas (cada uno ya con safety+vitrina+cola_larga+
+#   cap). Antes el CD apuntaba ~sqrt(N) mas bajo que la suma de las salas y estas quedaban
+#   cronicamente bajo target (1756: CD 117 vs Σsalas 138). Validable a mano: suma los
+#   target de las salas, resta lo que hay y lo que viene. Sube la compra de la cola larga
+#   por la diferencia Σσ - sqrt(Σσ²). Ver proyectos/2026-07-02-cd-installation-stock/.
+#
+# v9.6.1 (2026-06-30): persiste el lote de cola larga (order-up-to ~30d) en
+#   x_studio_stock_minimo para los SKU gated (antes 0; el display no aplica a mu<=3).
+#   Logica comun: el campo guarda el piso de exhibicion (rotadores) o el lote mensual
+#   (cola larga). Es valor de reporte (output), NO se re-suma al target en este script.
+#   PRECAUCION: si algun orderpoint nativo de Odoo lee x_studio_stock_minimo, ahora veria
+#   el lote -> revisar antes de asumir que es inocuo.
+#
+# v9.6.0 (2026-06-30): cola larga -> lote minimo (s,S) por caja autofinanciada en el
+#   traslado CD->sala. Para SKU solo_bodega con mu_for_target <= COLA_UMBRAL_WEEK (3/sem):
+#   order-up-to S por 3 vias: (a) caja rinde 30-45d (COLA_OBJETIVO_DIAS..COLA_PLAZO_PAGO_DIAS,
+#   ~1 mes y autofinanciada) -> CAJA LIMPIA S=moq; (b) caja chica (<30d) -> CAJA+UNIDADES,
+#   S = floor(mu*30/7)+piso (sube a ~1 mes con sueltas, el traslado interno fracciona);
+#   (c) cola profunda (>45d) -> FRACCION S = floor(mu*30/7)+piso. El ciclo mensual va SOBRE
+#   el piso de presencia (ROP), no incluyendolo -> ciclo real (S-ROP)/mu ~= 30d (medido:
+#   target de cobertura 94% en 4-6 sem, goteo <7d y band <4 sem eliminados). ROP
+#   = mu*lead + presencia (~1u); el traslado se suprime mientras stock > ROP -> drena el
+#   lote antes de reponer (cadencia ~mensual emergente por local, elimina el goteo de 1u/sem).
+#   El pack solo ata la compra; el traslado interno fracciona. No toca compra a proveedor ni
+#   fair-share. PROXY: plazo de pago global. Tuneable: cola_umbral_week, cola_objetivo_dias,
+#   cola_plazo_pago_dias, cola_piso_unidades. Ver proyectos/2026-06-30-cola-larga-lote-caja/
+# v9.5.0 (2026-06-30): clasificacion de cobertura CANONICA (SAP Range of Coverage /
+#   Oracle Days of Cover), anclada al TARGET PLANIFICADO, no al techo financiero.
+#   _cover_label ahora: critico < 3d (piso absoluto), bajo < 50% C, normal 50%-100% C,
+#   alto 100%-150% C, exceso > 150% C. C = TARGET COMPLETO (reorder_target_weeks =
+#   demanda x lead + safety + vitrina): el canon clasifica la salud de stock contra
+#   el nivel planificado (Max=order-up-to), por eso 'normal'=en target y 'alto'/'exceso'
+#   =sobrestock real. Safety y vitrina son piso defendido pero stock real -> cuentan
+#   en la cobertura, NO se netean. El reorden NO cambia de mecanismo (label ->
+#   _buy_action_from_cover: critico/bajo -> reponer); como 'bajo' es < 50% C, queda
+#   PROPORCIONAL a la cobertura de cada SKU sin gate aparte. PROXY: el ROP canonico es
+#   demanda*(lead+review)+safety; usamos 50%*target como aproximacion. Antes 'bajo'
+#   caia en ceiling*0.5 (~15d para lead 15) -> pedia con 13-14d. Tuneable: critico_cover_days.
+#
+# v9.4.0 (2026-06-29): Fair Share Rule C (run-out leveling) en el reparto CD->salas.
+#   Cuando stock_CD < Sigma need_salas, reparte igualando dias de cobertura
+#   (water-filling) en vez de servir en cascada por prioridad (que vaciaba el CD
+#   en las primeras salas y dejaba la cola en 0). Helper _runout_level_alloc:
+#   busca el nivel comun de cobertura L tal que Sigma clamp(d*(L-c),0,need)=stock_CD,
+#   reparte enteros por mayor resto (desempate por _priority_tuple). Cap por sala =
+#   need (no supera su target). Invariante: sin escasez cada sala recibe su need
+#   completo. Canon DRP SAP APO Rule C. Ver proyectos/2026-06-29-fair-share-cd-salas/
+#
+# v9.3.1 (2026-06-29): cap de cobertura SOLO en la sala surtida por CD
+#   (sala_work_weeks = min(period_weeks, MAX_COVER_WEEKS), 15d default). Los SKU
+#   con delay 30d dejan de cargar un mes en sala. NO capa la compra del CD ni la
+#   compra-directa-a-proveedor (necesitan el ciclo completo; capar ahi = quiebre).
+#
+# v9.3.0 (2026-06-29): elimina el tratamiento diferencial CD->sala. La sala
+#   surtida por CD usa period_weeks (delay = frecuencia de compra) para el stock
+#   de TRABAJO, igual que la compra a proveedor (antes forzaba sala_H=1 semana).
+#   El safety se mantiene sobre el ciclo logistico de 7d, desacoplado del horizonte
+#   de trabajo. Ver proyectos/2026-06-28-envio-periodo-fair-share/.
+#
+# v9.2.0 (2026-06-09): CD pass-through diferencial. solo_bodega: la sala SOLO
+#   transfiere desde CD; el faltante se consolida en UNA compra_cd en la fila CD
+#   (id 26) = max(0, Σ necesidad_salas − stock_CD). Elimina (a) el orphan de salas
+#   'compra_cd' cuyo traslado nunca se generaba y (b) el doble conteo del antiguo
+#   solo_bodega_cd_replenish (target forward del CD). Ver
+#   proyectos/2026-06-09-diag-li450701/diseno.md
 #
 # Objetivo:
 #   - Calcular analisis de stock por Sucursal (crm.team) y Bodega Central.
@@ -18,7 +98,7 @@
 #     fallback PURCHASE_CYCLE_WEEKS si missing. lead_weeks operativo = 0.
 #   - CD reposicion solo_bodega usa el MISMO period_weeks por SKU (v9.1.85).
 #   - Safety stock: z * sigma * sqrt(period_weeks). Z segun ABCXYZ:
-#     AX/AY/BX=1.68, BY=1.28, AZ=1.04, CX=0.84, BZ/CY=0.35, CZ=0.0;
+#     AX/BX=1.68, AY=1.28, BY=1.04, AZ=1.04, CX=0.84, BZ/CY=0.35, CZ=0.0;
 #     default fallback 0.84. Top cash sube a 1.65 (piso, display reserve).
 #     Cigarros (categ 1628): multiplicador 0.778 sobre Z; display_mult=0.
 #   - MOQ: politica caja-o-esperar (SMART_MOQ_ROUNDING). Bloquea cajas
@@ -47,7 +127,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_1_87_PHANTOM_CD_REPLENISH_PADRE'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_4_0_FAIR_SHARE_RUNOUT_LEVELING'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -58,9 +138,6 @@ ABC_MODEL      = 'x_calculo_abc_xyz'
 FWD_MODEL      = 'x_hm_si_forecast'
 # v3.35 (S5) escribe team con x_studio_team_id, no x_studio_local.
 FWD_TEAM_FIELD = 'x_studio_team_id'
-
-SNAPSHOT_FIELD = 'x_studio_fecha_1'
-COMPANY_FIELD  = 'x_studio_company_id'
 
 FILTERED_TEAM_IDS_DEFAULT = [18, 17, 16, 13, 12, 11, 10, 9, 8, 7, 6, 5]
 
@@ -94,6 +171,12 @@ HARD_RESET_DEFAULT = True
 PAYMENT_DAYS_DEFAULT        = 30.0
 CD_ELIGIBLE_ABCXYZ_DEFAULT  = ('AX', 'AY', 'AZ', 'BX', 'BY', 'BZ')
 PURCHASE_CYCLE_DAYS_DEFAULT = 7.0
+MAX_COVER_WEEKS_DEFAULT     = 15.0 / 7.0  # v9.3.1: cap cobertura 15d indep. del delay
+# Flag on/off del cap de cobertura de sala (los 15d que recortan a los SKU con
+# frecuencia de compra > 15d). True = como hoy (capa a MAX_COVER_WEEKS). False =
+# la sala respeta el delay/frecuencia completo del proveedor (delay 30d -> 30d).
+MAX_COVER_CAP_ENABLED_DEFAULT = True
+CRITICO_COVER_DAYS_DEFAULT  = 3.0  # v9.5.0: piso absoluto de 'critico' (<3d), independiente de la cobertura objetivo C. El resto de las bandas son relativas a C (ver _cover_label).
 DEMAND_FLOOR_WEEK           = 1.0 / 4.345  # ~0.23
 MOQ_COVER_GUARD_DEFAULT      = 2.5
 SMART_MOQ_ROUNDING_DEFAULT    = True
@@ -101,7 +184,7 @@ MOQ_MAX_POST_FACTOR_DEFAULT   = 1.35   # max post-compra vs target_weeks antes d
 MOQ_CRITICAL_FACTOR_DEFAULT   = 0.50   # critico si cobertura < periodo * este factor
 RETURN_HOLD_WEEKS_DEFAULT    = 8.0
 RETURN_TRIGGER_WEEKS_DEFAULT = 8.0
-CD_DELIVERY_EXTRA_DAYS_DEFAULT = 2.0  # buffer logistico CD->sala (atraso camion, ej. martes en vez de lunes)
+CD_DELIVERY_EXTRA_DAYS_DEFAULT = 0.0  # buffer logistico CD->sala ELIMINADO (sala_H = 1.0 sem exacta; el CD entrega dentro de la semana). Override por context cd_delivery_extra_days si se requiere holgura puntual.
 CENTRAL_TEAM_ID_DEFAULT = 26
 
 # Politica de descentralizacion sala vs CD: COBERTURA DE CAJA + EXCLUSION POR CATEGORIA.
@@ -136,28 +219,48 @@ NO_CD_PARENT_CATEGORY_IDS_DEFAULT = [1715, 1716, 1717, 1718, 1719, 1653]
 
 # Politica de exhibicion + top caja
 # Reserva comercial que se suma al target operativo (no a la demanda).
-DISPLAY_STOCK_ENABLED_DEFAULT = False
-DISPLAY_MIN_DEMAND_WEEK_DEFAULT = 1.0
-DISPLAY_MAX_UNITS_DEFAULT = 6.0
-DISPLAY_PCT_DEFAULT = 0.0
-DISPLAY_PCT_TOP_CASH_DEFAULT = 0.30
-DISPLAY_PCT_BY_ABCXYZ = {
-    'AX': 0.20, 'AY': 0.20,
-    'BX': 0.15, 'BY': 0.15,
-    'AZ': 0.10, 'BZ': 0.10,
-    'CX': 0.0,  'CY': 0.0,
-    'CZ': 0.0,
-}
-TOP_CASH_WEEKLY_MIN_DEFAULT = 25000.0
-TOP_CASH_RANK_MAX_DEFAULT = 300
-TOP_CASH_SAFETY_FACTOR_DEFAULT = 1.65
-TOP_CASH_ABCXYZ_ALLOWED = ('AX', 'AY', 'BX', 'BY')
+#
+# ── Piso de exhibicion (presentation stock) — ADITIVO ────────────────────────
+# stock_minimo se SUMA al target (no es max): siempre aumenta el stock en sala.
+# Solo rotadores (demanda_semanal > umbral); PRESENTATION_DIAS de cobertura;
+# redondeo a packs (multiplos de PRESENTATION_PACK; lo menor a un pack pero >0 -> 3).
+# Reemplaza la politica DISPLAY_* por % (queda apagada). Canon: Oracle presentation stock.
+PRESENTATION_ENABLED    = True
+PRESENTATION_DIAS       = 3.0
+PRESENTATION_UMBRAL_SEM = 3.0
+PRESENTATION_PACK       = 6
 
-# Ajuste de estimacion para cigarros (categ_id=1628):
-# multiplicador 0.778 sobre el safety factor global (baja AX/AY de z=1.645 a z=1.28).
+# Politica de cola larga (CD->sala): lote minimo (s,S) por caja autofinanciada.
+# Completa hacia abajo la curva de minimos (presentacion solo cubre mu>3/sem).
+# Ver proyectos/2026-06-30-cola-larga-lote-caja/diseno.md
+COLA_UMBRAL_WEEK_DEFAULT     = 3.0     # gate: mu_for_target <= umbral entra a la politica
+COLA_OBJETIVO_DIAS_DEFAULT   = 30.0    # cobertura objetivo del lote (1 mes); dimensiona la fraccion
+COLA_PLAZO_PAGO_DIAS_DEFAULT = 45.0    # techo: caja entera si rinde <= esto; sino fracciona. PROXY: global, no por proveedor
+COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
+
+# Techo de cobertura por rotacion (proyectos/2026-07-01-cobertura-30-15-por-rotacion).
+# Cap SOLO recorta el order-up-to; no sube stock. Libera caja del sobrestock de cola.
+# Rapido (>= K cajas/sem) -> 15d: el cash se concentra ahi (fila fast ~4.6x mas densa
+# en capital). Resto -> 30d. Diagnostico: cap libera ~-9.3% (-$16M) del cash a target.
+COVER_CAP_FAST_DAYS_DEFAULT    = 15.0
+COVER_CAP_SLOW_DAYS_DEFAULT    = 30.0
+COVER_CAP_K_BOXES_WEEK_DEFAULT = 2.0   # "varias cajas semanales" (PROXY de negocio, tunable)
+# v9.8.0: rotacion ALTA surtida por CD -> LEAD DE TRABAJO corto (7d) en vez del ciclo
+# completo (period, cap 15d). El CD repone seguido (pass-through): la sala no necesita
+# cargar el ciclo entero de un rapido. NO es un cap sobre el total (eso estriparia el
+# colchon); es el horizonte de trabajo. El target sigue siendo canonico base-stock:
+#   S = mu*lead(7d) + z*sigma*sqrt(lead_seguridad) + vitrina  -> da 7d + colchon.
+# Rotacion alta se mide en UNIDADES/sem por sala (el moq distorsiona: caja de 6 hace ver
+# 'lento' a algo que vende harto). Solo toca solo_bodega; compra directa a sala intacta.
+CD_FAST_LEAD_DAYS_DEFAULT  = 7.0   # dias de trabajo para la sala rapida surtida por CD
+CD_FAST_UNITS_WEEK_DEFAULT = 2.0   # umbral rotacion alta, unidades/sem por sala
+
+# Cigarros (categ_id=1628): techo de nivel de servicio. El z se topa a
+# normal-inversa(CIGARROS_SERVICE_LEVEL). 0.50 -> z=0 (sin colchon: margen bajo
+# 8-10% y el CD repone seguido). Se expresa como % de servicio, no como
+# multiplicador heredado (que driftaba al cambiar el z base).
 CIGARROS_CATEGORY_IDS_DEFAULT = [1628]
-CIGARROS_SAFETY_MULT_DEFAULT = 0.778
-CIGARROS_DISPLAY_MULT_DEFAULT = 0.0
+CIGARROS_SERVICE_LEVEL_DEFAULT = 0.50
 
 # Valoracion de packs/kit phantom.
 # component_first: costo pack = suma(componentes * cantidad BOM); fallback a costo propio.
@@ -168,9 +271,9 @@ PHANTOM_COST_SOURCE_DEFAULT = 'product_first'
 PHANTOM_PROCUREMENT_MODE_DEFAULT = 'buy_parent_block_children'  # block_parent | allow_parent | buy_parent_block_children
 
 _SAFETY_FACTOR = {
-    'AX': 1.68, 'BX': 1.68,   # 2026-06-04: bajado de 2.05 (98%->95% servicio, sobre-protegido)
-    'AY': 1.68, 'BY': 1.28,   # 2026-06-04: bajado de 2.05
-    'AZ': 1.04, 'BZ': 0.35,   # 2026-06-02: bajado de 0.84 (sobre-protegido)
+    'AX': 1.95, 'BX': 1.96,   # 2026-06-22: subido (mas servicio en A-X de alto volumen)
+    'AY': 1.95, 'BY': 1.28,   # 2026-06-22: subido
+    'AZ': 1.68, 'BZ': 0.35,   # 2026-06-22: subido
     'CX': 0.84, 'CY': 0.35,   # 2026-06-02: bajado de 0.52 (sobre-protegido)
     'CZ': 0.0,
 }
@@ -234,59 +337,61 @@ def _payment_days_from_term(term, default_days):
     return default_days
 
 
-def _is_top_cash_sku(abcxyz, rank_abcxyz, venta_bruta_week):
-    abc = (abcxyz or '').strip()
-    if abc not in TOP_CASH_ABCXYZ_ALLOWED:
-        return False
-    rank = _safe_int(rank_abcxyz, 0)
-    venta = _safe_float(venta_bruta_week, 0.0)
-    if rank > 0 and rank <= TOP_CASH_RANK_MAX:
-        return True
-    if venta >= TOP_CASH_WEEKLY_MIN:
-        return True
-    return False
+_SERVICE_Z_TABLE = [
+    (0.50, 0.000), (0.75, 0.674), (0.80, 0.842), (0.85, 1.036),
+    (0.90, 1.282), (0.95, 1.645), (0.975, 1.960), (0.99, 2.326),
+    (0.995, 2.576), (0.999, 3.090),
+]
 
 
-def _safety_factor_for(abcxyz, is_top_cash=False, is_cigarros=False):
+def _z_from_service(service_level):
+    # Nivel de servicio (prob. de no-quiebre por ciclo) -> z (normal inversa).
+    # safe_eval no tiene scipy/math.log: tabla de puntos estandar + interpolacion
+    # lineal. Suficiente para un knob que se setea en numeros redondos.
+    p = _clamp(_safe_float(service_level, 0.5), _SERVICE_Z_TABLE[0][0], _SERVICE_Z_TABLE[-1][0])
+    for i in range(1, len(_SERVICE_Z_TABLE)):
+        p0, z0 = _SERVICE_Z_TABLE[i - 1]
+        p1, z1 = _SERVICE_Z_TABLE[i]
+        if p <= p1:
+            frac = (p - p0) / (p1 - p0) if p1 > p0 else 0.0
+            return z0 + frac * (z1 - z0)
+    return _SERVICE_Z_TABLE[-1][1]
+
+
+def _safety_factor_for(abcxyz, is_cigarros=False):
     abc = (abcxyz or '').strip()
     base = _safe_float(_SAFETY_FACTOR.get(abc, _SAFETY_FACTOR_DEFAULT), _SAFETY_FACTOR_DEFAULT)
 
-    # Política global/top cash.
-    if is_top_cash and abc in TOP_CASH_ABCXYZ_ALLOWED:
-        base = max(base, TOP_CASH_SAFETY_FACTOR)
-
-    # Cigarros mantiene el mismo modelo estadistico, pero reduce exposicion.
-    # Se aplica despues de top_cash para evitar que top_cash vuelva a inflar el z.
+    # Cigarros: TECHO de nivel de servicio (margen bajo + repone seguido del CD).
+    # z_cap = normal-inversa(CIGARROS_SERVICE_LEVEL); es min, nunca sube el colchon.
     if is_cigarros:
-        base = base * CIGARROS_SAFETY_MULT
+        base = min(base, _z_from_service(CIGARROS_SERVICE_LEVEL))
 
     return base
 
 
-def _display_pct_for(abcxyz, is_top_cash=False, is_cigarros=False):
-    if not DISPLAY_STOCK_ENABLED:
+def _calc_display_stock_units(abcxyz, mu_week, is_cigarros=False):
+    # Piso de exhibicion (presentation stock), ADITIVO. mu_week aqui = demanda_semanal
+    # (ver call site). Solo rotadores (demanda > umbral); cigarros excluidos.
+    #   raw = ceil(PRESENTATION_DIAS/7 * demanda)
+    #   raw >= pack -> multiplo de pack mas cercano ; 0 < raw < pack -> 3 ; raw 0 -> 0
+    if (not PRESENTATION_ENABLED) or is_cigarros:
         return 0.0
-    abc = (abcxyz or '').strip()
-    pct = _safe_float(DISPLAY_PCT_BY_ABCXYZ.get(abc, DISPLAY_PCT_DEFAULT), DISPLAY_PCT_DEFAULT)
-    if is_top_cash:
-        pct = max(pct, DISPLAY_PCT_TOP_CASH)
-    if is_cigarros:
-        pct = pct * CIGARROS_DISPLAY_MULT
-    return _clamp(pct, 0.0, 1.0)
-
-
-def _calc_display_stock_units(abcxyz, mu_week, is_top_cash=False, is_cigarros=False):
     mu = max(_safe_float(mu_week, 0.0), 0.0)
-    if (not DISPLAY_STOCK_ENABLED) or mu < DISPLAY_MIN_DEMAND_WEEK:
+    if mu <= PRESENTATION_UMBRAL_SEM:
         return 0.0
-    pct = _display_pct_for(abcxyz, is_top_cash, is_cigarros)
-    units = mu * pct
-    if DISPLAY_MAX_UNITS > 0.0:
-        units = min(units, DISPLAY_MAX_UNITS)
-    return max(units, 0.0)
+    raw_f = PRESENTATION_DIAS / 7.0 * mu
+    raw = int(raw_f)
+    if raw_f > raw:                      # ceil sin math
+        raw = raw + 1
+    if raw <= 0:
+        return 0.0
+    if raw < PRESENTATION_PACK:          # menor a un pack -> media presencia
+        return 3.0
+    return float(int(round(float(raw) / float(PRESENTATION_PACK))) * PRESENTATION_PACK)
 
 
-def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceiling_weeks, is_top_cash=False, is_cigarros=False):
+def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceiling_weeks, is_cigarros=False):
     mu    = max(_safe_float(mu,               0.0), 0.0)
     sigma = max(_safe_float(sigma,            0.0), 0.0)
     H     = max(_safe_float(protection_weeks, 0.5), 0.5)
@@ -296,7 +401,7 @@ def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceili
         raw_units = min(2.0, H) * max(mu, DEMAND_FLOOR_WEEK)
         safety    = 0.0
     else:
-        z         = _safety_factor_for(abcxyz, is_top_cash, is_cigarros)
+        z         = _safety_factor_for(abcxyz, is_cigarros)
         safety    = z * sigma * (H ** 0.5)
         raw_units = mu * H + safety
 
@@ -307,18 +412,70 @@ def _calc_target_units(abcxyz, mu, sigma, protection_weeks, moq, financial_ceili
     return target_units, safety, target_weeks
 
 
-def _cover_label(cover_weeks, mu_real, financial_ceiling_weeks):
+def _calc_cola_larga_lote(mu_week, moq, lead_weeks, objetivo_dias, plazo_pago_dias, piso_units):
+    # Politica (s,S) de lote minimo para la cola larga, traslado CD->sala.
+    # Devuelve (S_units, rop_units).
+    #   S (order-up-to): 1 caja entera si la caja rinde <= plazo_pago (autofinanciada,
+    #     limpia); si no, fraccion dimensionada al objetivo mensual (~30d). El traslado
+    #     interno fracciona caja: el pack/MOQ solo ata la compra al proveedor.
+    #   ROP (s): mu*lead + presencia. Lead CD->sala ~0-1d -> ROP ~= piso (dispara casi vacio).
+    # PROXY: plazo de pago global (no por proveedor).
+    mu   = max(_safe_float(mu_week,    0.0), 0.0)
+    moq  = max(_safe_float(moq,        1.0), 1.0)
+    piso = max(_safe_float(piso_units, 1.0), 1.0)
+    if mu <= 0.0:
+        return 0.0, 0.0
+    obj  = max(_safe_float(objetivo_dias,   30.0), 1.0)
+    pago = max(_safe_float(plazo_pago_dias, 45.0), obj)
+    cobertura_caja_dias = (moq / mu) * 7.0
+    q30 = float(int(mu * obj / 7.0)) + piso                           # order-up-to mensual: ciclo ~obj SOBRE el piso (ROP)
+    if obj <= cobertura_caja_dias <= pago:
+        S = moq                                                       # caja rinde ~1 mes y autofinanciada -> caja limpia
+    else:
+        S = q30                                                       # caja chica (<obj): caja+unidades a ~obj ; cola profunda (>pago): fraccion a ~obj. Siempre q30>moq cuando caja chica
+    lead = max(_safe_float(lead_weeks, 0.0), 0.0)
+    rop  = mu * lead + piso                                           # ROP = demanda en lead + presencia
+    return S, rop
+
+
+def _cover_cap_days(mu_week, moq):
+    # Techo de dias de cobertura por rotacion. >= K cajas/sem -> 15d (rapido, cash
+    # concentrado); si no -> 30d. Ver proyectos/2026-07-01-cobertura-30-15-.../diseno.md
+    mu  = max(_safe_float(mu_week, 0.0), 0.0)
+    moq = max(_safe_float(moq, 1.0), 1.0)
+    if (mu / moq) >= COVER_CAP_K_BOXES_WEEK:
+        return COVER_CAP_FAST_DAYS
+    return COVER_CAP_SLOW_DAYS
+
+
+def _cover_label(cover_weeks, mu_real, coverage_target_weeks):
+    # v9.5.0: clasificacion de cobertura canonica (SAP Range of Coverage / Oracle
+    # Days of Cover). C = TARGET COMPLETO planificado (reorder_target_weeks =
+    # demanda x lead + safety + vitrina), NO la demanda sola: el canon ancla la
+    # salud de stock al nivel planificado (ROP abajo, Max arriba). Safety y vitrina
+    # son piso defendido pero stock real -> cuentan en cover_weeks, no se netean.
+    # Bandas:
+    #   sin_salida: sin demanda    sin_stock: cover = 0
+    #   critico: < 3d (piso absoluto, CRITICO_COVER_WEEKS)
+    #   bajo:    < 50% C           normal: 50%-100% C (en target)
+    #   alto:    100%-150% C       exceso: > 150% C (sobrestock real)
+    # El reorden (label -> accion, _buy_action_from_cover) dispara en
+    # sin_stock/critico/bajo => cover < 50% C. PROXY: el ROP canonico es
+    # demanda*(lead+review)+safety; aca usamos 50%*target como aproximacion (para
+    # ciclo semanal con target ~15d, 50%*target ~= lead+safety). Proporcional a la
+    # cobertura de cada SKU (uno de ciclo corto dispara antes en dias absolutos).
     if mu_real <= DEMAND_FLOOR_WEEK:
         return 'sin_salida'
     if cover_weeks <= 0.0:
         return 'sin_stock'
-    if cover_weeks < 1.5:
+    C = max(_safe_float(coverage_target_weeks, 0.0), DEMAND_FLOOR_WEEK)
+    if cover_weeks < CRITICO_COVER_WEEKS:
         return 'critico'
-    if cover_weeks < financial_ceiling_weeks * 0.5:
+    if cover_weeks < C * 0.5:
         return 'bajo'
-    if cover_weeks <= financial_ceiling_weeks:
+    if cover_weeks <= C:
         return 'normal'
-    if cover_weeks <= financial_ceiling_weeks * 1.5:
+    if cover_weeks <= C * 1.5:
         return 'alto'
     return 'exceso'
 
@@ -375,28 +532,6 @@ def _ceil_moq(qty, moq):
     if n == 0:
         n = 1
     return float(n * moq)
-
-
-def _round_moq_nearest(qty, moq, force_min=False):
-    # Fallback simple: redondeo al multiplo MOQ/caja mas cercano.
-    moq = max(_safe_float(moq, 1.0), 1.0)
-    qty = max(_safe_float(qty, 0.0), 0.0)
-    if qty <= 0.0:
-        return 0.0
-    if moq <= 1.0:
-        return _ceil_units(qty) if force_min else _round_units(qty)
-    n_floor = int(qty / moq)
-    q_floor = float(n_floor * moq)
-    q_ceil = q_floor
-    if q_ceil < qty - 0.0000001:
-        q_ceil += moq
-    if force_min and q_floor <= 0.0:
-        return q_ceil if q_ceil > 0.0 else moq
-    diff_floor = qty - q_floor
-    diff_ceil = q_ceil - qty
-    if q_floor > 0.0 and diff_floor <= diff_ceil + 0.0000001:
-        return q_floor
-    return q_ceil
 
 
 def _smart_moq_box_or_wait(qty_need, moq, stock_base, mu_week, target_units, target_weeks, cover_label, force_min=False, abcxyz=None, display_stock_units=0.0):
@@ -582,6 +717,97 @@ def _priority_tuple(rec):
     )
 
 
+def _runout_level_alloc(arr_sorted, available):
+    # Fair Share Rule C: igualar dias de cobertura (run-out leveling / water-filling).
+    # Reparte el stock fisico del CD para llevar a todas las salas a la MISMA
+    # cobertura post-transfer (semanas), priorizando las de menor cobertura. Cap
+    # por sala = need (no sube por encima de su target). Canon DRP: SAP APO Fair
+    # Share Rule C / Oracle RDF / Blue Yonder. Ver proyectos/2026-06-29-fair-share-cd-salas/
+    #
+    # Base por sala: s_i = stock_proyectado (incluye inbound pendiente, coherente
+    # con need = target_units - stock_proyectado), d_i = max(demanda_semanal,
+    # DEMAND_FLOOR_WEEK), need_i = qty_neta_pre_central.
+    #   c_i = s_i / d_i (cobertura actual)   t_i = c_i + need_i/d_i (cobertura target)
+    # Se busca el nivel comun L tal que  Sigma clamp(d_i*(L-c_i), 0, need_i) = avail.
+    n = len(arr_sorted)
+    needs = []
+    deff  = []
+    cov   = []
+    alloc = []
+    total_need = 0.0
+    hi = 0.0
+    for i in range(n):
+        r  = arr_sorted[i]
+        nd = _round_units(_safe_float(r.get('qty_neta_pre_central'), 0.0))
+        di = max(_safe_float(r.get('demanda_semanal'), 0.0), DEMAND_FLOOR_WEEK)
+        si = max(_safe_float(r.get('stock_proyectado'), 0.0), 0.0)
+        ci = si / di
+        ti = ci + (nd / di)
+        needs.append(nd)
+        deff.append(di)
+        cov.append(ci)
+        alloc.append(0.0)
+        total_need += nd
+        if ti > hi:
+            hi = ti
+    avail = _round_units(available)
+    if avail <= 0.0 or total_need <= 0.0:
+        return alloc
+    if avail >= total_need:
+        return needs          # sin escasez: cada sala recibe su need completo
+
+    # busqueda binaria del nivel comun L (water-filling)
+    lo = 0.0
+    for _it in range(60):
+        mid = (lo + hi) / 2.0
+        tot = 0.0
+        for i in range(n):
+            t = deff[i] * (mid - cov[i])
+            if t < 0.0:
+                t = 0.0
+            elif t > needs[i]:
+                t = needs[i]
+            tot += t
+        if tot > avail:
+            hi = mid
+        else:
+            lo = mid
+    L = lo
+
+    # transfer continuo en L -> enteros por mayor resto (Hamilton), cap = need
+    assigned = 0.0
+    rema = []
+    for i in range(n):
+        t = deff[i] * (L - cov[i])
+        if t < 0.0:
+            t = 0.0
+        elif t > needs[i]:
+            t = needs[i]
+        base = float(int(t))
+        if base > needs[i]:
+            base = needs[i]
+        alloc[i] = base
+        assigned += base
+        rema.append((-(t - base), i))   # -resto: orden asc = mayor resto primero
+
+    leftover = int(avail - assigned + 0.5)
+    if leftover > 0:
+        rema = sorted(rema)              # desempate por indice = _priority_tuple
+        k = 0
+        while leftover > 0 and k < n:
+            idx = rema[k][1]
+            if alloc[idx] < needs[idx]:
+                alloc[idx] += 1.0
+                leftover -= 1
+            k += 1
+        if leftover > 0:                 # 2a pasada por prioridad si quedaron caps
+            for i in range(n):
+                while leftover > 0 and alloc[i] < needs[i]:
+                    alloc[i] += 1.0
+                    leftover -= 1
+    return alloc
+
+
 # ----------------------
 # Context
 # ----------------------
@@ -607,17 +833,22 @@ COVER_WEEKS_THRESHOLD_FOR_CD = _safe_float(
 )
 NO_CD_PARENT_CATEGORY_IDS = _to_int_list(CTX.get('no_cd_parent_category_ids')) or list(NO_CD_PARENT_CATEGORY_IDS_DEFAULT)
 
-DISPLAY_STOCK_ENABLED = bool(CTX.get('display_stock_enabled', DISPLAY_STOCK_ENABLED_DEFAULT))
-DISPLAY_MIN_DEMAND_WEEK = _safe_float(CTX.get('display_min_demand_week', DISPLAY_MIN_DEMAND_WEEK_DEFAULT), DISPLAY_MIN_DEMAND_WEEK_DEFAULT)
-DISPLAY_MAX_UNITS = _safe_float(CTX.get('display_max_units', DISPLAY_MAX_UNITS_DEFAULT), DISPLAY_MAX_UNITS_DEFAULT)
-DISPLAY_PCT_TOP_CASH = _safe_float(CTX.get('display_pct_top_cash', DISPLAY_PCT_TOP_CASH_DEFAULT), DISPLAY_PCT_TOP_CASH_DEFAULT)
-TOP_CASH_WEEKLY_MIN = _safe_float(CTX.get('top_cash_weekly_min', TOP_CASH_WEEKLY_MIN_DEFAULT), TOP_CASH_WEEKLY_MIN_DEFAULT)
-TOP_CASH_RANK_MAX = _safe_int(CTX.get('top_cash_rank_max', TOP_CASH_RANK_MAX_DEFAULT), TOP_CASH_RANK_MAX_DEFAULT)
-TOP_CASH_SAFETY_FACTOR = _safe_float(CTX.get('top_cash_safety_factor', TOP_CASH_SAFETY_FACTOR_DEFAULT), TOP_CASH_SAFETY_FACTOR_DEFAULT)
+MAX_COVER_WEEKS = _safe_float(CTX.get('max_cover_weeks', MAX_COVER_WEEKS_DEFAULT), MAX_COVER_WEEKS_DEFAULT)
+MAX_COVER_CAP_ENABLED = bool(CTX.get('max_cover_cap_enabled', MAX_COVER_CAP_ENABLED_DEFAULT))
+CRITICO_COVER_WEEKS = _safe_float(CTX.get('critico_cover_days', CRITICO_COVER_DAYS_DEFAULT), CRITICO_COVER_DAYS_DEFAULT) / 7.0
+COLA_UMBRAL_WEEK     = _safe_float(CTX.get('cola_umbral_week',     COLA_UMBRAL_WEEK_DEFAULT),     COLA_UMBRAL_WEEK_DEFAULT)
+COLA_OBJETIVO_DIAS   = _safe_float(CTX.get('cola_objetivo_dias',   COLA_OBJETIVO_DIAS_DEFAULT),   COLA_OBJETIVO_DIAS_DEFAULT)
+COLA_PLAZO_PAGO_DIAS = _safe_float(CTX.get('cola_plazo_pago_dias', COLA_PLAZO_PAGO_DIAS_DEFAULT), COLA_PLAZO_PAGO_DIAS_DEFAULT)
+COLA_PISO_UNIDADES   = _safe_float(CTX.get('cola_piso_unidades',   COLA_PISO_UNIDADES_DEFAULT),   COLA_PISO_UNIDADES_DEFAULT)
+COVER_CAP_FAST_DAYS    = _safe_float(CTX.get('cover_cap_fast_days',    COVER_CAP_FAST_DAYS_DEFAULT),    COVER_CAP_FAST_DAYS_DEFAULT)
+COVER_CAP_SLOW_DAYS    = _safe_float(CTX.get('cover_cap_slow_days',    COVER_CAP_SLOW_DAYS_DEFAULT),    COVER_CAP_SLOW_DAYS_DEFAULT)
+COVER_CAP_K_BOXES_WEEK = _safe_float(CTX.get('cover_cap_k_boxes_week', COVER_CAP_K_BOXES_WEEK_DEFAULT), COVER_CAP_K_BOXES_WEEK_DEFAULT)
+CD_FAST_LEAD_DAYS  = _safe_float(CTX.get('cd_fast_lead_days',  CD_FAST_LEAD_DAYS_DEFAULT),  CD_FAST_LEAD_DAYS_DEFAULT)
+CD_FAST_UNITS_WEEK = _safe_float(CTX.get('cd_fast_units_week', CD_FAST_UNITS_WEEK_DEFAULT), CD_FAST_UNITS_WEEK_DEFAULT)
 
 # XYZ local por team: si esta activo, el Z del safety se elige por
 # ABC_global + XYZ_local (cuando viene poblado desde el forecast).
-# is_top_cash y display reserve siguen con ABCXYZ global (importancia comercial).
+# display reserve sigue con ABCXYZ global (importancia comercial).
 # Default False para primer despliegue; activar tras validar Fase 0.
 ENABLE_XYZ_LOCAL = bool(CTX.get('enable_xyz_local', False))
 
@@ -625,13 +856,11 @@ ENABLE_XYZ_LOCAL = bool(CTX.get('enable_xyz_local', False))
 # Ejemplo:
 #   env['ir.actions.server'].browse(ID).with_context(
 #       cigarros_category_ids=[1628],
-#       cigarros_safety_mult=0.778,
+#       cigarros_service_level=0.50,
 #   ).run()
 CIGARROS_CATEGORY_IDS = _to_int_list(CTX.get('cigarros_category_ids')) or list(CIGARROS_CATEGORY_IDS_DEFAULT)
-CIGARROS_SAFETY_MULT = _safe_float(CTX.get('cigarros_safety_mult', CIGARROS_SAFETY_MULT_DEFAULT), CIGARROS_SAFETY_MULT_DEFAULT)
-CIGARROS_SAFETY_MULT = _clamp(CIGARROS_SAFETY_MULT, 0.0, 1.0)
-CIGARROS_DISPLAY_MULT = _safe_float(CTX.get('cigarros_display_mult', CIGARROS_DISPLAY_MULT_DEFAULT), CIGARROS_DISPLAY_MULT_DEFAULT)
-CIGARROS_DISPLAY_MULT = _clamp(CIGARROS_DISPLAY_MULT, 0.0, 1.0)
+CIGARROS_SERVICE_LEVEL = _safe_float(CTX.get('cigarros_service_level', CIGARROS_SERVICE_LEVEL_DEFAULT), CIGARROS_SERVICE_LEVEL_DEFAULT)
+CIGARROS_SERVICE_LEVEL = _clamp(CIGARROS_SERVICE_LEVEL, 0.50, 0.999)
 
 VALUE_PHANTOM_KITS = bool(CTX.get('value_phantom_kits', VALUE_PHANTOM_KITS_DEFAULT))
 PHANTOM_COST_SOURCE = CTX.get('phantom_cost_source', PHANTOM_COST_SOURCE_DEFAULT) or PHANTOM_COST_SOURCE_DEFAULT
@@ -1448,6 +1677,7 @@ else:
                     'x_studio_product_id',
                     FWD_TEAM_FIELD,
                     'x_studio_mu_week',
+                    'x_studio_mu_week_adjusted',   # capa demand sensing (COALESCE, ver OH Demand Sensing)
                     'x_studio_sigma_week',
                     'x_studio_xyz_local',
                 ]
@@ -1476,7 +1706,8 @@ else:
                     team_id = loc and loc[0] or False
 
                     payload = {
-                        'mu_week':       _safe_float(r.get('x_studio_mu_week'),    0.0),
+                        # COALESCE: si la capa demand sensing escribio un ajuste, usarlo; si no, base
+                        'mu_week':       _safe_float(r.get('x_studio_mu_week_adjusted') or r.get('x_studio_mu_week'), 0.0),
                         'sigma_week':    _safe_float(r.get('x_studio_sigma_week'), 0.0),
                         'lead_weeks':    supplier_lead_map.get(tmpl_id, PURCHASE_CYCLE_WEEKS),
                         'moq':           max(uom_po_factor_map.get(tmpl_id, 1.0),
@@ -1840,7 +2071,10 @@ else:
                         mu_week       = _safe_float(fwd.get('mu_week'),       0.0)
                         sigma_week    = _safe_float(fwd.get('sigma_week'),    0.0)
                         period_weeks  = _safe_float(fwd.get('lead_weeks'),    PURCHASE_CYCLE_WEEKS)
-                        if period_weeks <= 0.0:
+                        # Piso de ciclo: si el delay viene < 7d (vacio=0, placeholder=1,
+                        # o lead mal cargado) se usa el ciclo por defecto. Regla operativa:
+                        # delay < 7d => 7d. Evita que un delay=1 deje 1 dia de cobertura.
+                        if period_weeks < PURCHASE_CYCLE_WEEKS:
                             period_weeks = PURCHASE_CYCLE_WEEKS
                         lead_weeks    = 0.0
                         protection_weeks = period_weeks
@@ -1874,7 +2108,7 @@ else:
                         # herencia. Si falta algun input valido, forzar a 'CZ' como
                         # tratamiento conservador (alta variabilidad + baja
                         # importancia = no comprar mucho hasta que llegue senal).
-                        # is_top_cash y display reserve siguen con abcxyz global.
+                        # display reserve sigue con abcxyz global.
                         xyz_local = (fwd.get('xyz_local') or '').strip().upper()
                         _abc_letter = abcxyz[0] if (len(abcxyz) == 2 and abcxyz[0] in ('A', 'B', 'C')) else ''
                         if ENABLE_XYZ_LOCAL:
@@ -1890,12 +2124,10 @@ else:
                             else:
                                 abcxyz_efectivo = 'CZ'
 
-                        # Top caja / venta estimada semanal.
-                        # Se calcula temprano porque afecta factor de seguridad y exhibicion.
+                        # Venta bruta semanal estimada (insumo del monitor de error / reporte).
                         _pvp_bruto_for_top = _safe_float(meta.get('list_price'), 0.0)
                         _venta_bruta_week_est_raw = _pvp_bruto_for_top * max(demanda_semanal, 0.0)
-                        is_top_cash = _is_top_cash_sku(abcxyz, rank_abcxyz, _venta_bruta_week_est_raw)
-                        safety_factor_used = _safety_factor_for(abcxyz_efectivo, is_top_cash, is_cigarros)
+                        safety_factor_used = _safety_factor_for(abcxyz_efectivo, is_cigarros)
 
                         stock_real = _safe_float(stock_real_map.get(tid), 0.0)
                         is_phantom_pool = bool(kit_components_tmpl.get(tid))
@@ -1939,13 +2171,40 @@ else:
                                 price_cash_source = kit_component_cost_source
 
                         solo_bodega = bool(meta.get('solo_bodega'))
-                        # Sala solo_bodega usa la misma regla que proveedor->CD.
-                        # Horizonte = 1 sem (CD entrega 1 vez por semana) + buffer.
-                        # Safety stock = Z * sigma * sqrt(H), Z desde _SAFETY_FACTOR por ABCXYZ.
-                        sala_H = (1.0 + CD_DELIVERY_EXTRA_WEEKS) if solo_bodega else 0.0
+                        # v9.3.0: se elimina el tratamiento diferencial CD->sala. La sala
+                        # surtida por CD usa period_weeks (delay = frecuencia de compra) para
+                        # el stock de TRABAJO, igual que la compra a proveedor (antes forzaba
+                        # 1 semana). El SAFETY se mantiene sobre el ciclo logistico (7d),
+                        # desacoplado del trabajo: target = mu * sala_work_weeks + Z*sigma*sqrt(7d).
+                        # v9.3.1: cap de cobertura SOLO aca (sala surtida por CD). El CD
+                        # refill seguido, asi que la sala no necesita cargar mas de
+                        # MAX_COVER_WEEKS (15d) aunque el delay sea 30d. NO se capa la compra
+                        # del CD ni la compra-directa-a-proveedor: esas necesitan el ciclo
+                        # completo del proveedor; capar ahi causaria quiebre.
+                        # Flag MAX_COVER_CAP_ENABLED: si False, la sala respeta el delay
+                        # completo (frecuencia de compra) sin el techo de 15d.
+                        if solo_bodega:
+                            _work_base = min(period_weeks, MAX_COVER_WEEKS) if MAX_COVER_CAP_ENABLED else period_weeks
+                            # v9.8.0: rotacion ALTA surtida por CD -> lead de trabajo corto (7d).
+                            # El CD repone seguido (pass-through), la sala no necesita el ciclo
+                            # completo de un rapido. Rotacion en UNIDADES/sem (el moq distorsiona:
+                            # caja de 6 hace ver 'lento' a algo que vende harto). safety(z) y
+                            # vitrina se suman aparte -> el target da 7d + colchon, no 7d pelado.
+                            # min() -> solo recorta: si el ciclo ya es < 7d, no lo sube.
+                            _mu_rot = mu_week if mu_week > DEMAND_FLOOR_WEEK else demanda_semanal
+                            if _mu_rot >= CD_FAST_UNITS_WEEK:
+                                sala_work_weeks = min(_work_base, CD_FAST_LEAD_DAYS / 7.0)
+                            else:
+                                sala_work_weeks = _work_base
+                        else:
+                            _work_base = 0.0
+                            sala_work_weeks = 0.0
+                        sala_safety_weeks = (1.0 + CD_DELIVERY_EXTRA_WEEKS) if solo_bodega else 0.0
 
                         if solo_bodega:
-                            financial_ceiling_sku = max(1.5, sala_H * 2.0)
+                            # Techo financiero sobre el horizonte BASE (no el lead acortado):
+                            # acortar el trabajo no debe apretar la guardia de sobre-compra.
+                            financial_ceiling_sku = max(1.5, _work_base * 2.0)
                             payment_days_sku = PAYMENT_DAYS
                         else:
                             # Techo financiero por proveedor: si el supplier tiene
@@ -1957,33 +2216,66 @@ else:
                         mu_for_target = mu_week if mu_week > DEMAND_FLOOR_WEEK else demanda_semanal
                         if solo_bodega:
                             if mu_for_target > DEMAND_FLOOR_WEEK:
-                                z_sala = _safety_factor_for(abcxyz_efectivo, is_top_cash, is_cigarros)
-                                safety_stock_units = z_sala * max(sigma_week, 0.0) * (sala_H ** 0.5)
-                                target_units = mu_for_target * sala_H + safety_stock_units
+                                z_sala = _safety_factor_for(abcxyz_efectivo, is_cigarros)
+                                safety_stock_units = z_sala * max(sigma_week, 0.0) * (sala_safety_weeks ** 0.5)
+                                target_units = mu_for_target * sala_work_weeks + safety_stock_units
                                 reorder_target_weeks = target_units / mu_for_target
                             else:
                                 target_units = 0.0
                                 safety_stock_units = 0.0
-                                reorder_target_weeks = sala_H
+                                reorder_target_weeks = sala_work_weeks
                         elif mu_for_target > DEMAND_FLOOR_WEEK and sigma_week >= 0.0 and protection_weeks > 0.0:
                             target_units, safety_stock_units, reorder_target_weeks = _calc_target_units(
-                                abcxyz_efectivo, mu_for_target, sigma_week, protection_weeks, moq, financial_ceiling_sku, is_top_cash, is_cigarros
+                                abcxyz_efectivo, mu_for_target, sigma_week, protection_weeks, moq, financial_ceiling_sku, is_cigarros
                             )
                         else:
-                            z_fb                 = _safety_factor_for(abcxyz_efectivo, is_top_cash, is_cigarros)
+                            z_fb                 = _safety_factor_for(abcxyz_efectivo, is_cigarros)
                             H_fb                 = PURCHASE_CYCLE_WEEKS
                             safety_stock_units   = z_fb * max(demanda_semanal, 0.0) * (H_fb ** 0.5)
                             target_units         = demanda_semanal * H_fb + safety_stock_units
                             reorder_target_weeks = (target_units / demanda_semanal if demanda_semanal > DEMAND_FLOOR_WEEK else H_fb)
                             reorder_target_weeks = _clamp(reorder_target_weeks, 0.0, financial_ceiling_sku)
 
-                        # Reserva comercial de exhibicion.
-                        # No es demanda adicional; es stock que no queremos consumir antes de reponer.
+                        # v9.6.0: cola larga -> lote minimo (s,S) por caja autofinanciada.
+                        # Solo solo_bodega y mu <= umbral. Order-up-to = caja/fraccion ~mensual;
+                        # el gate por ROP (mas abajo) evita el goteo semanal. Ver
+                        # proyectos/2026-06-30-cola-larga-lote-caja/diseno.md
+                        cola_larga_rop  = None
+                        cola_larga_lote = 0.0   # v9.6.1: lote de cola larga -> se persiste en x_studio_stock_minimo (0 si no aplica)
+                        if solo_bodega and DEMAND_FLOOR_WEEK < mu_for_target <= COLA_UMBRAL_WEEK:
+                            _cl_S, _cl_rop = _calc_cola_larga_lote(
+                                mu_for_target, moq, lead_weeks,
+                                COLA_OBJETIVO_DIAS, COLA_PLAZO_PAGO_DIAS, COLA_PISO_UNIDADES)
+                            if _cl_S > 0.0:
+                                target_units         = _cl_S
+                                safety_stock_units   = 0.0
+                                reorder_target_weeks = _cl_S / mu_for_target
+                                cola_larga_rop       = _cl_rop
+                                cola_larga_lote      = _cl_S
+
+                        # Piso de exhibicion (presentation stock) -- ADITIVO.
+                        # Se SUMA al target operativo y es reserva no consumible (ver _smart_moq).
+                        # Gate sobre demanda_semanal (no mu_for_target) para calzar con la regla.
                         target_units_stat = target_units
-                        display_stock_units = _calc_display_stock_units(abcxyz, mu_for_target, is_top_cash, is_cigarros)
+                        display_stock_units = _calc_display_stock_units(abcxyz, demanda_semanal, is_cigarros)
                         if display_stock_units > 0.0:
                             target_units = target_units + display_stock_units
                             if mu_for_target > DEMAND_FLOOR_WEEK:
+                                reorder_target_weeks = _clamp(target_units / mu_for_target, 0.0, financial_ceiling_sku)
+
+                        # Techo de cobertura por rotacion: S = min(target, d*cap), piso en
+                        # vitrina+safety. SOLO recorta (nunca sube). OJO: al recomputar
+                        # reorder_target_weeks tambien baja el gatillo de reorden (_cover_label
+                        # usa ese valor como C) -> repone mas tarde, sube algo el quiebre. Es
+                        # el costo de servicio del ahorro de caja (Caja > Quiebre), medir en
+                        # backtest. Ver proyectos/2026-07-01-cobertura-30-15-por-rotacion/diseno.md
+                        cover_cap_days_used = _cover_cap_days(mu_for_target, moq)
+                        if mu_for_target > DEMAND_FLOOR_WEEK and cover_cap_days_used > 0.0:
+                            cap_units = (mu_for_target / 7.0) * cover_cap_days_used
+                            piso_cap  = _safe_float(display_stock_units, 0.0) + _safe_float(safety_stock_units, 0.0)
+                            target_capped = max(min(target_units, cap_units), piso_cap)
+                            if target_capped < target_units:
+                                target_units = target_capped
                                 reorder_target_weeks = _clamp(target_units / mu_for_target, 0.0, financial_ceiling_sku)
 
                         over_target_units = max(stock_proyectado - target_units, 0.0)
@@ -1996,7 +2288,13 @@ else:
                             cover_label = 'sin_salida'
                         else:
                             cover_weeks = stock_effective / demanda_semanal
-                            cover_label = _cover_label(cover_weeks, demanda_semanal, financial_ceiling_sku)
+                            # Cobertura objetivo C = TARGET COMPLETO (reorder_target_weeks =
+                            # demanda x lead + safety + vitrina). Canon SAP/Oracle: la cobertura
+                            # se clasifica contra el nivel PLANIFICADO (Max = order-up-to), no
+                            # contra la demanda sola; asi 'normal' = en target, 'alto'/'exceso' =
+                            # sobrestock real. Safety y vitrina son stock real (piso defendido):
+                            # cuentan en la cobertura, NO se netean.
+                            cover_label = _cover_label(cover_weeks, demanda_semanal, reorder_target_weeks)
 
                         if demanda_semanal <= 0.0:
                             projected_cover_weeks = 999.0
@@ -2014,6 +2312,11 @@ else:
                             qty_retorno_cd = max(stock_proyectado - _hold_units_return, 0.0)
 
                         qty_neta_pre = max(target_units - stock_proyectado, 0.0)
+                        # v9.6.0: cola larga (s,S) -> solo transferir cuando el stock cae
+                        # al ROP; si esta por encima, dejar drenar el lote (cadencia ~mensual,
+                        # no goteo semanal). Al disparar, refilla al lote completo S.
+                        if cola_larga_rop is not None and stock_proyectado > cola_larga_rop:
+                            qty_neta_pre = 0.0
                         qty_buy_pre  = (_smart_moq_box_or_wait(qty_neta_pre, moq, stock_proyectado, demanda_semanal, target_units, reorder_target_weeks, cover_label, False, abcxyz, display_stock_units) if SMART_MOQ_ROUNDING else _ceil_moq(qty_neta_pre, moq))
 
                         if qty_buy_pre > 0.0:
@@ -2126,7 +2429,7 @@ else:
                             'period_weeks': period_weeks,
                             'lead_weeks': lead_weeks,
                             'protection_weeks': protection_weeks,
-                            'sala_target_weeks': sala_H,
+                            'sala_target_weeks': sala_work_weeks,
                             'cd_delivery_extra_weeks': CD_DELIVERY_EXTRA_WEEKS if solo_bodega else 0.0,
                             'moq': moq,
                             'share_of_pool': share_of_pool,
@@ -2158,8 +2461,9 @@ else:
                             'payment_days_sku': payment_days_sku,
                             'target_units': target_units,
                             'target_units_stat': target_units_stat,
+                            'cover_cap_days_used': cover_cap_days_used,
                             'display_stock_units': display_stock_units,
-                            'is_top_cash': is_top_cash,
+                            'cola_larga_lote': cola_larga_lote,
                             'is_cigarros': is_cigarros,
                             'venta_bruta_week_est_raw': _venta_bruta_week_est_raw,
                             'safety_factor_used': safety_factor_used,
@@ -2261,17 +2565,16 @@ else:
                     if CENTRAL_RESERVE_PCT > 0.0 and available > 0.0:
                         available = max(available * (1.0 - CENTRAL_RESERVE_PCT), 0.0)
                     arr_sorted = sorted(arr, key=_priority_tuple)
+                    # v9.4.0: Fair Share Rule C (run-out leveling). Bajo escasez
+                    # (stock_CD < Sigma need) reparte igualando dias de cobertura en
+                    # vez de servir en cascada por prioridad (que dejaba la cola en 0).
+                    # Si no hay escasez, devuelve el need completo de cada sala.
+                    fs_alloc = _runout_level_alloc(arr_sorted, available)
+                    _fs_i = 0
                     for rec in arr_sorted:
                         need = _safe_float(rec.get('qty_neta_pre_central'), 0.0)
-                        need_units = _round_units(need)
-                        available_units = _round_units(available)
-                        if available_units > 0.0 and need_units > 0.0:
-                            transfer_qty = min(need_units, available_units)
-                        else:
-                            transfer_qty = 0.0
-                        available -= transfer_qty
-                        if available < 0.0:
-                            available = 0.0
+                        transfer_qty = fs_alloc[_fs_i] if _fs_i < len(fs_alloc) else 0.0
+                        _fs_i += 1
                         rec['transfer_qty'] = transfer_qty
                         if transfer_qty > 0.0:
                             central_alloc_units += transfer_qty
@@ -2290,6 +2593,35 @@ else:
                         rec['purchase_qty_net'] = qty_buy
 
                         gap_cubierto = transfer_qty >= need - 0.00001
+
+                        # ── [2026-06-09] Modelo CD pass-through diferencial ──────────────
+                        # solo_bodega: el CD es consolidador puro. La sala SOLO transfiere lo
+                        # que el CD ya tiene; el faltante (qty_net) se consolida en UNA sola
+                        # compra_cd en la pseudo-fila CD (id 26), no por sala. Esto elimina:
+                        #   (a) el orphan (sala 'compra_cd' con traslado que nunca se generaba), y
+                        #   (b) el doble conteo del antiguo solo_bodega_cd_replenish (target
+                        #       forward del CD sin restar stock de salas).
+                        # compra_cd(id 26) = max(0, Σ necesidad_salas − stock_CD), MOQ una vez.
+                        # Ver proyectos/2026-06-09-diag-li450701/diseno.md
+                        if bool(rec.get('meta', {}).get('solo_bodega')):
+                            rec['purchase_qty_net'] = 0.0        # la compra vive en el CD, no en la sala
+                            if qty_net > 0.0:
+                                rec['purchase_qty_need_exact'] = qty_net
+                                _cc = compra_cd_gaps.get(rec['tmpl_id']) or []
+                                _cc.append(rec)
+                                compra_cd_gaps[rec['tmpl_id']] = _cc
+                            if transfer_qty > 0.0:
+                                rec['supply_source']    = 'transferir_desde_cd'
+                                rec['solo_cd']          = True
+                                rec['buy_action_final'] = 'transferir_desde_cd'
+                                central_transfer_only_lines += 1
+                            else:
+                                rec['supply_source']    = 'no_action'
+                                rec['solo_cd']          = False
+                                rec['buy_action_final'] = 'no_comprar_esta_semana'
+                            continue
+                        # ── fin modelo CD pass-through (resto = no solo_bodega) ───────────
+
                         if transfer_qty > 0.0 and gap_cubierto and qty_buy == 0.0:
                             rec['supply_source']    = 'transferir_desde_cd'
                             rec['solo_cd']          = True
@@ -2298,10 +2630,7 @@ else:
                         elif transfer_qty > 0.0 and qty_buy > 0.0:
                             rec['supply_source']    = 'central+buy'
                             rec['solo_cd']          = False
-                            if rec.get('meta', {}).get('solo_bodega'):
-                                rec['buy_action_final'] = 'compra_cd'
-                            else:
-                                rec['buy_action_final'] = 'reponer_ahora'
+                            rec['buy_action_final'] = 'reponer_ahora'
                         elif transfer_qty > 0.0:
                             rec['supply_source']    = 'transferir_desde_cd'
                             rec['solo_cd']          = True
@@ -2310,17 +2639,11 @@ else:
                         elif qty_buy > 0.0:
                             rec['supply_source']    = 'buy_only'
                             rec['solo_cd']          = False
-                            if rec.get('meta', {}).get('solo_bodega'):
-                                rec['buy_action_final'] = 'compra_cd'
-                            else:
-                                rec['buy_action_final'] = rec.get('buy_action_pre')
+                            rec['buy_action_final'] = rec.get('buy_action_pre')
                         else:
                             rec['supply_source']    = 'no_action'
                             rec['solo_cd']          = False
-                            if rec.get('meta', {}).get('solo_bodega'):
-                                rec['buy_action_final'] = 'no_comprar_esta_semana'
-                            else:
-                                rec['buy_action_final'] = rec.get('buy_action_pre')
+                            rec['buy_action_final'] = rec.get('buy_action_pre')
 
                 # ----------------------
                 # Consolidar compra CD por SKU
@@ -2387,7 +2710,11 @@ else:
                     else:
                         # Si la politica caja-o-esperar decide no comprar el SKU consolidado,
                         # apagamos la accion para no dejar lineas compra_cd sin cantidad.
+                        # PERO preservamos las salas que SI tienen traslado (transferir_desde_cd):
+                        # su movimiento es real aunque la compra consolidada del CD sea 0.
                         for rec in arr:
+                            if _safe_float(rec.get('transfer_qty'), 0.0) > 0.0:
+                                continue
                             rec['buy_action_final'] = 'no_comprar_esta_semana'
                             rec['supply_source'] = 'no_action'
 
@@ -2491,8 +2818,11 @@ else:
                             base['banda_actual'] = rec.get('banda_actual')
                         base['qty_transferir'] += _safe_float(rec.get('transfer_qty'), 0.0)
                         base['qty_retorno_cd'] += _safe_float(rec.get('qty_retorno_cd'), 0.0)
-                        if (rec.get('buy_action_final') or rec.get('buy_action_pre')) == 'compra_cd':
-                            _q = _safe_float(rec.get('qty_compra_cd', 0.0), 0.0)
+                        # Consolida por qty_compra_cd>0, NO por etiqueta: con el modelo
+                        # pass-through (2026-06-09) la fila que carga la compra del SKU queda
+                        # etiquetada 'transferir_desde_cd' (la sala transfiere; el CD compra).
+                        _q = _safe_float(rec.get('qty_compra_cd', 0.0), 0.0)
+                        if _q > 0.0:
                             base['qty_a_pedir'] += _q
 
                             # Venta estimada de las lineas locales que explican esta compra CD.
@@ -2509,9 +2839,131 @@ else:
                     central_team_map[tid] = base
 
                 # ----------------------
-                # Reposicion automatica CD para solo_bodega
+                # CD echelon: compra 15 dias de red, netea TODO el stock  [2026-06-22]
                 # ----------------------
+                # Objetivo de negocio: el CD compra para cubrir la demanda de la red
+                # durante su periodo de reposicion (delay del proveedor, p.ej. 15 dias)
+                # y despues distribuye a salas con la frecuencia que decida. Las salas
+                # siguen apuntando a ~1 sem y solo transfieren (la distribucion no cambia);
+                # lo unico que cambia es CUANTO compra el CD al proveedor.
+                #
+                # Modelo canonico: INSTALLATION STOCK (no echelon pooling). El CD es
+                # pass-through: entrega todo a las salas y NO retiene buffer central
+                # (stock_real ~0). Por eso el safety tiene que sentarse FISICAMENTE en
+                # cada sala, y el target del CD = suma de los target de las salas.
+                #
+                #   target_red    = Σ target_salas   (cada uno ya trae safety+vitrina+cola_larga+cap)
+                #   disponible_red = stock_CD_fisico + Σ stock_salas_fisico + POs_pendientes
+                #   compra_CD      = max(0, target_red - disponible_red)   (MOQ 1 vez en build CD)
+                #
+                # v9.7.0 (2026-07-02): antes se pooleaba el safety (z*sqrt(Σσ²)*sqrt(period)),
+                # ~sqrt(N) mas chico que Σσᵢ. El pooling SOLO es valido si el CD guarda el
+                # colchon y despacha reactivo; con entrega-todo el colchon pooleado no vive
+                # en ninguna parte y las salas quedan cronicamente bajo target (1756: CD
+                # apuntaba a 117 vs Σtarget salas 138). Se vuelve installation stock: el CD
+                # compra para que, entregando todo, cada sala cuadre a su target. Validable
+                # a mano: suma los target de las salas, resta lo que hay y lo que viene.
+                # Ver proyectos/2026-07-02-cd-installation-stock/diseno.md
+                #
+                # Netea TODO el stock (NO solo el del CD) -> evita el doble conteo que
+                # mato la rama vieja (sobre-compra ~-$78,7M, ver bloque DESACTIVADO abajo).
+                # Solo se aplica a solo_bodega CD-elegible (A/B); C-class y no-solo_bodega
+                # mantienen el diferencial pass-through ya cargado en qty_a_pedir.
+                # Se usa stock fisico (stock_real CD + stock_effective salas) y POs inbound;
+                # NO se suma stock_pedido_transfer para no contar dos veces el en-transito
+                # interno CD->sala (la unidad sigue fisica en el CD hasta validar el picking).
                 for tid, base in central_team_map.items():
+                    meta = tmpl_meta.get(tid) or {}
+                    if not bool(meta.get('solo_bodega')):
+                        continue
+
+                    abcxyz_cd = (base.get('abcxyz') or '').strip()
+                    if abcxyz_cd not in CD_ELIGIBLE_ABCXYZ:
+                        # C-class / no elegible: respeta el diferencial pass-through.
+                        continue
+
+                    # Phantom: misma direccion de compra que el resto del motor.
+                    _ph_parent = bool(kit_components_tmpl.get(tid))
+                    _ph_child  = bool(component_parent_tmpl.get(tid))
+                    if PHANTOM_PROCUREMENT_MODE == 'buy_parent_block_children' and _ph_child:
+                        base['qty_a_pedir'] = 0.0
+                        continue
+                    if PHANTOM_PROCUREMENT_MODE == 'block_parent' and _ph_parent:
+                        base['qty_a_pedir'] = 0.0
+                        continue
+
+                    # Demanda, sigma, periodo y stock fisico de salas desde TODAS las
+                    # filas-sala del SKU (no solo las con necesidad residual).
+                    mu_red = 0.0
+                    sigma_sq_red = 0.0
+                    period_weeks_sku = 0.0
+                    sala_stock_sum = 0.0
+                    piso_red = 0.0
+                    target_installation = 0.0    # Σ target de las salas (installation stock)
+                    safety_installation = 0.0    # Σ safety de las salas (sin poolear, solo reporte)
+                    for rec in records_by_tmpl.get(tid, []):
+                        mu_i = _safe_float(rec.get('mu_week'), 0.0)
+                        if mu_i > 0.0:
+                            mu_red += mu_i
+                        sig_i = _safe_float(rec.get('sigma_week'), 0.0)
+                        if sig_i > 0.0:
+                            sigma_sq_red += sig_i ** 2.0
+                        sala_stock_sum += _safe_float(rec.get('stock_effective'), 0.0)
+                        piso_red += _safe_float(rec.get('display_stock_units'), 0.0)
+                        target_installation += _safe_float(rec.get('target_units'), 0.0)
+                        safety_installation += _safe_float(rec.get('safety_stock_units'), 0.0)
+                        if period_weeks_sku <= 0.0:
+                            pw = _safe_float(rec.get('period_weeks'), 0.0)
+                            if pw > 0.0:
+                                period_weeks_sku = pw
+                    if period_weeks_sku <= 0.0:
+                        period_weeks_sku = PURCHASE_CYCLE_WEEKS
+
+                    if mu_red <= DEMAND_FLOOR_WEEK:
+                        # Sin demanda de red: no comprar (igual que diferencial ~0).
+                        base['qty_a_pedir'] = 0.0
+                        continue
+
+                    sigma_red = sigma_sq_red ** 0.5   # se conserva solo para reporte (decision_reason)
+                    z_cd = _safe_float(_SAFETY_FACTOR.get(abcxyz_cd, _SAFETY_FACTOR_DEFAULT), _SAFETY_FACTOR_DEFAULT)
+                    # v9.7.0: installation stock. target_red = Σ target de las salas, que ya
+                    # incluye por sala safety + vitrina + cola_larga + techo de cobertura. NO se
+                    # poolea el safety ni se re-suma piso_red (ya viene dentro de cada
+                    # target_sala). El CD compra para que, entregando todo, las salas cuadren.
+                    safety_red = safety_installation
+                    target_red = target_installation
+
+                    # Disponible de red = fisico CD + fisico salas + POs inbound del CD.
+                    stock_cd_fisico  = _safe_float(base.get('stock_real'), 0.0)
+                    transito_inbound = _safe_float(base.get('stock_pedido_compra'), 0.0)
+                    disponible_red   = stock_cd_fisico + sala_stock_sum + transito_inbound
+
+                    qty_neta_red = max(target_red - disponible_red, 0.0)
+
+                    # Override del qty del CD (reemplaza el diferencial pass-through).
+                    # El MOQ/caja se aplica una sola vez en el build de la fila CD (3083).
+                    base['qty_a_pedir'] = qty_neta_red
+                    base['solo_bodega_cd_replenish'] = True
+                    base['cd_target_weeks']  = period_weeks_sku
+                    base['cd_target_units']  = target_red
+                    base['cd_mu_red']        = mu_red
+                    base['cd_sigma_red']     = sigma_red
+                    base['cd_safety_units']  = safety_red
+                    base['cd_z']             = z_cd
+                    base['cd_qty_neta']      = qty_neta_red
+                    base['cd_disponible_red'] = disponible_red
+
+                # ----------------------
+                # Reposicion automatica CD para solo_bodega  [DESACTIVADO 2026-06-09]
+                # ----------------------
+                # El target forward del CD (demanda_red*periodo + safety, SIN restar stock
+                # de salas) causaba doble conteo y sobre-compra (~-$78,7M en simulacion).
+                # Reemplazado por el modelo CD pass-through: la compra del CD se consolida
+                # en compra_cd_gaps = max(0, Σ necesidad_salas − stock_CD), MOQ una vez.
+                # El loop queda inalcanzable (continue) como referencia/rollback.
+                # Ver proyectos/2026-06-09-diag-li450701/diseno.md
+                for tid, base in central_team_map.items():
+                    continue
                     meta = tmpl_meta.get(tid) or {}
                     if not bool(meta.get('solo_bodega')):
                         continue
@@ -2686,6 +3138,14 @@ else:
                         qty_a_pedir  = 0.0
                         transfer_qty = 0.0
 
+                    # Invariante x_studio_qty_transferir: el campo SOLO debe cargar
+                    # acciones de traslado (CD->sala 'transferir_desde_cd' o sala->CD
+                    # retorno). En cualquier otra accion queda en 0; asi no infla las
+                    # sumas crudas del campo ni deja residuo que Generacion de
+                    # Documentos (que filtra por buy_action) jamas consume.
+                    if buy_action not in ('transferir_desde_cd', RETURN_TO_CD_ACTION_SAFE):
+                        transfer_qty = 0.0
+
                     transfer_qty = _round_units(transfer_qty)
                     qty_a_pedir  = _ceil_units(qty_a_pedir)
                     qty_retorno_cd = _round_units(qty_retorno_cd)
@@ -2758,12 +3218,9 @@ else:
                         decision_parts.append('share_for_purchase=1.0')
                     if rec.get('motivo_eliminar'):
                         decision_parts.append('abc_motivo=' + rec.get('motivo_eliminar'))
-                    if rec.get('is_top_cash'):
-                        decision_parts.append('top_cash=1')
                     if rec.get('is_cigarros'):
                         decision_parts.append('cat=cigarros')
-                        decision_parts.append('cigar_safety_mult=' + str(round(CIGARROS_SAFETY_MULT, 3)))
-                        decision_parts.append('cigar_display_mult=' + str(round(CIGARROS_DISPLAY_MULT, 3)))
+                        decision_parts.append('cigar_service_lvl=' + str(round(CIGARROS_SERVICE_LEVEL, 3)))
                     if _safe_float(rec.get('display_stock_units'), 0.0) > 0.0:
                         decision_parts.append('display_stock=' + str(round(_safe_float(rec.get('display_stock_units'), 0.0), 2)))
                     if _safe_float(rec.get('safety_factor_used'), 0.0) > 0.0:
@@ -2951,7 +3408,7 @@ else:
                         'x_studio_target_units':               target_units,
                         'x_studio_target_stat_units':          _safe_float(rec.get('target_units_stat'), 0.0),
                         'x_studio_display_stock_units':        _safe_float(rec.get('display_stock_units'), 0.0),
-                        'x_studio_is_top_cash':                bool(rec.get('is_top_cash')),
+                        'x_studio_stock_minimo':               (_safe_float(rec.get('cola_larga_lote'), 0.0) or _safe_float(rec.get('display_stock_units'), 0.0)),
                         'x_studio_safety_factor_used':         _safe_float(rec.get('safety_factor_used'), 0.0),
                         'x_studio_venta_bruta_week_est_raw':   _safe_float(rec.get('venta_bruta_week_est_raw'), 0.0),
                         'x_studio_over_target_units':          over_target_units,
@@ -2973,6 +3430,16 @@ else:
                         'x_studio_valor_reponer':              valor_reponer,
                         'x_studio_qty_a_pedir':                qty_a_pedir,
                         'x_studio_qty_a_pedir_cajas':          qty_a_pedir_cajas,
+                        # ── [NUEVO] Necesidad pedida a bodega (pull sala -> CD) ───────────
+                        # Unidades que esta sala solo_bodega requiere del CD, exista o no
+                        # stock en el CD (a diferencia de x_studio_qty_transferir, que solo
+                        # se carga cuando el CD tiene stock para repartir). Fuente:
+                        # qty_neta_pre_central = max(target - stock_proy, 0) YA ajustado por
+                        # politica ((s,S) cola larga, retorno, phantom, no_disponible -> 0).
+                        # Solo aplica a solo_bodega (las demas no tiran del CD). Consolidado
+                        # por SKU y alarma de CD-idle se derivan por pivote (no se persisten).
+                        # Requiere campo Studio Float x_studio_necesidad_bodega.
+                        'x_studio_necesidad_bodega':           (_safe_float(rec.get('qty_neta_pre_central'), 0.0) if meta.get('solo_bodega') else 0.0),
                         'x_studio_valor_orden_compra':         valor_orden_compra,
                         'x_studio_compra_mensual_estimada':    _compra_mensual_estimada,
                         'x_studio_venta_bruta_mensual_estimada': _venta_bruta_mensual_estimada,
@@ -3031,6 +3498,15 @@ else:
                         created += len(batch)
                         batch = []
 
+                # Flush del ultimo batch parcial de salas. Sin esto, las filas de la
+                # ultima sala procesada (cola < BATCH_SIZE) se descartaban silenciosamente
+                # (bug: Panguipulli 790 perdia ~370 SKU/corrida -> el CD compraba pero no
+                # se generaba el traslado). El central_batch mas abajo ya tenia su flush.
+                if batch:
+                    _anal_create(batch)
+                    created += len(batch)
+                    batch = []
+
                 # Filas pseudo-sucursal Bodega Central (team analitico)
                 central_batch = []
                 for tid in sorted(central_team_map.keys()):
@@ -3055,6 +3531,12 @@ else:
                     venta_bruta_estimada = _safe_float(c.get('venta_bruta_estimada'), 0.0)
                     buy_action = 'compra_cd' if qty_a_pedir > 0.0 else 'no_comprar_esta_semana'
                     supply_source = 'buy_only' if qty_a_pedir > 0.0 else 'no_action'
+                    # Invariante x_studio_qty_transferir (ver fila sala): la pseudo-fila
+                    # CD nunca es accion de traslado (siempre compra_cd / no_comprar). El
+                    # despacho a salas ya vive en las filas transferir_desde_cd de cada
+                    # sala; dejar el agregado aqui doble-contaba al sumar el campo crudo.
+                    if buy_action not in ('transferir_desde_cd', RETURN_TO_CD_ACTION_SAFE):
+                        qty_transferir = 0.0
                     decision_reason_full = 'central_team=1 | team_id=%s | cd_stock=1 | cd_pedido_total=%s | cd_proyectado=%s' % (
                         CENTRAL_TEAM_ID,
                         round(stock_pedido_total, 2),
