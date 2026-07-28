@@ -56,6 +56,9 @@ POST_RECARGO = False   # v0.8: las facturas cuadradas por la rama de recargo
                        # True recien despues de mirar casos reales cuadrados.
 CUENTA_FLETE = '410237'   # Costo de Mercaderias Vendidas - Transporte
 TAX_IVA_COMPRA = 2        # IVA 19% Compra (2024)
+NOMBRE_FLETE = 'RECARGO (flete)'   # marca del flete separado por el motor:
+                                   # persiste en la factura y bloquea el posteo
+                                   # mientras POST_RECARGO sea False
 MARCA_HOLD = 'cuadre v0.7:'   # firma de los holds propios (ver PASO 0) — NO TOCAR: v0.8 sigue usando esta firma
 
 
@@ -349,6 +352,22 @@ def price_fixes(odoo_lines, items):
     return out
 
 
+# --- helper NO puro (usa env / recordset): exclusivo del SA, no vive en
+# helpers.py ni se testea offline.
+
+def _tiene_flete_motor(move):
+    # True si el motor ya le separo el flete a esta factura. Se mira la LINEA
+    # (persiste entre corridas), no una variable de memoria: en la corrida
+    # siguiente la factura ya cuadra, no entra al PASO 1.5 y sin esta marca
+    # se postearia sin revision.
+    for l in move.invoice_line_ids:
+        if l.display_type not in ('product', False):
+            continue
+        if (l.name or '') == NOMBRE_FLETE:
+            return True
+    return False
+
+
 # ============================================================================
 # motor
 # ============================================================================
@@ -472,7 +491,6 @@ else:
         # --- PASO 1.5: fix de precio pisado (todo-o-nada via savepoint)
         ok, dn, di, dt = cuadra_3(m.amount_untaxed, m.amount_tax, m.amount_total, tot, TOL)
         items = parse_items(xml)
-        creo_flete = False   # PASO 3 la lee aunque no haya habido fixes
         if not ok and not ila:
             fixes = price_fixes(lineas, items)
             if fixes:
@@ -487,7 +505,7 @@ else:
                 if rec_emb:
                     tiene_flete = False
                     for l in m.invoice_line_ids:
-                        if l.display_type:
+                        if l.display_type not in ('product', False):
                             continue
                         if _es_flete(l.name or ''):
                             tiene_flete = True
@@ -501,12 +519,11 @@ else:
                                     % (m.name, CUENTA_FLETE))
                     else:
                         m.write({'invoice_line_ids': [(0, 0, {
-                            'name': 'RECARGO (flete)',
+                            'name': NOMBRE_FLETE,
                             'quantity': 1.0,
                             'price_unit': rec_emb,
                             'account_id': cta.id,
                             'tax_ids': [(6, 0, [TAX_IVA_COMPRA])]})]})
-                        creo_flete = True
                 env.flush_all()
                 ok2, dn2, di2, dt2 = cuadra_3(m.amount_untaxed, m.amount_tax,
                                               m.amount_total, tot, TOL)
@@ -549,7 +566,7 @@ else:
             elif posteadas >= MAX_POST:
                 msgs.append('  %-16s LISTA (tope %d)' % (m.name, MAX_POST))
                 continue
-            elif creo_flete and not POST_RECARGO:
+            elif not POST_RECARGO and _tiene_flete_motor(m):
                 msgs.append('  %-16s CUADRA con flete separado -> queda DRAFT '
                             '(POST_RECARGO=False)' % m.name)
                 continue
