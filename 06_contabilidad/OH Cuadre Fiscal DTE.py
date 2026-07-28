@@ -1,4 +1,4 @@
-# OH Cuadre Fiscal DTE v0.7  (ir.actions.server / account.move / safe_eval)
+# OH Cuadre Fiscal DTE v0.8  (ir.actions.server / account.move / safe_eval)
 #
 # Automatiza el ciclo manual, por factura:
 #     APLICAR posicion fiscal -> REVISAR -> GUARDAR -> siguiente
@@ -28,6 +28,13 @@
 #      las de gasto son servicios legitimos sin SKU
 #   7. registra el hold en x_error_dte (reusa el modelo del detector 1585)
 #
+# Diferencias con v0.7:
+#   1. recargo EMBEBIDO en el MontoItem (Peumo): el flete sale del precio del
+#      producto y va a una linea propia (cuenta 410237, solo IVA). Sin esto el
+#      flete entra en la base del ILA e infla el impuesto (medido: 105.726 en
+#      FAC 7471135). Deteccion aritmetica: prc*qty - desc + rec == monto.
+#   2. POST_RECARGO=False: esas facturas quedan en draft para revision manual.
+#
 # Baseline medido 2026-07-27 (diag_cuadre.py, read-only): de 314 draft,
 #   117 cuadran hoy | 156 con ILA origen | 26 falta SKU real | 4 precio/impuesto
 # Helpers validados offline: test_helpers.py, 15/15.
@@ -36,7 +43,7 @@
 # loops planos (sin genexp dentro de def), .write() no obj.attr=,
 # x_name required en el create de x_error_dte, retorno en action.
 
-DRY_RUN = False         # primero True: lee el log y recien despues False
+DRY_RUN = True          # v0.8 primera corrida: lee el log y recien despues False
 DO_POST = True
 MAX_MOVES = 40         # facturas evaluadas por corrida (cap de costo)
 MAX_POST = 20          # tope de posteos por corrida
@@ -44,7 +51,12 @@ TOL = 2.0              # tolerancia $ en CADA uno de los 3 montos
 PROV_TABACO = {'885029000'}   # BAT 88502900-0 (IVA de margen cod 14: no esta en el XML)
 LOCK_KEY = 99123055
 FP_DEFAULT = 12        # posicion fiscal "Facturas de Compra"
-MARCA_HOLD = 'cuadre v0.7:'   # firma de los holds propios (ver PASO 0)
+POST_RECARGO = False   # v0.8: las facturas cuadradas por la rama de recargo
+                       # embebido quedan en DRAFT para revision manual. Pasar a
+                       # True recien despues de mirar casos reales cuadrados.
+CUENTA_FLETE = '410237'   # Costo de Mercaderias Vendidas - Transporte
+TAX_IVA_COMPRA = 2        # IVA 19% Compra (2024)
+MARCA_HOLD = 'cuadre v0.7:'   # firma de los holds propios (ver PASO 0) — NO TOCAR: v0.8 sigue usando esta firma
 
 
 # ============================================================================
@@ -243,9 +255,36 @@ def parse_items(xml):
         items.append({'nombre': _seg(blk, '<NmbItem>', '</NmbItem>'),
                       'codigo': cod, 'ean': ean,
                       'qty': _num(_seg(blk, '<QtyItem>', '</QtyItem>')),
-                      'monto': _num(_seg(blk, '<MontoItem>', '</MontoItem>'))})
+                      'monto': _num(_seg(blk, '<MontoItem>', '</MontoItem>')),
+                      'prc': _num(_seg(blk, '<PrcItem>', '</PrcItem>')),
+                      'desc': _num(_seg(blk, '<DescuentoMonto>', '</DescuentoMonto>')),
+                      'rec': _num(_seg(blk, '<RecargoMonto>', '</RecargoMonto>'))})
         i = b
     return items
+
+
+def recargo_embebido(items):
+    # Total del RecargoMonto cuando viene DENTRO del MontoItem (0 si no).
+    # Algunos emisores (Comercial Peumo) suman el flete al MontoItem de cada
+    # linea. Ese recargo es afecto a IVA pero NO integra la base del ILA, asi
+    # que cobrarlo dentro del precio del producto infla el impuesto. Medido en
+    # FAC 7471135: 515.736 de flete -> 105.726 de ILA de mas.
+    # Otros (Embonor) lo mandan aparte y su MontoItem ya viene limpio. La
+    # diferencia se decide por la identidad de la linea, NO por una lista de
+    # proveedores:
+    #     prc * qty - desc + rec == monto   -> el recargo esta DENTRO
+    # Todo-o-nada: si alguna linea no trae recargo o no cierra la identidad,
+    # devuelve 0 y la factura cae al hold de siempre. Falla cerrado.
+    if not items:
+        return 0.0
+    tot = 0.0
+    for it in items:
+        if not it['rec']:
+            return 0.0
+        if abs(it['prc'] * it['qty'] - it['desc'] + it['rec'] - it['monto']) > 1.0:
+            return 0.0
+        tot += it['rec']
+    return tot
 
 
 def _factor(tax_ids, tax_by_id):
@@ -289,6 +328,11 @@ def price_fixes(odoo_lines, items):
     # [(line_id, pu_target)] por precio pisado. Excluye la fraccion de pack
     # (qty != QtyItem): ahi el price_unit YA es el correcto del DTE y
     # desviarlo contaminaria costo/WAC (trampa UoM).
+    # v0.8: si el DTE trae el flete DENTRO del MontoItem (ver recargo_embebido),
+    # la base de la linea es monto - rec. Cobrar el flete dentro del precio del
+    # producto lo mete en la base del ILA e infla el impuesto. El SA compensa
+    # creando una linea de flete aparte por el total.
+    rec_emb = recargo_embebido(items)
     out = []
     for (l, it) in alinear(odoo_lines, items):
         qty = l['quantity']
@@ -296,9 +340,12 @@ def price_fixes(odoo_lines, items):
             continue
         if abs(qty - it['qty']) > 0.001:
             continue
-        if abs(l['price_subtotal'] - it['monto']) <= 1.0:
+        monto = it['monto']
+        if rec_emb:
+            monto = monto - it['rec']
+        if abs(l['price_subtotal'] - monto) <= 1.0:
             continue
-        out.append((l['id'], round((it['monto'] / qty) * l['factor'], 2)))
+        out.append((l['id'], round((monto / qty) * l['factor'], 2)))
     return out
 
 
@@ -308,7 +355,7 @@ def price_fixes(odoo_lines, items):
 
 env.cr.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_KEY,))
 if not env.cr.fetchone()[0]:
-    log('cuadre-fiscal v0.7: lock ocupado, salgo')
+    log('cuadre-fiscal v0.8: lock ocupado, salgo')
     action = {'type': 'ir.actions.act_window_close'}
 else:
     HOY = datetime.date.today()
@@ -380,7 +427,7 @@ else:
                 continue
         lote.append(m)
 
-    msgs = ['=== OH Cuadre Fiscal DTE v0.7 (dry=%s post=%s) mes=%s..%s ==='
+    msgs = ['=== OH Cuadre Fiscal DTE v0.8 (dry=%s post=%s) mes=%s..%s ==='
             % (DRY_RUN, DO_POST, DESDE, HASTA),
             'universo=%d  en_hold=%d  lote=%d  (tabaco excluido=%d, revision manual)'
             % (len(universo), en_hold, len(lote), n_tabaco)]
@@ -425,6 +472,7 @@ else:
         # --- PASO 1.5: fix de precio pisado (todo-o-nada via savepoint)
         ok, dn, di, dt = cuadra_3(m.amount_untaxed, m.amount_tax, m.amount_total, tot, TOL)
         items = parse_items(xml)
+        creo_flete = False   # PASO 3 la lee aunque no haya habido fixes
         if not ok and not ila:
             fixes = price_fixes(lineas, items)
             if fixes:
@@ -435,6 +483,30 @@ else:
                 env.cr.execute("SAVEPOINT cuadre_fix")   # el ROLLBACK revierte solo el precio
                 for (lid, pu) in fixes:
                     by_id[lid].write({'price_unit': pu, 'discount': 0.0})
+                rec_emb = recargo_embebido(items)
+                if rec_emb:
+                    tiene_flete = False
+                    for l in m.invoice_line_ids:
+                        if l.display_type:
+                            continue
+                        if _es_flete(l.name or ''):
+                            tiene_flete = True
+                    cta = env['account.account'].search(
+                        [('code', '=', CUENTA_FLETE)], limit=1)
+                    if tiene_flete:
+                        msgs.append('  %-16s recargo embebido %d pero YA hay linea de flete'
+                                    % (m.name, rec_emb))
+                    elif not cta:
+                        msgs.append('  %-16s ABORTA: no existe la cuenta %s'
+                                    % (m.name, CUENTA_FLETE))
+                    else:
+                        m.write({'invoice_line_ids': [(0, 0, {
+                            'name': 'RECARGO (flete)',
+                            'quantity': 1.0,
+                            'price_unit': rec_emb,
+                            'account_id': cta.id,
+                            'tax_ids': [(6, 0, [TAX_IVA_COMPRA])]})]})
+                        creo_flete = True
                 env.flush_all()
                 ok2, dn2, di2, dt2 = cuadra_3(m.amount_untaxed, m.amount_tax,
                                               m.amount_total, tot, TOL)
@@ -476,6 +548,10 @@ else:
                 mt = 'duplicado'
             elif posteadas >= MAX_POST:
                 msgs.append('  %-16s LISTA (tope %d)' % (m.name, MAX_POST))
+                continue
+            elif creo_flete and not POST_RECARGO:
+                msgs.append('  %-16s CUADRA con flete separado -> queda DRAFT '
+                            '(POST_RECARGO=False)' % m.name)
                 continue
             elif not DRY_RUN and DO_POST:
                 m.action_post()
@@ -543,6 +619,6 @@ else:
     env.cr.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
     action = {
         'type': 'ir.actions.client', 'tag': 'display_notification',
-        'params': {'title': 'Cuadre Fiscal DTE v0.7 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
+        'params': {'title': 'Cuadre Fiscal DTE v0.8 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
                    'message': texto, 'sticky': True},
     }
