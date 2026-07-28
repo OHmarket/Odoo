@@ -15,7 +15,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from helpers import (alinear, cuadra_3, dte_totales, exige_sku,  # noqa: E402
                      lineas_sin_sku, motivo, parse_items, price_fixes,
-                     tiene_ila_origen, unidad_ok, uom_mal)
+                     recargo_embebido, tiene_ila_origen, unidad_ok, uom_mal)
 
 TOL = 2.0
 FX = json.loads((HERE / 'resultados' / 'fixtures.json').read_text(encoding='utf-8'))
@@ -181,6 +181,32 @@ check('lee PrcItem', _it['prc'], 24984.0)
 check('lee DescuentoMonto', _it['desc'], 236880.0)
 check('lee RecargoMonto', _it['rec'], 50040.0)
 check('MontoItem no cambia', _it['monto'], 187920.0)
+
+print()
+print('=' * 74)
+print('8. recargo_embebido — DENTRO del MontoItem vs FUERA')
+print('=' * 74)
+check('Peumo 7471136: recargo DENTRO -> total del flete',
+      recargo_embebido(parse_items(xml_de('FAC 7471136'))), 166800.0)
+check('Peumo 7473435: recargo DENTRO', recargo_embebido(parse_items(xml_de('FAC 7473435'))), 195624.0)
+check('Peumo 7472785: recargo DENTRO', recargo_embebido(parse_items(xml_de('FAC 7472785'))), 78962.0)
+check('Peumo 7472784: recargo DENTRO', recargo_embebido(parse_items(xml_de('FAC 7472784'))), 73170.0)
+# REGRESION: Embonor tambien trae RecargoMonto, pero FUERA del MontoItem.
+# Tratarlo como embebido bajaria los precios y romperia una factura que cuadra.
+check('Embonor 10149821: recargo FUERA -> 0 (no se toca)',
+      recargo_embebido(parse_items(xml_de('FAC 10149821'))), 0.0)
+check('factura sin recargo -> 0', recargo_embebido(parse_items(xml_de('FAC 007426'))), 0.0)
+check('lista vacia -> 0', recargo_embebido([]), 0.0)
+# sinteticos: todo-o-nada
+_ok = [{'prc': 100.0, 'qty': 2.0, 'desc': 0.0, 'rec': 50.0, 'monto': 250.0},
+       {'prc': 100.0, 'qty': 1.0, 'desc': 0.0, 'rec': 25.0, 'monto': 125.0}]
+check('todas cierran -> suma los recargos', recargo_embebido(_ok), 75.0)
+_mixto = [{'prc': 100.0, 'qty': 2.0, 'desc': 0.0, 'rec': 50.0, 'monto': 250.0},
+          {'prc': 100.0, 'qty': 1.0, 'desc': 0.0, 'rec': 0.0, 'monto': 100.0}]
+check('una linea sin recargo -> 0 (todo-o-nada, falla cerrado)',
+      recargo_embebido(_mixto), 0.0)
+_roto = [{'prc': 100.0, 'qty': 2.0, 'desc': 0.0, 'rec': 50.0, 'monto': 999.0}]
+check('la identidad no cierra -> 0', recargo_embebido(_roto), 0.0)
 
 print()
 print('=' * 74)

@@ -110,6 +110,35 @@ def parse_items(xml):
     return items
 
 
+def recargo_embebido(items):
+    """Total del RecargoMonto cuando viene DENTRO del MontoItem (0 si no).
+
+    Algunos emisores (Comercial Peumo) suman el flete al MontoItem de cada
+    linea. Ese recargo es afecto a IVA pero NO integra la base del ILA, asi que
+    cobrarlo dentro del precio del producto infla el impuesto. Medido en
+    FAC 7471135: 515.736 de flete -> 105.726 de ILA de mas.
+
+    Otros (Embonor) lo mandan aparte y su MontoItem ya viene limpio: ahi no hay
+    nada que restar. La diferencia se decide por la identidad de la linea, NO
+    por una lista de proveedores (ver [[feedback-evitar-casuisticas]]):
+
+        prc * qty - desc + rec == monto   -> el recargo esta DENTRO
+
+    Todo-o-nada: si alguna linea no trae recargo o no cierra la identidad,
+    devuelve 0 y la factura cae al hold de siempre. Falla cerrado.
+    """
+    if not items:
+        return 0.0
+    tot = 0.0
+    for it in items:
+        if not it['rec']:
+            return 0.0
+        if abs(it['prc'] * it['qty'] - it['desc'] + it['rec'] - it['monto']) > 1.0:
+            return 0.0
+        tot += it['rec']
+    return tot
+
+
 # --- 2. gate de cuadre de 3 componentes -------------------------------------
 
 def cuadra_3(untaxed, tax, total, tot, tol):
