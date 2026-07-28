@@ -37,7 +37,7 @@
 #
 # Baseline medido 2026-07-27 (diag_cuadre.py, read-only): de 314 draft,
 #   117 cuadran hoy | 156 con ILA origen | 26 falta SKU real | 4 precio/impuesto
-# Helpers validados offline: test_helpers.py, 15/15.
+# Helpers validados offline: test_helpers.py, 53/53.
 #
 # safe_eval: sin import (b64decode inyectado), sin re, sin frozenset,
 # loops planos (sin genexp dentro de def), .write() no obj.attr=,
@@ -63,7 +63,7 @@ MARCA_HOLD = 'cuadre v0.7:'   # firma de los holds propios (ver PASO 0) — NO T
 
 
 # ============================================================================
-# helpers puros — copiados de helpers.py (testeados, 15/15). No editar aqui:
+# helpers puros — copiados de helpers.py (testeados, 53/53). No editar aqui:
 # editar helpers.py, correr test_helpers.py y volver a pegar.
 # ============================================================================
 
@@ -522,6 +522,10 @@ else:
                             'name': NOMBRE_FLETE,
                             'quantity': 1.0,
                             'price_unit': rec_emb,
+                            # re-verificar esta cuenta tras la primera corrida real: con
+                            # F2 ya se registra hold y no vuelve al PASO 1, pero
+                            # action_update_fpos_values recomputa cuentas de lineas sin
+                            # producto y podria migrarla en facturas que aun no tengan hold.
                             'account_id': cta.id,
                             'tax_ids': [(6, 0, [TAX_IVA_COMPRA])]})]})
                 env.flush_all()
@@ -538,7 +542,11 @@ else:
                                 % (m.name, len(fixes)))
                 else:
                     env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_fix")
-                    m.invalidate_recordset()
+                    # NO usar m.invalidate_recordset() ni env.invalidate_all() a secas: ambos tienen
+                    # flush=True por defecto y re-persistirian la cola de escritura DESPUES del rollback,
+                    # rompiendo el todo-o-nada. Y m.invalidate_recordset() ademas solo invalida los campos
+                    # del move, no los de las account.move.line a las que se les escribio price_unit.
+                    env.invalidate_all(flush=False)
                     msgs.append('  %-16s FIX %d linea(s) -> %s%s'
                                 % (m.name, len(fixes),
                                    'cuadraria' if ok2 else 'NO cuadra',
@@ -567,9 +575,11 @@ else:
                 msgs.append('  %-16s LISTA (tope %d)' % (m.name, MAX_POST))
                 continue
             elif not POST_RECARGO and _tiene_flete_motor(m):
-                msgs.append('  %-16s CUADRA con flete separado -> queda DRAFT '
-                            '(POST_RECARGO=False)' % m.name)
-                continue
+                # NO se hace `continue`: se cae al registro de hold de mas abajo.
+                # Sin hold la factura queda draft Y cuadrada, o sea vuelve al universo
+                # en cada corrida, consume cupo de MAX_MOVES y re-aplica la fpos a
+                # diario (lo que ademas puede migrar la cuenta de la linea de flete).
+                mt = 'flete_descuadrado'
             elif not DRY_RUN and DO_POST:
                 m.action_post()
                 posteadas += 1

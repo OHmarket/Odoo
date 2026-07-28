@@ -1,4 +1,4 @@
-"""helpers v0.7 — funciones PURAS (sin env) del SA OH Cuadre Fiscal DTE.
+"""helpers v0.8 — funciones PURAS (sin env) del SA OH Cuadre Fiscal DTE.
 
 Se testean local con `python test_helpers.py` (sin Odoo) y se copian
 literalmente dentro del Server Action safe_eval. Fuente de verdad testeada.
@@ -14,6 +14,13 @@ Novedades respecto de los helpers de v0.6:
   cuadra_3()     gate de neto / impuesto / total por separado
   exige_sku()    la regla de SKU acotada a mercaderia
   motivo()       clasificacion con ILA-origen ANTES del gate de montos
+
+Novedades respecto de v0.7 (helpers v0.8):
+  recargo_embebido()  detecta el flete DENTRO del MontoItem (Peumo) via
+                      identidad prc*qty-desc+rec==monto; todo-o-nada
+  price_fixes()       resta el recargo embebido de la base ANTES de
+                      comparar contra price_subtotal (si no, el fix de
+                      precio pisado infla el neto con el flete incluido)
 """
 
 # --- parseo basico (identico a v0.6, se repite para que el archivo sea autonomo) ---
