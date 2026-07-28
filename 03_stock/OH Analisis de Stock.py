@@ -1,7 +1,25 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.8.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.9.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.9.0 (2026-07-20): la compra del CD deja de heredar el cap de cobertura de la sala.
+#   Dos reglas distintas sobre dos horizontes distintos (SAP APO: procurement vs
+#   deployment): el CD COMPRA al periodo del proveedor (si.delay) y ENTREGA a sala
+#   capado (cover_cap / CD_FAST_LEAD_DAYS 7d). Antes target_red = Σ target_salas, o sea
+#   con cap 7d el CD compraba 7d de red aunque le comprara al proveedor cada 15d ->
+#   ~8d de quiebre por ciclo. Ahora:
+#     target_echelon = mu_red*period_weeks_sku + safety_red + piso_red
+#     target_red     = max(target_installation, target_echelon)
+#   El max() evita dejar una sala bajo su piso de vitrina o su lote de cola larga.
+#   NO es el pooling que v9.7.0 descarto: el safety sigue installation (Σσᵢ, sin
+#   sqrt(Σσ²)). Solo cambia el HORIZONTE del CD, no como se dimensiona el colchon.
+#   OJO: es la misma formula de la rama desactivada en 2957 (sobre-compro $78,7M); la
+#   diferencia es que disponible_red netea el stock de salas. Si se toca el neteo,
+#   vuelve el desastre. Sube la compra del CD (hoy esta artificialmente baja).
+#   PROXY: omite el tiempo de transito (OH no lo tiene separado; si.delay es
+#   periodicidad). Deja sub-cobertura de mu_red*T si el proveedor tarda T en entregar.
+#   Ver proyectos/2026-07-20-cd-echelon-periodo-compra/diseno.md
 #
 # v9.8.0 (2026-07-11): lead de trabajo corto para la rotacion alta surtida por CD.
 #   Las salas solo_bodega de rotacion ALTA usan un LEAD DE TRABAJO de 7d (CD_FAST_LEAD_DAYS)
@@ -186,6 +204,24 @@ RETURN_HOLD_WEEKS_DEFAULT    = 8.0
 RETURN_TRIGGER_WEEKS_DEFAULT = 8.0
 CD_DELIVERY_EXTRA_DAYS_DEFAULT = 0.0  # buffer logistico CD->sala ELIMINADO (sala_H = 1.0 sem exacta; el CD entrega dentro de la semana). Override por context cd_delivery_extra_days si se requiere holgura puntual.
 CENTRAL_TEAM_ID_DEFAULT = 26
+
+# ── Flags de prueba (v9.9.0) ─────────────────────────────────────────────────
+# DRY_RUN: corre TODO el calculo pero no escribe nada (ni purga ni create). Los
+#   agregados salen por log() -> ir.logging, que se lee read-only por XML-RPC.
+#   Sirve para medir el impacto de un cambio sin tocar x_analisis_de_stock ni
+#   arriesgar que OH Generacion de Documentos levante cantidades sin validar.
+#   Default False: sin contexto explicito el comportamiento es el de siempre.
+#     env['ir.actions.server'].browse(1502).with_context(dry_run=True).run()
+DRY_RUN_DEFAULT = False
+
+# CD_ECHELON_PERIOD: v9.9.0. Off = el CD compra Σ target_salas (comportamiento
+#   v9.8.0, hereda el cap de cobertura de la sala). On = el CD compra a SU
+#   horizonte (si.delay). Existe para poder correr A/B sobre la misma data.
+#   Default False para el primer despliegue, igual que ENABLE_XYZ_LOCAL: se
+#   activa por contexto, se valida, y recien ahi se cambia el default.
+#     .with_context(dry_run=True, cd_echelon_period=True).run()
+CD_ECHELON_PERIOD_ENABLED_DEFAULT = False
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Politica de descentralizacion sala vs CD: COBERTURA DE CAJA + EXCLUSION POR CATEGORIA.
 #
@@ -814,6 +850,8 @@ def _runout_level_alloc(arr_sorted, available):
 CTX = env.context or {}
 
 HARD_RESET          = bool(CTX.get('hard_reset', HARD_RESET_DEFAULT))
+DRY_RUN             = bool(CTX.get('dry_run', DRY_RUN_DEFAULT))
+CD_ECHELON_PERIOD   = bool(CTX.get('cd_echelon_period', CD_ECHELON_PERIOD_ENABLED_DEFAULT))
 PAYMENT_DAYS        = _safe_float(CTX.get('payment_days',        PAYMENT_DAYS_DEFAULT),        PAYMENT_DAYS_DEFAULT)
 PURCHASE_CYCLE_DAYS = _safe_float(CTX.get('purchase_cycle_days', PURCHASE_CYCLE_DAYS_DEFAULT), PURCHASE_CYCLE_DAYS_DEFAULT)
 MOQ_COVER_GUARD     = _safe_float(CTX.get('moq_cover_guard',     MOQ_COVER_GUARD_DEFAULT),     MOQ_COVER_GUARD_DEFAULT)
@@ -1055,7 +1093,7 @@ else:
         # Purga total
         # ----------------------
         purge_count = 0
-        if HARD_RESET:
+        if HARD_RESET and not DRY_RUN:
             old = Anal.search([])
             purge_count = len(old)
             if old:
@@ -2872,6 +2910,10 @@ else:
                 # Se usa stock fisico (stock_real CD + stock_effective salas) y POs inbound;
                 # NO se suma stock_pedido_transfer para no contar dos veces el en-transito
                 # interno CD->sala (la unidad sigue fisica en el CD hasta validar el picking).
+                # v9.9.0: acumulador A/B del echelon. Mide cuanto MAS compraria el CD si
+                # se prende CD_ECHELON_PERIOD, se prenda o no. Sale por log() al cierre.
+                _ECHELON_DIAG = {'skus': 0, 'delta_units': 0.0, 'delta_cash': 0.0}
+
                 for tid, base in central_team_map.items():
                     meta = tmpl_meta.get(tid) or {}
                     if not bool(meta.get('solo_bodega')):
@@ -2924,14 +2966,62 @@ else:
                         base['qty_a_pedir'] = 0.0
                         continue
 
-                    sigma_red = sigma_sq_red ** 0.5   # se conserva solo para reporte (decision_reason)
+                    sigma_red = sigma_sq_red ** 0.5   # v9.9.0: pasa a USARSE en safety_cd_units (antes solo reporte)
                     z_cd = _safe_float(_SAFETY_FACTOR.get(abcxyz_cd, _SAFETY_FACTOR_DEFAULT), _SAFETY_FACTOR_DEFAULT)
-                    # v9.7.0: installation stock. target_red = Σ target de las salas, que ya
-                    # incluye por sala safety + vitrina + cola_larga + techo de cobertura. NO se
-                    # poolea el safety ni se re-suma piso_red (ya viene dentro de cada
-                    # target_sala). El CD compra para que, entregando todo, las salas cuadren.
+                    # v9.7.0: installation stock. El safety NO se poolea: sigue siendo la suma
+                    # del safety de cada sala (Σσᵢ, no z*sqrt(Σσ²)). El colchon se sienta fisico
+                    # en la sala, que es donde ocurre la venta.
                     safety_red = safety_installation
-                    target_red = target_installation
+
+                    # v9.9.0: el CD compra a SU horizonte, no al de la sala.
+                    #
+                    # target_installation (Σ target_salas) trae el cap de cobertura de la sala
+                    # (2272 / CD_FAST_LEAD_DAYS): ~7d para rotacion alta. Ese cap es correcto
+                    # para lo que se ENTREGA a sala, pero no para lo que se COMPRA al proveedor:
+                    # a CCU se le compra cada si.delay dias (p.ej. 15). Comprar 7d de red con
+                    # ciclo de compra de 15d no ahorra caja, garantiza ~8d de quiebre por ciclo.
+                    #
+                    # Canon: order-up-to de revision periodica sobre echelon stock (Clark-Scarf
+                    # 1960). period_weeks_sku ya viene de si.delay (1641) con piso PURCHASE_
+                    # CYCLE_WEEKS (2077). piso_red entra porque target_installation tambien
+                    # incluye vitrina: si un lado la trae y el otro no, el max() compara
+                    # magnitudes distintas y gana el lado equivocado en SKU de vitrina alta.
+                    #
+                    # max(): el echelon manda salvo que las salas necesiten mas (vitrina alta o
+                    # lote de cola larga), en cuyo caso ese piso se respeta.
+                    #
+                    # PROXY: sin tiempo de transito (OH no lo tiene separado de la periodicidad).
+                    # Deja sub-cobertura de mu_red*T si el proveedor tarda T dias en entregar.
+                    # Mismo signo que el error que esto corrige -> mejora, no cierra del todo.
+                    # Safety de la ventana del CD. Son DOS capas de riesgo distintas y se
+                    # suman (installation stock por echelon, cada uno cubre SU ciclo):
+                    #   safety_red      -> sala expuesta al ciclo CD->sala (sala_safety_weeks
+                    #                      = 1.0 sem fijo, linea 2240). Suma, NO poolea: el
+                    #                      colchon se sienta fisico en cada sala.
+                    #   safety_cd_units -> red expuesta al ciclo del proveedor (period_weeks).
+                    #                      SI poolea: sigma_red = sqrt(Sigma sigma_i^2) y el
+                    #                      colchon se sienta en UN lugar (el CD).
+                    # El pooling aca es legitimo -a diferencia de lo que v9.7.0 descarto-
+                    # justamente porque con horizonte propio el CD RETIENE stock; el colchon
+                    # pooleado vive en el CD, no "en ninguna parte".
+                    # Levemente conservador: la varianza de 15d a nivel red ya contiene parte
+                    # de la que cubre el safety de sala. Se acepta (no se netea) por prudencia.
+                    safety_cd_units = z_cd * sigma_red * (period_weeks_sku ** 0.5)
+                    target_echelon = mu_red * period_weeks_sku + safety_red + piso_red + safety_cd_units
+                    if CD_ECHELON_PERIOD:
+                        target_red = max(target_installation, target_echelon)
+                    else:
+                        target_red = target_installation          # v9.8.0
+
+                    # Delta A/B para el log del DRY_RUN. Se acumula SIEMPRE (con el flag
+                    # off tambien), asi una sola corrida dice cuanto cambiaria prenderlo.
+                    _delta_u = max(target_echelon, target_installation) - target_installation
+                    if _delta_u > 0.0:
+                        _ECHELON_DIAG['skus'] += 1
+                        _ECHELON_DIAG['delta_units'] += _delta_u
+                        _ECHELON_DIAG['delta_cash'] += _delta_u * _safe_float(
+                            base.get('purchase_price_cash_unit'), 0.0
+                        )
 
                     # Disponible de red = fisico CD + fisico salas + POs inbound del CD.
                     stock_cd_fisico  = _safe_float(base.get('stock_real'), 0.0)
@@ -2949,6 +3039,8 @@ else:
                     base['cd_mu_red']        = mu_red
                     base['cd_sigma_red']     = sigma_red
                     base['cd_safety_units']  = safety_red
+                    base['cd_safety_period'] = safety_cd_units      # v9.9.0: safety de la ventana del proveedor
+                    base['cd_target_echelon'] = target_echelon      # v9.9.0: auditable vs cd_target_units
                     base['cd_z']             = z_cd
                     base['cd_qty_neta']      = qty_neta_red
                     base['cd_disponible_red'] = disponible_red
@@ -3069,12 +3161,18 @@ else:
                 # ----------------------
                 batch   = []
                 created = 0
-                _anal_create = Anal.with_context(
-                    tracking_disable=True,
-                    mail_create_nosubscribe=True,
-                    mail_create_nolog=True,
-                    mail_notrack=True,
-                ).create
+                if DRY_RUN:
+                    # No-op: consume el batch y no escribe. El resto del script sigue
+                    # igual (created se incrementa, los logs cuentan lo que HABRIA creado).
+                    def _anal_create(vals_list):
+                        return None
+                else:
+                    _anal_create = Anal.with_context(
+                        tracking_disable=True,
+                        mail_create_nosubscribe=True,
+                        mail_create_nolog=True,
+                        mail_notrack=True,
+                    ).create
 
                 for rec in records:
                     tid     = rec['tmpl_id']
@@ -3553,6 +3651,8 @@ else:
                         decision_reason_full += ' | cd_mu_red=' + str(round(_safe_float(c.get('cd_mu_red'), 0.0), 2))
                         decision_reason_full += ' | cd_sigma_red=' + str(round(_safe_float(c.get('cd_sigma_red'), 0.0), 3))
                         decision_reason_full += ' | cd_safety=' + str(round(_safe_float(c.get('cd_safety_units'), 0.0), 2))
+                        decision_reason_full += ' | cd_safety_period=' + str(round(_safe_float(c.get('cd_safety_period'), 0.0), 2))
+                        decision_reason_full += ' | cd_target_echelon=' + str(round(_safe_float(c.get('cd_target_echelon'), 0.0), 2))
                         decision_reason_full += ' | cd_z=' + str(round(_safe_float(c.get('cd_z'), 0.0), 2))
                         decision_reason_full += ' | cd_qty_neta=' + str(round(_safe_float(c.get('cd_qty_neta'), 0.0), 2))
                     if bool(kit_components_tmpl.get(tid)):
@@ -3681,6 +3781,23 @@ else:
                             VERSION_ID, purge_count, created, len(valid_team_ids), local_hit, global_hit, fwd_miss,
                             ('Y' if central_enabled else 'N'), central_alloc_lines, central_alloc_units, snapshot_date,
                             ('Y' if SMART_MOQ_ROUNDING else 'N')
+                        ),
+                        level='info'
+                    )
+                except Exception:
+                    pass
+
+                # v9.9.0: delta A/B del echelon CD. Se emite SIEMPRE (con el flag off
+                # tambien) para poder dimensionar el impacto en caja antes de prenderlo.
+                try:
+                    log(
+                        '%s | CD_ECHELON dry_run=%s echelon=%s | skus_afectados=%s | delta_units=%.2f | delta_cash=%.0f' % (
+                            VERSION_ID,
+                            ('Y' if DRY_RUN else 'N'),
+                            ('ON' if CD_ECHELON_PERIOD else 'OFF'),
+                            _ECHELON_DIAG['skus'],
+                            _ECHELON_DIAG['delta_units'],
+                            _ECHELON_DIAG['delta_cash'],
                         ),
                         level='info'
                     )

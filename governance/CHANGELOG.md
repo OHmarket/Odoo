@@ -554,6 +554,55 @@ Revertido por decision: evitar acoplar el motor a casuisticas especificas del ne
 
 ## 03_stock / OH Analisis de Stock.py
 
+### v9.9.0 — La compra del CD deja de heredar el cap de cobertura de la sala (2026-07-20)
+
+**Estado: implementado, NO validado, NO promovido.** Falta correr las etapas A y B de
+`proyectos/2026-07-20-cd-echelon-periodo-compra/diseno.md`.
+
+- **Síntoma**: con `cover_cap_fast_days = 7`, el CD compraba ~7 días de demanda de red
+  aunque al proveedor se le compre cada `si.delay` días (p.ej. 15 para CCU). Comprar 7d
+  con ciclo de 15d no ahorra caja: garantiza ~8d de quiebre por ciclo.
+- **Causa raíz**: `target_red = target_installation` (Σ target_salas). Cada
+  `target_sala` ya viene capado por `_cover_cap_days` (2272) y `CD_FAST_LEAD_DAYS`
+  (2196), así que el cap de **sala** se propagaba al echelon **CD**, donde no
+  corresponde. El header del propio bloque (2842) declaraba *"CD echelon: compra 15
+  dias de red"* y la implementación no lo hacía. `period_weeks_sku` (2916) y `piso_red`
+  (2912) ya se calculaban y quedaban sin usar.
+- **Fix** (una línea lógica, 2934):
+  ```
+  target_echelon = mu_red * period_weeks_sku + safety_red + piso_red
+  target_red     = max(target_installation, target_echelon)
+  ```
+  Canon: order-up-to de revisión periódica sobre echelon stock (Clark & Scarf 1960);
+  separación *procurement* vs *deployment* de SAP APO. `disponible_red` (2939) ya era
+  la echelon inventory position — la pieza canónica estaba, solo no se comparaba contra
+  el target correcto.
+- **NO es el pooling que v9.7.0 descartó**: el safety sigue installation (`Σσᵢ`, no
+  `z*sqrt(Σσ²)`). Solo cambia el **horizonte** del CD, no cómo se dimensiona el colchón.
+  El pooling queda como proyecto siguiente: ahora que el CD retiene stock vuelve a ser
+  teóricamente válido, pero mezclarlo haría el delta inatribuible.
+- **`piso_red` entra a propósito**: `target_installation` incluye vitrina. Si un lado la
+  trae y el otro no, el `max()` compara magnitudes distintas y gana el lado equivocado
+  en SKU de vitrina alta.
+- **Alcance**: solo `solo_bodega` + `CD_ELIGIBLE_ABCXYZ` (A/B). No toca el envío
+  CD→sala (`transfer_qty` sigue capado a 7d), ni el safety, ni el MOQ, ni C-class, ni
+  compra directa a sala.
+- **⚠️ Riesgo principal**: `mu_red*periodo + safety + piso` es la **misma fórmula** de la
+  rama desactivada en 2957, que sobre-compró **~$78,7M** en simulación. La única
+  diferencia es que `disponible_red` netea el stock de salas. Si se toca el neteo,
+  vuelve el desastre. La validación debe atacar ese punto, no la fórmula.
+- **PROXY documentado**: omite el tiempo de tránsito (OH no lo tiene separado de la
+  periodicidad; `si.delay` es frecuencia de compra). Deja sub-cobertura de `mu_red*T` si
+  el proveedor tarda `T` días en entregar — mismo signo del error que corrige, o sea
+  mejora pero no cierra del todo.
+- **Efecto esperado**: **sube** la compra del CD (hoy está artificialmente baja). Con
+  caja ~$148M y sangrado ~$53M/mes, dimensionar antes de promover.
+- **Contexto favorable**: conteo de inventario del CD terminado 2026-07-20 16:33 (1.755
+  movimientos `is_inventory` → `CD/Stock` loc 139). `stock_cd_fisico` entra restando en
+  `disponible_red` y este cambio lo vuelve crítico (antes el CD apuntaba a ~0). Medir
+  mientras el conteo esté fresco.
+- **Nota de deuda**: v9.7.0 y v9.8.0 no quedaron registradas en este CHANGELOG.
+
 ### v9.1.87 — Phantom: reposicion CD compra el padre, no el hijo (2026-06-08)
 
 Fix de dirección en el loop de **reposición automática CD para `solo_bodega`**.
