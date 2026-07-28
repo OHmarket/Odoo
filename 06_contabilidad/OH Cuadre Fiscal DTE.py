@@ -36,7 +36,7 @@
 # loops planos (sin genexp dentro de def), .write() no obj.attr=,
 # x_name required en el create de x_error_dte, retorno en action.
 
-DRY_RUN = True         # primero True: lee el log y recien despues False
+DRY_RUN = False         # primero True: lee el log y recien despues False
 DO_POST = True
 MAX_MOVES = 40         # facturas evaluadas por corrida (cap de costo)
 MAX_POST = 20          # tope de posteos por corrida
@@ -145,13 +145,50 @@ def tiene_ila_origen(tax_ids):
     return False
 
 
-def motivo(falta_sku, ila_origen, dn, di, dt):
-    # '' si esta OK. El ILA-origen se evalua ANTES del gate de montos.
+def unidad_ok(qty, uom_f, it, retail, std):
+    # True / False / None (None = no verificable, no bloquea).
+    # Una linea puede cuadrar en PLATA y aun asi entregar al stock la cantidad
+    # equivocada, porque la UoM es un pack (FAC 10142151: 144 botellas donde el
+    # DTE dice 12, a 1/12 del costo). El gate de 3 montos es ciego a eso.
+    # Pero QtyItem NO siempre viene en unidades de stock: medido sobre 2.212
+    # lineas, 63% de los DTE factura POR CAJA (y ahi Odoo esta BIEN). Comparar
+    # qty*factor == QtyItem a secas daba 63% de falsos positivos.
+    # Arbitro = PRECIO DE VENTA, no el costo: standard_price se deriva de estas
+    # mismas compras (contaminado si el historico entro mal). Base economica:
+    # el costo por unidad no puede superar el retail por unidad.
+    # PROXY: lo correcto seria costo < retail*(1-margen) por categoria.
+    if uom_f == 1 or not it['qty']:
+        return True
+    if abs(qty * uom_f - it['qty']) <= 0.01:
+        return True
+    pu = it['monto'] / it['qty']
+    if retail:
+        return pu > retail
+    if std:
+        return abs(pu / uom_f - std) < abs(pu - std)
+    return None
+
+
+def uom_mal(pares):
+    # True si alguna linea aporta al stock una cantidad distinta a la del DTE.
+    # `pares` = salida de alinear(). Lo no verificable NO bloquea.
+    for (l, it) in pares:
+        if unidad_ok(l['quantity'], l['uom_f'], it, l['retail'], l['std']) is False:
+            return True
+    return False
+
+
+def motivo(falta_sku, ila_origen, unidades_mal, dn, di, dt):
+    # '' si esta OK. Orden: el ILA-origen ANTES del gate de montos (price_include
+    # mueve neto E impuesto y disfraza el diagnostico), y las UNIDADES antes de
+    # devolver '' (una factura puede cuadrar en plata y tener el stock 12x mal).
     # Valores de la seleccion ya existente en x_error_dte.
     if falta_sku:
         return 'codigo_no_vinculado'
     if ila_origen:
         return 'impuesto_mal_clasificado'
+    if unidades_mal:
+        return 'uom_no_cuadra'
     if dn and di:
         return 'linea_descuadrada'
     if dn:
@@ -220,22 +257,46 @@ def _factor(tax_ids, tax_by_id):
     return f
 
 
+def alinear(odoo_lines, items):
+    # Empareja lineas de Odoo con items del <Detalle>. Las lineas de
+    # flete/recargo NO tienen item: el DTE las lleva como <DscRcgGlobal>, no
+    # como <Detalle>. Por eso se descuentan ANTES de comparar los largos.
+    # Verificado en FAC 10142151: 13 lineas vs 12 <Detalle>, y el DscRcgGlobal
+    # de 77.520 es la linea RECARGO (MntNeto 2.000.646 = 1.923.126 + 77.520).
+    # Antes se comparaba len(odoo_lines) != len(items) y se abortaba: toda
+    # factura con recargo global quedaba sin fix de precio aunque fuera
+    # reparable.
+    # Dos intentos, en orden — el flete NO siempre es recargo global:
+    #   1. tal cual, si los largos calzan. En FAC 000891 la linea DESPACHO SI
+    #      es un <Detalle> (qty 1, monto 145.908) y son 7 vs 7: sacarla a
+    #      ciegas rompia una factura que alineaba perfecto.
+    #   2. descontando flete/recargo, para el caso <DscRcgGlobal> (FAC 10142151).
+    # Devuelve [] si ninguno calza (no se adivina).
+    if not items:
+        return []
+    if len(odoo_lines) == len(items):
+        return list(zip(odoo_lines, items))
+    prod = []
+    for l in odoo_lines:
+        if not _es_flete(l['name']):
+            prod.append(l)
+    if len(prod) != len(items):
+        return []
+    return list(zip(prod, items))
+
+
 def price_fixes(odoo_lines, items):
     # [(line_id, pu_target)] por precio pisado. Excluye la fraccion de pack
     # (qty != QtyItem): ahi el price_unit YA es el correcto del DTE y
     # desviarlo contaminaria costo/WAC (trampa UoM).
-    if len(odoo_lines) != len(items) or not items:
-        return []
     out = []
-    for l, it in zip(odoo_lines, items):
+    for (l, it) in alinear(odoo_lines, items):
         qty = l['quantity']
         if qty == 0:
             continue
         if abs(qty - it['qty']) > 0.001:
             continue
         if abs(l['price_subtotal'] - it['monto']) <= 1.0:
-            continue
-        if _es_flete(l['name']):
             continue
         out.append((l['id'], round((it['monto'] / qty) * l['factor'], 2)))
     return out
@@ -348,18 +409,22 @@ else:
         lineas = []
         ila = False
         for l in prod_lines:
+            # OJO: 'factor' es el del price_include (fix de precio) y 'uom_f' el
+            # de la unidad de medida (gate de unidades). No confundirlos.
             lineas.append({'id': l.id, 'name': l.name or '',
                            'has_product': bool(l.product_id),
                            'quantity': l.quantity,
                            'price_subtotal': l.price_subtotal,
-                           'factor': _factor(l.tax_ids.ids, tax_by_id)})
+                           'factor': _factor(l.tax_ids.ids, tax_by_id),
+                           'uom_f': l.product_uom_id.factor_inv or 1.0,
+                           'retail': l.product_id.list_price or 0.0,
+                           'std': l.product_id.standard_price or 0.0})
             if tiene_ila_origen(l.tax_ids.ids):
                 ila = True
 
         # --- PASO 1.5: fix de precio pisado (todo-o-nada via savepoint)
         ok, dn, di, dt = cuadra_3(m.amount_untaxed, m.amount_tax, m.amount_total, tot, TOL)
         items = parse_items(xml)
-        fixed_now = False
         if not ok and not ila:
             fixes = price_fixes(lineas, items)
             if fixes:
@@ -375,8 +440,11 @@ else:
                                               m.amount_total, tot, TOL)
                 if ok2 and not DRY_RUN:
                     env.cr.execute("RELEASE SAVEPOINT cuadre_fix")
+                    # v0.6 dejaba la arreglada en draft para postearla en la
+                    # corrida siguiente. Aca se postea en la MISMA pasada: el
+                    # savepoint ya re-verifico los 3 montos antes de persistir,
+                    # asi que diferirla solo agrega una vuelta.
                     ok, dn, di, dt = ok2, dn2, di2, dt2
-                    fixed_now = True
                     msgs.append('  %-16s FIX precio %d linea(s) -> cuadra'
                                 % (m.name, len(fixes)))
                 else:
@@ -387,9 +455,16 @@ else:
                                    'cuadraria' if ok2 else 'NO cuadra',
                                    ' [DRY]' if DRY_RUN else ''))
 
-        # --- PASO 2: REVISAR
+        # --- PASO 2: REVISAR (SKU / unidades / los 3 montos)
         faltan = lineas_sin_sku(lineas, tipo_prov)
-        mt = motivo(len(faltan) > 0, ila, dn, di, dt)
+        pares = alinear(lineas, items)
+        umal = uom_mal(pares)
+        if not pares:
+            # sin alineacion el gate de unidades no puede opinar y NO bloquea.
+            # Se deja visible: silenciarlo haria pasar por "verificado" algo que
+            # no se verifico (medido: ~3% de las facturas).
+            msgs.append('  %-16s (unidades no verificables: no alinea con el DTE)' % m.name)
+        mt = motivo(len(faltan) > 0, ila, umal, dn, di, dt)
 
         # --- PASO 3: GUARDAR o apartar
         if not mt:
