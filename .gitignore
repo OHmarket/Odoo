@@ -78,6 +78,11 @@ secrets.yml
 
 # --- Experimentos / consultas diarias (no productivo, no se versiona) ---
 proyectos/
+# Excepción: scripts de diseño (diseno.md, plan.md, fetch_fixtures.py, etc)
+# se versiona para trazabilidad, pero no los outputs (resultados/)
+!proyectos/**/fetch_fixtures.py
+!proyectos/**/helpers.py
+!proyectos/**/test_helpers.py
 
 # --- Tooling local (framework superpowers) ---
 .superpowers/
