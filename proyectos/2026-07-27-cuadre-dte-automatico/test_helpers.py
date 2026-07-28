@@ -210,6 +210,36 @@ check('la identidad no cierra -> 0', recargo_embebido(_roto), 0.0)
 
 print()
 print('=' * 74)
+print('9. price_fixes con recargo embebido — precio SIN flete')
+print('=' * 74)
+# Se usa FAC 7473435 y NO 7471136: esta ultima ya fue cuadrada a mano en Odoo
+# (state=posted, precios ya en 9.192 y linea de flete creada), asi que su
+# fixture es el estado DESPUES del fix y no sirve como caso "antes".
+_f = FX['FAC 7473435']
+_items = parse_items(xml_de('FAC 7473435'))
+_ol = [{'id': i, 'name': l['name'], 'quantity': l['quantity'],
+        'price_subtotal': l['price_subtotal'], 'factor': 1.0}
+       for i, l in enumerate(_f['lineas'])]
+_fx = dict(price_fixes(_ol, _items))
+check('propone fix en las 5 lineas', len(_fx), 5)
+check('pu objetivo = base SIN flete (tetra 9.142 / Clos 10.622)',
+      sorted(set(_fx.values())), [9142.0, 10622.0])
+# IDEMPOTENCIA: con el precio ya corregido no debe volver a proponer nada.
+# Sin esto el motor oscilaria: baja el precio, y en la corrida siguiente lo
+# sube a monto/qty (con flete) porque price_subtotal ya no coincide.
+_ol2 = []
+for i, it in enumerate(_items):
+    _ol2.append({'id': i, 'name': 'x', 'quantity': it['qty'],
+                 'price_subtotal': it['monto'] - it['rec'], 'factor': 1.0})
+check('ya corregida -> no propone nada (idempotente)', len(price_fixes(_ol2, _items)), 0)
+# REGRESION Embonor: sin recargo embebido el target sigue siendo monto/qty.
+_ol3 = [{'id': 0, 'name': 'x', 'quantity': 2.0, 'price_subtotal': 1.0, 'factor': 1.0}]
+_it3 = [{'qty': 2.0, 'monto': 250.0, 'prc': 100.0, 'desc': 0.0, 'rec': 0.0}]
+check('sin recargo embebido: target = monto/qty (sin cambios)',
+      price_fixes(_ol3, _it3), [(0, 125.0)])
+
+print()
+print('=' * 74)
 print('6. Ciclo completo sobre los fixtures')
 print('=' * 74)
 print('   %-16s %-12s %-26s %s' % ('factura', 'tipo prov', 'motivo', 'n/i/t'))

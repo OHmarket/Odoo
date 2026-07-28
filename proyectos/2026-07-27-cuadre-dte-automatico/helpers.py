@@ -252,7 +252,13 @@ def price_fixes(odoo_lines, items):
     Excluye a proposito la fraccion de pack (qty != QtyItem): ahi el
     price_unit YA es el correcto del DTE y desviarlo contaminaria costo/WAC
     (trampa UoM).
+
+    v0.8: si el DTE trae el flete DENTRO del MontoItem (ver recargo_embebido),
+    la base de la linea es monto - rec. Cobrar el flete dentro del precio del
+    producto lo mete en la base del ILA e infla el impuesto. El SA compensa
+    creando una linea de flete aparte por el total.
     """
+    rec_emb = recargo_embebido(items)
     out = []
     for (l, it) in alinear(odoo_lines, items):
         qty = l['quantity']
@@ -260,9 +266,12 @@ def price_fixes(odoo_lines, items):
             continue
         if abs(qty - it['qty']) > 0.001:
             continue
-        if abs(l['price_subtotal'] - it['monto']) <= 1.0:
+        monto = it['monto']
+        if rec_emb:
+            monto = monto - it['rec']
+        if abs(l['price_subtotal'] - monto) <= 1.0:
             continue
-        out.append((l['id'], round((it['monto'] / qty) * l['factor'], 2)))
+        out.append((l['id'], round((monto / qty) * l['factor'], 2)))
     return out
 
 
