@@ -528,6 +528,11 @@ else:
                             # producto y podria migrarla en facturas que aun no tengan hold.
                             'account_id': cta.id,
                             'tax_ids': [(6, 0, [TAX_IVA_COMPRA])]})]})
+                        # el camino feliz tiene que dejar rastro: es la escritura mas
+                        # riesgosa del v0.8 y sin esta linea el log no dice cuanto flete
+                        # se separo ni a que cuenta fue (habria que ir factura por factura).
+                        msgs.append('  %-16s flete embebido %d -> linea propia, cuenta %s (solo IVA)'
+                                    % (m.name, rec_emb, CUENTA_FLETE))
                 env.flush_all()
                 ok2, dn2, di2, dt2 = cuadra_3(m.amount_untaxed, m.amount_tax,
                                               m.amount_total, tot, TOL)
