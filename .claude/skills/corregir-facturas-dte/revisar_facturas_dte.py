@@ -65,6 +65,11 @@ def parse_dte(raw: bytes) -> dict:
             for c in el:
                 ct = _strip_ns(c.tag)
                 if ct == 'CdgItem':
+                    # El TpoCodigo NO es estandar entre emisores: CCU/Embonor usan
+                    # 'INT1', Comercial Peumo usa 'cod'. Filtrar por 'INT1' dejaba
+                    # code=None en esos DTE y NINGUNA linea matcheaba (se reportaban
+                    # todas como "sin vincular" estando bien vinculadas).
+                    # Se aceptan todos, con INT1 como preferido si viene mas de uno.
                     tpo = val = None
                     for cc in c:
                         cct = _strip_ns(cc.tag)
@@ -72,7 +77,7 @@ def parse_dte(raw: bytes) -> dict:
                             tpo = cc.text
                         elif cct == 'VlrCodigo':
                             val = cc.text
-                    if tpo == 'INT1':
+                    if val and (tpo == 'INT1' or ln['code'] is None):
                         ln['code'] = val
                 elif ct == 'NmbItem':
                     ln['nombre'] = c.text or ''
@@ -143,6 +148,7 @@ def diagnose(o: OdooReader, move: dict, src_oc: set[int]) -> dict:
 
     price_fixes = []   # (line_id, nombre, pu_now, pu_target, sub_now, sub_target)
     warns = []
+    unmatched = []     # lineas del DTE sin producto vinculado en Odoo (ACCIONABLE)
     matched = set()
 
     for d in dte['lineas']:
@@ -150,7 +156,10 @@ def diagnose(o: OdooReader, move: dict, src_oc: set[int]) -> dict:
             continue
         ol = by_code.get(d['code'])
         if ol is None:
-            warns.append('linea DTE %s (%s) sin match en Odoo' % (d['code'], d['nombre'][:30]))
+            # Sin product_id vinculado el precio NO fue pisado, asi que la factura
+            # puede cuadrar hoy y descuadrar al vincular (el onchange pisa el precio).
+            # Por eso se reporta SIEMPRE, aunque delta==0. Ver print_report.
+            unmatched.append((d['code'], d['nombre'][:38], d['qty'], d['monto']))
             continue
         matched.add(ol['id'])
         qty = ol['quantity']
@@ -172,20 +181,37 @@ def diagnose(o: OdooReader, move: dict, src_oc: set[int]) -> dict:
 
     delta = round(move['amount_total'] - dte['total'], 2)
     afectado = bool(price_fixes or tax_dirty) or abs(delta) > CENT
-    return {'move': move, 'dte': dte, 'price_fixes': price_fixes,
-            'tax_dirty': tax_dirty, 'warns': warns, 'delta_total': delta, 'afectado': afectado}
+    return {'move': move, 'dte': dte, 'price_fixes': price_fixes, 'tax_dirty': tax_dirty,
+            'warns': warns, 'unmatched': unmatched, 'delta_total': delta, 'afectado': afectado}
 
 
 # ----------------------------------------------------------------------------- Reporte + SA
+def print_unmatched(r: dict) -> None:
+    """Lineas del DTE sin producto vinculado. Se imprimen SIEMPRE, incluso si la
+    factura cuadra: sin product_id el onchange nunca piso el precio, asi que el
+    total cuadra HOY y descuadra en cuanto se vincule el codigo. Es accionable
+    (vincular / corregir default_code), no ruido."""
+    for (code, nombre, qty, monto) in r['unmatched']:
+        print('      SIN VINCULAR: cod %-10s %-38s qty=%s  monto=%s  -> pu correcto=%s'
+              % (code, nombre, qty, monto, round(monto / qty, 2) if qty else '?'))
+
+
 def print_report(results: list[dict]) -> None:
-    n = 0
+    n = nu = 0
     for r in results:
         m = r['move']
         if r.get('error'):
             print('  %-16s  ERROR: %s' % (m['name'], r['error']))
             continue
         if not r['afectado']:
-            print('  %-16s  OK  total=%s' % (m['name'], m['amount_total']))
+            if r['unmatched']:
+                nu += 1
+                print('\n  %-16s  total OK (%s) pero %d linea(s) del DTE sin vincular:'
+                      % (m['name'], m['amount_total'], len(r['unmatched'])))
+                print_unmatched(r)
+                print('      (cuadra porque el onchange no piso el precio; al vincular, RE-DIAGNOSTICAR)')
+            else:
+                print('  %-16s  OK  total=%s' % (m['name'], m['amount_total']))
             continue
         n += 1
         print('\n  %-16s  delta=%+d  (Odoo %s vs DTE %s)'
@@ -196,9 +222,13 @@ def print_report(results: list[dict]) -> None:
         for (_lid, nombre, pu_now, pu_tgt, sub_now, sub_tgt) in r['price_fixes']:
             print('      precio: %-38s  pu %s->%s  (sub %s->%s)'
                   % (nombre, pu_now, pu_tgt, sub_now, sub_tgt))
+        if r['unmatched']:
+            print_unmatched(r)
         for w in r['warns']:
             print('      ! %s' % w)
     print('\n  %d factura(s) con descuadre de %d revisada(s).' % (n, len(results)))
+    if nu:
+        print('  %d factura(s) cuadran pero tienen lineas sin vincular: vincular ANTES de cuadrar precio.' % nu)
 
 
 def emit_server_action(results: list[dict], out: Path) -> tuple[int, int]:
