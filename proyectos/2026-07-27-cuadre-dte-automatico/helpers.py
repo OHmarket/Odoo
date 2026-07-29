@@ -329,6 +329,14 @@ def mapeo_por_nombre(lineas, items, mapeos):
     apuntando a productos distintos anulan esa entrada. Vincular el producto
     equivocado imputa stock y costo a un SKU que no se compro, y eso contamina
     inventario, WAC y margen a la vez.
+
+    Guarda de alineacion: igual que en `mapeos_a_aprender`, `alinear()` empareja
+    por POSICION. Aca no hay monto para corroborar (la linea no tiene producto
+    aun), pero el `name` de una linea huerfana TODAVIA es el `NmbItem` del DTE
+    (el onchange que lo pisa recien corre al asignar product_id). Por eso se
+    exige `normalizar(l['name']) == normalizar(it['nombre'])` antes de vincular:
+    si un emisor manda el <Detalle> en otro orden, el pareo cruzado no calza en
+    nombre y se descarta, en vez de imputar stock/costo al SKU equivocado.
     """
     idx = {}
     for mp in mapeos:
@@ -349,6 +357,13 @@ def mapeo_por_nombre(lineas, items, mapeos):
         k = normalizar(it['nombre'])
         pid = idx.get(k, 0)
         if pid:
+            # Corrobora el pareo POSICIONAL de alinear(): en una linea huerfana el name
+            # de Odoo sigue siendo el NmbItem del DTE (el onchange todavia no lo piso),
+            # asi que si no coinciden, el <Detalle> vino en otro orden y no se vincula.
+            # Sin esto, un orden distinto asignaria el producto de OTRA linea y el gate
+            # de 3 montos no lo veria (precio y cantidad se re-asiertan igual).
+            if normalizar(l['name']) != k:
+                continue
             out.append((l['id'], pid))
     return out
 

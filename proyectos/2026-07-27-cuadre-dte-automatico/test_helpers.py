@@ -321,9 +321,14 @@ print('=' * 74)
 _mp = [{'nombre': 'Hielo kilo', 'product_id': 20374},
        {'nombre': 'HIELO 2 KILOS', 'product_id': 19962},
        {'nombre': 'Recargas', 'product_id': 18680}]
-_l = [{'id': 11, 'name': 'a', 'has_product': False, 'product_id': 0},
-      {'id': 12, 'name': 'b', 'has_product': False, 'product_id': 0},
-      {'id': 13, 'name': 'c', 'has_product': False, 'product_id': 0}]
+# El 'name' de cada linea es el NmbItem tal cual llega en el DTE (el onchange
+# que lo pisaria con el nombre del producto todavia no corrio: la linea no
+# tiene product_id). mapeo_por_nombre() ahora exige que coincida con el item
+# alineado por posicion, asi que tiene que calzar (con capitalizacion propia)
+# con el 'nombre' de _i mas abajo.
+_l = [{'id': 11, 'name': 'Hielo Kilo', 'has_product': False, 'product_id': 0},
+      {'id': 12, 'name': 'Hielo 2 Kilos', 'has_product': False, 'product_id': 0},
+      {'id': 13, 'name': 'Recargas', 'has_product': False, 'product_id': 0}]
 _i = [{'nombre': 'HIELO KILO', 'codigo': '', 'qty': 1, 'monto': 1},
       {'nombre': 'hielo 2 kilos', 'codigo': '', 'qty': 1, 'monto': 1},
       {'nombre': 'RECARGAS ', 'codigo': '', 'qty': 1, 'monto': 1}]
@@ -345,6 +350,15 @@ _mismo = [{'nombre': 'HIELO KILO', 'product_id': 20374},
           {'nombre': 'hielo kilo', 'product_id': 20374}]
 check('dos mapeos al MISMO producto no es ambiguo',
       mapeo_por_nombre([_l[0]], [_i[0]], _mismo), [(11, 20374)])
+# I3: guarda de alineacion posicional (igual espiritu que mapeos_a_aprender).
+# El name de la linea NO coincide con el NmbItem del item con el que alinear()
+# la empareja por posicion: sin la guarda, esto vincularia el producto de OTRA
+# linea (el <Detalle> vino en otro orden) y el gate de 3 montos no lo veria,
+# porque precio y cantidad se re-asiertan explicitamente.
+_desalin = [{'id': 21, 'name': 'Nombre Distinto', 'has_product': False, 'product_id': 0}]
+_iDesalin = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1}]
+check('name de la linea no calza con el item alineado -> no vincula (desalineado)',
+      mapeo_por_nombre(_desalin, _iDesalin, _mp), [])
 check('linea que YA tiene producto no se re-vincula',
       mapeo_por_nombre([{'id': 11, 'name': 'a', 'has_product': True, 'product_id': 5}],
                        [_i[0]], _mp), [])

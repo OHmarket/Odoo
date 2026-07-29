@@ -405,6 +405,13 @@ def mapeo_por_nombre(lineas, items, mapeos):
     # apuntando a productos distintos anulan esa entrada. Vincular el producto
     # equivocado imputa stock y costo a un SKU que no se compro, y eso contamina
     # inventario, WAC y margen a la vez.
+    # Guarda de alineacion: igual que en mapeos_a_aprender, alinear() empareja
+    # por POSICION. Aca no hay monto para corroborar (la linea no tiene producto
+    # aun), pero el `name` de una linea huerfana TODAVIA es el NmbItem del DTE
+    # (el onchange que lo pisa recien corre al asignar product_id). Por eso se
+    # exige normalizar(l['name']) == normalizar(it['nombre']) antes de vincular:
+    # si un emisor manda el <Detalle> en otro orden, el pareo cruzado no calza
+    # en nombre y se descarta, en vez de imputar stock/costo al SKU equivocado.
     idx = {}
     for mp in mapeos:
         k = normalizar(mp['nombre'])
@@ -424,6 +431,14 @@ def mapeo_por_nombre(lineas, items, mapeos):
         k = normalizar(it['nombre'])
         pid = idx.get(k, 0)
         if pid:
+            # Corrobora el pareo POSICIONAL de alinear(): en una linea huerfana el
+            # name de Odoo sigue siendo el NmbItem del DTE (el onchange todavia no
+            # lo piso), asi que si no coinciden, el <Detalle> vino en otro orden y
+            # no se vincula. Sin esto, un orden distinto asignaria el producto de
+            # OTRA linea y el gate de 3 montos no lo veria (precio y cantidad se
+            # re-asiertan igual).
+            if normalizar(l['name']) != k:
+                continue
             out.append((l['id'], pid))
     return out
 
@@ -624,6 +639,13 @@ else:
                     env.cr.execute("SAVEPOINT cuadre_vinc")
                     for par in vincs:
                         ln = by_id[par[0]]
+                        # log ANTES del write: ln.name todavia es el nombre del
+                        # proveedor, el onchange recien lo pisa con el del producto.
+                        # Sin esto la primera corrida real no es auditable: el
+                        # mensaje solo decia cuantas lineas se vincularon, no que->que.
+                        msgs.append('  %-16s   vincula "%s" -> %s'
+                                    % (m.name, (ln.name or '')[:30],
+                                       env['product.product'].browse(par[1]).display_name[:34]))
                         # RE-ASERTAR precio y cantidad en el MISMO write: asignar
                         # product_id dispara el onchange que pisa price_unit con el
                         # del maestro (medido: HIELO 1 KG 462 -> 454,48). El valor
@@ -648,8 +670,20 @@ else:
                                 if par[0] == ln['id']:
                                     vinculada = True
                             if vinculada:
+                                rec = by_id[ln['id']]
                                 ln2 = dict(ln)
+                                # OJO: no alcanza con pisar has_product. uom_f/retail/std
+                                # se capturaron cuando la linea NO tenia producto (uom_f=1.0),
+                                # y unidad_ok() cortocircuita con `if uom_f == 1: return True`.
+                                # Sin refrescarlos, el gate de unidades queda apagado justo
+                                # en las lineas recien vinculadas.
                                 ln2['has_product'] = True
+                                ln2['product_id'] = rec.product_id.id or 0
+                                ln2['uom_f'] = rec.product_uom_id.factor_inv or 1.0
+                                ln2['retail'] = rec.product_id.list_price or 0.0
+                                ln2['std'] = rec.product_id.standard_price or 0.0
+                                ln2['factor'] = _factor(rec.tax_ids.ids, tax_by_id)
+                                ln2['price_subtotal'] = rec.price_subtotal
                                 nuevas.append(ln2)
                             else:
                                 nuevas.append(ln)
