@@ -811,6 +811,27 @@ else:
                     ok, dn, di, dt = ok2, dn2, di2, dt2
                     msgs.append('  %-16s FIX precio %d linea(s) -> cuadra'
                                 % (m.name, len(fixes)))
+                    # `lineas` se construyo ANTES del fix, asi que sus price_subtotal
+                    # son los PISADOS. El PASO 3 los usa para corroborar el pareo con
+                    # el DTE antes de aprender un mapeo, y con los viejos la guarda
+                    # rechaza todo. Medido en FAC 007378: se posteo cuadrada pero
+                    # aprendio 0 mapeos.
+                    # No hace falta refrescar 'factor': el fix solo escribe
+                    # price_unit/discount, no tax_ids, asi que _factor() (que
+                    # depende de price_include/amount del impuesto) no cambia.
+                    fixed_ids = []
+                    for (lid, pu) in fixes:
+                        fixed_ids.append(lid)
+                    nuevas = []
+                    for ln in lineas:
+                        if ln['id'] in fixed_ids:
+                            rec = by_id[ln['id']]
+                            ln2 = dict(ln)
+                            ln2['price_subtotal'] = rec.price_subtotal
+                            nuevas.append(ln2)
+                        else:
+                            nuevas.append(ln)
+                    lineas = nuevas
                 else:
                     env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_fix")
                     # NO usar m.invalidate_recordset() ni env.invalidate_all() a secas: ambos tienen
