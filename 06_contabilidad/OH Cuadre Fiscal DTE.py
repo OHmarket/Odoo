@@ -350,7 +350,7 @@ def alinear(odoo_lines, items):
 
 
 def mapeos_a_aprender(lineas, items, conocidos):
-    # [(product_id, nombre)] a grabar como mapeo proveedor->producto.
+    # [(line_id, product_id, nombre)] a grabar como mapeo proveedor->producto.
     # Solo de lineas que YA tienen producto (alguien las vinculo a mano) y cuyo item
     # del DTE vino SIN codigo. El filtro por codigo mantiene el alcance en el caso A
     # y evita llenar product.supplierinfo con miles de registros que no hacen falta.
@@ -359,6 +359,15 @@ def mapeos_a_aprender(lineas, items, conocidos):
     # sobrevive en el <NmbItem> del XML, que `alinear()` empareja por posicion.
     # `conocidos` es un set de nombres YA normalizados. Se devuelve el nombre sin
     # normalizar para que quede legible en el catalogo de compras.
+    # Se devuelve tambien `line_id`: sin el, el llamador tiene que adivinar de que
+    # linea sacar el precio buscando por product_id, y eso rompe cuando el mismo
+    # producto aparece dos veces en la misma factura.
+    # Guarda de alineacion: `alinear()` empareja por POSICION. En `price_fixes` un
+    # cruce lo atrapa el gate de 3 montos, pero aca no hay nada que lo detecte: si
+    # un emisor manda el <Detalle> en otro orden se grabaria el par cruzado y los
+    # montos no cambian, asi que nada lo notaria despues. Por eso se exige que la
+    # linea y el item coincidan en plata (price_subtotal == monto) antes de
+    # aprender el par. Es el riesgo residual mas serio del diseno.
     out = []
     vistos = {}
     for k in conocidos:
@@ -370,13 +379,19 @@ def mapeos_a_aprender(lineas, items, conocidos):
             continue
         if it['codigo']:
             continue
+        # Corrobora la alineacion POSICIONAL antes de grabar el par. Sin esto, un
+        # emisor que mande el <Detalle> en otro orden haria aprender pares cruzados,
+        # y nada los detectaria: los montos no cambian al vincular. Es el riesgo
+        # residual que el diseno marca como el mas serio.
+        if abs(l['price_subtotal'] - it['monto']) > 1.0:
+            continue
         k = normalizar(it['nombre'])
         if not k:
             continue
         if k in vistos:
             continue
         vistos[k] = True
-        out.append((l['product_id'], it['nombre']))
+        out.append((l['id'], l['product_id'], it['nombre']))
     return out
 
 
@@ -641,32 +656,57 @@ else:
                 mt = 'flete_descuadrado'
             elif not DRY_RUN and DO_POST:
                 if APRENDER_MAPEOS:
-                    conocidos = {}
-                    sis = env['product.supplierinfo'].search(
-                        [('partner_id', '=', m.partner_id.id),
-                         ('product_name', '!=', False)])
-                    for si in sis:
-                        conocidos[normalizar(si.product_name)] = True
-                    nuevos = mapeos_a_aprender(lineas, items, conocidos)
-                    for par in nuevos:
-                        prod = env['product.product'].browse(par[0])
-                        if not prod.exists():
-                            continue
-                        # precio real de la factura: hace que una OC a este proveedor
-                        # proponga lo que se pago la ultima vez en vez del
-                        # standard_price (medido: HIELO 1 KG factura 462 vs std 454,48)
-                        pu = 0.0
+                    # Todo el aprendizaje va en savepoint propio: si el create()
+                    # de supplierinfo revienta (constraint, record rule del
+                    # usuario del cron), NO se puede perder la corrida entera.
+                    # Sin este aislamiento una excepcion aca aborta el SA antes
+                    # del pg_advisory_unlock: el lock es de SESION, el rollback
+                    # no lo libera, y las corridas siguientes salen calladas
+                    # por "lock ocupado".
+                    env.flush_all()
+                    env.cr.execute("SAVEPOINT cuadre_aprende")
+                    try:
+                        conocidos = {}
+                        sis = env['product.supplierinfo'].search(
+                            [('partner_id', '=', m.partner_id.id),
+                             ('product_name', '!=', False)])
+                        for si in sis:
+                            conocidos[normalizar(si.product_name)] = True
+                        nuevos = mapeos_a_aprender(lineas, items, conocidos)
+                        by_id_ap = {}
                         for pl in prod_lines:
-                            if pl.product_id.id == par[0]:
-                                pu = pl.price_unit
-                        env['product.supplierinfo'].create({
-                            'partner_id': m.partner_id.id,
-                            'product_tmpl_id': prod.product_tmpl_id.id,
-                            'product_id': prod.id,
-                            'product_name': par[1],
-                            'price': pu})
-                        msgs.append('  %-16s aprende mapeo: "%s" -> %s (precio %s)'
-                                    % (m.name, par[1][:28], prod.display_name[:34], pu))
+                            by_id_ap[pl.id] = pl
+                        for par in nuevos:
+                            prod = env['product.product'].browse(par[1])
+                            if not prod.exists():
+                                continue
+                            ln = by_id_ap.get(par[0])
+                            # El price de supplierinfo se interpreta en uom_po_id del
+                            # producto. Si la linea viene en UoM de pack, price_unit es
+                            # POR CAJA y la OC propondria 12x (la trampa UoM que el resto
+                            # del motor evita). Y price_unit es ANTES del descuento.
+                            # Ante cualquiera de las dos, se graba 0: el mapeo de nombre
+                            # sirve igual y el precio queda como estaba.
+                            pu = 0.0
+                            if ln is not None:
+                                if ln.product_uom_id.id == prod.uom_po_id.id and not ln.discount:
+                                    pu = ln.price_unit
+                            env['product.supplierinfo'].create({
+                                'partner_id': m.partner_id.id,
+                                'product_tmpl_id': prod.product_tmpl_id.id,
+                                'product_id': prod.id,
+                                'product_name': par[2],
+                                'price': pu})
+                            msgs.append('  %-16s aprende mapeo: "%s" -> %s (precio %s)'
+                                        % (m.name, par[2][:28], prod.display_name[:34], pu))
+                        env.flush_all()
+                        env.cr.execute("RELEASE SAVEPOINT cuadre_aprende")
+                    except Exception:
+                        env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_aprende")
+                        # flush=False: el default es True y re-persistiria lo
+                        # revertido despues del ROLLBACK (mismo gotcha del PASO 1.5).
+                        env.invalidate_all(flush=False)
+                        msgs.append('  %-16s aprendizaje FALLO, se postea igual' % m.name)
                 m.action_post()
                 posteadas += 1
                 msgs.append('  %-16s POSTEADA (fpos %.0f ms)' % (m.name, ms))

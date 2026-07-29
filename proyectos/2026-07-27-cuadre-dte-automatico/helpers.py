@@ -269,7 +269,7 @@ def alinear(odoo_lines, items):
 
 
 def mapeos_a_aprender(lineas, items, conocidos):
-    """[(product_id, nombre)] a grabar como mapeo proveedor->producto.
+    """[(line_id, product_id, nombre)] a grabar como mapeo proveedor->producto.
 
     Solo de lineas que YA tienen producto (alguien las vinculo a mano) y cuyo item
     del DTE vino SIN codigo. El filtro por codigo mantiene el alcance en el caso A
@@ -281,6 +281,17 @@ def mapeos_a_aprender(lineas, items, conocidos):
 
     `conocidos` es un set de nombres YA normalizados. Se devuelve el nombre sin
     normalizar para que quede legible en el catalogo de compras.
+
+    Se devuelve tambien `line_id`: sin el, el llamador tiene que adivinar de que
+    linea sacar el precio buscando por product_id, y eso rompe cuando el mismo
+    producto aparece dos veces en la misma factura.
+
+    Guarda de alineacion: `alinear()` empareja por POSICION. En `price_fixes` un
+    cruce lo atrapa el gate de 3 montos, pero aca no hay nada que lo detecte: si
+    un emisor manda el <Detalle> en otro orden se grabaria el par cruzado y los
+    montos no cambian, asi que nada lo notaria despues. Por eso se exige que la
+    linea y el item coincidan en plata (price_subtotal == monto) antes de
+    aprender el par. Es el riesgo residual mas serio del diseno.
     """
     out = []
     vistos = {}
@@ -293,13 +304,19 @@ def mapeos_a_aprender(lineas, items, conocidos):
             continue
         if it['codigo']:
             continue
+        # Corrobora la alineacion POSICIONAL antes de grabar el par. Sin esto, un
+        # emisor que mande el <Detalle> en otro orden haria aprender pares cruzados,
+        # y nada los detectaria: los montos no cambian al vincular. Es el riesgo
+        # residual que el diseno marca como el mas serio.
+        if abs(l['price_subtotal'] - it['monto']) > 1.0:
+            continue
         k = normalizar(it['nombre'])
         if not k:
             continue
         if k in vistos:
             continue
         vistos[k] = True
-        out.append((l['product_id'], it['nombre']))
+        out.append((l['id'], l['product_id'], it['nombre']))
     return out
 
 

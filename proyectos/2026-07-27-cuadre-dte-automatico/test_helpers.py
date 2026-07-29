@@ -280,16 +280,16 @@ print()
 print('=' * 74)
 print('11. mapeos_a_aprender — solo lineas CON producto y SIN codigo en el DTE')
 print('=' * 74)
-_ln = [{'id': 1, 'name': 'x', 'has_product': True,  'product_id': 100},
-       {'id': 2, 'name': 'y', 'has_product': True,  'product_id': 200},
-       {'id': 3, 'name': 'z', 'has_product': False, 'product_id': 0}]
+_ln = [{'id': 1, 'name': 'x', 'has_product': True,  'product_id': 100, 'price_subtotal': 1.0},
+       {'id': 2, 'name': 'y', 'has_product': True,  'product_id': 200, 'price_subtotal': 1.0},
+       {'id': 3, 'name': 'z', 'has_product': False, 'product_id': 0, 'price_subtotal': 1.0}]
 _it = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1},
        {'nombre': 'CON CODIGO', 'codigo': '7231', 'qty': 1, 'monto': 1},
        {'nombre': 'Recargas', 'codigo': '', 'qty': 1, 'monto': 1}]
 check('aprende solo la linea con producto y sin codigo',
-      mapeos_a_aprender(_ln, _it, set()), [(100, 'Hielo kilo')])
+      mapeos_a_aprender(_ln, _it, set()), [(1, 100, 'Hielo kilo')])
 check('devuelve el nombre SIN normalizar (legible en la UI)',
-      mapeos_a_aprender(_ln, _it, set())[0][1], 'Hielo kilo')
+      mapeos_a_aprender(_ln, _it, set())[0][2], 'Hielo kilo')
 check('no re-aprende lo ya conocido (compara normalizado)',
       mapeos_a_aprender(_ln, _it, set(['hielo kilo'])), [])
 check('linea sin producto no aporta mapeo',
@@ -300,10 +300,19 @@ check('sin alineacion (largos distintos) no aprende nada',
       mapeos_a_aprender(_ln, _it[:2], set()), [])
 _dup = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1},
         {'nombre': 'HIELO KILO', 'codigo': '', 'qty': 1, 'monto': 1}]
-_ln2 = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100},
-        {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 100}]
+_ln2 = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100, 'price_subtotal': 1.0},
+        {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 100, 'price_subtotal': 1.0}]
 check('dos variantes del mismo nombre en UNA factura: aprende una sola',
       len(mapeos_a_aprender(_ln2, _dup, set())), 1)
+# I2: la guarda de alineacion posicional — linea e item que NO coinciden en
+# monto no se aprenden, aunque el resto de los filtros (producto, sin codigo)
+# los deje pasar. Sin esta guarda un emisor que mande el <Detalle> en otro
+# orden aprenderia el par cruzado en silencio.
+_desal = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100,
+           'price_subtotal': 999.0}]
+_iDesal = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 100.0}]
+check('linea e item que NO coinciden en monto -> no aprende (alineacion dudosa)',
+      mapeos_a_aprender(_desal, _iDesal, {}), [])
 
 print()
 print('=' * 74)
