@@ -212,14 +212,14 @@ print()
 print('=' * 74)
 print('9. price_fixes con recargo embebido — precio SIN flete')
 print('=' * 74)
-# Se usa FAC 7473435 y NO 7471136: esta ultima ya fue cuadrada a mano en Odoo
-# (state=posted, precios ya en 9.192 y linea de flete creada), asi que su
-# fixture es el estado DESPUES del fix y no sirve como caso "antes".
-_f = FX['FAC 7473435']
+# Las lineas se construyen desde el XML, NO desde FX[...]['lineas']: el fixture es
+# un snapshot MUTABLE de produccion y el motor ya corrio sobre esta factura, asi que
+# hoy contiene el estado DESPUES del fix. El XML del DTE en cambio es inmutable.
+# Se simula la factura recien cargada: price_subtotal == MontoItem (flete adentro).
 _items = parse_items(xml_de('FAC 7473435'))
-_ol = [{'id': i, 'name': l['name'], 'quantity': l['quantity'],
-        'price_subtotal': l['price_subtotal'], 'factor': 1.0}
-       for i, l in enumerate(_f['lineas'])]
+_ol = [{'id': i, 'name': it['nombre'], 'quantity': it['qty'],
+        'price_subtotal': it['monto'], 'factor': 1.0}
+       for i, it in enumerate(_items)]
 _fx = dict(price_fixes(_ol, _items))
 check('propone fix en las 5 lineas', len(_fx), 5)
 check('pu objetivo = base SIN flete (tetra 9.142 / Clos 10.622)',
