@@ -14,9 +14,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from helpers import (alinear, cuadra_3, dte_totales, exige_sku,  # noqa: E402
-                     lineas_sin_sku, mapeos_a_aprender, motivo, normalizar,
-                     parse_items, price_fixes, recargo_embebido, tiene_ila_origen,
-                     unidad_ok, uom_mal)
+                     lineas_sin_sku, mapeo_por_nombre, mapeos_a_aprender, motivo,
+                     normalizar, parse_items, price_fixes, recargo_embebido,
+                     tiene_ila_origen, unidad_ok, uom_mal)
 
 TOL = 2.0
 FX = json.loads((HERE / 'resultados' / 'fixtures.json').read_text(encoding='utf-8'))
@@ -304,6 +304,44 @@ _ln2 = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100},
         {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 100}]
 check('dos variantes del mismo nombre en UNA factura: aprende una sola',
       len(mapeos_a_aprender(_ln2, _dup, set())), 1)
+
+print()
+print('=' * 74)
+print('12. mapeo_por_nombre — vincula solo lo inequivoco')
+print('=' * 74)
+_mp = [{'nombre': 'Hielo kilo', 'product_id': 20374},
+       {'nombre': 'HIELO 2 KILOS', 'product_id': 19962},
+       {'nombre': 'Recargas', 'product_id': 18680}]
+_l = [{'id': 11, 'name': 'a', 'has_product': False, 'product_id': 0},
+      {'id': 12, 'name': 'b', 'has_product': False, 'product_id': 0},
+      {'id': 13, 'name': 'c', 'has_product': False, 'product_id': 0}]
+_i = [{'nombre': 'HIELO KILO', 'codigo': '', 'qty': 1, 'monto': 1},
+      {'nombre': 'hielo 2 kilos', 'codigo': '', 'qty': 1, 'monto': 1},
+      {'nombre': 'RECARGAS ', 'codigo': '', 'qty': 1, 'monto': 1}]
+check('vincula las 3 pese a la capitalizacion distinta',
+      mapeo_por_nombre(_l, _i, _mp), [(11, 20374), (12, 19962), (13, 18680)])
+# Los dos casos que a proposito NO se resuelven: caen al hold y se mapean a mano.
+_i2 = [{'nombre': 'Hielo 2 k', 'codigo': '', 'qty': 1, 'monto': 1}]
+check('abreviacion no mapeada -> no vincula',
+      mapeo_por_nombre([_l[0]], _i2, _mp), [])
+_i3 = [{'nombre': 'recragas', 'codigo': '', 'qty': 1, 'monto': 1}]
+check('typo no mapeado -> no vincula',
+      mapeo_por_nombre([_l[0]], _i3, _mp), [])
+# AMBIGUEDAD: el mismo nombre normalizado apuntando a dos productos distintos.
+_amb = [{'nombre': 'HIELO KILO', 'product_id': 20374},
+        {'nombre': 'hielo kilo', 'product_id': 99999}]
+check('nombre ambiguo (2 productos) -> NO vincula',
+      mapeo_por_nombre([_l[0]], [_i[0]], _amb), [])
+_mismo = [{'nombre': 'HIELO KILO', 'product_id': 20374},
+          {'nombre': 'hielo kilo', 'product_id': 20374}]
+check('dos mapeos al MISMO producto no es ambiguo',
+      mapeo_por_nombre([_l[0]], [_i[0]], _mismo), [(11, 20374)])
+check('linea que YA tiene producto no se re-vincula',
+      mapeo_por_nombre([{'id': 11, 'name': 'a', 'has_product': True, 'product_id': 5}],
+                       [_i[0]], _mp), [])
+check('sin mapeos no vincula nada', mapeo_por_nombre(_l, _i, []), [])
+check('sin alineacion (largos distintos) no vincula nada',
+      mapeo_por_nombre(_l, _i[:2], _mp), [])
 
 print()
 if fails:

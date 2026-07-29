@@ -303,6 +303,39 @@ def mapeos_a_aprender(lineas, items, conocidos):
     return out
 
 
+def mapeo_por_nombre(lineas, items, mapeos):
+    """[(line_id, product_id)] de lineas SIN producto que matchean UN solo mapeo.
+
+    `mapeos`: [{'nombre', 'product_id'}] del proveedor de la factura.
+
+    Ante ambiguedad NO se vincula: dos mapeos con el mismo nombre normalizado
+    apuntando a productos distintos anulan esa entrada. Vincular el producto
+    equivocado imputa stock y costo a un SKU que no se compro, y eso contamina
+    inventario, WAC y margen a la vez.
+    """
+    idx = {}
+    for mp in mapeos:
+        k = normalizar(mp['nombre'])
+        if not k:
+            continue
+        if k in idx:
+            if idx[k] != mp['product_id']:
+                idx[k] = 0          # 0 = ambiguo, se ignora al consultar
+            continue
+        idx[k] = mp['product_id']
+    out = []
+    for par in alinear(lineas, items):
+        l = par[0]
+        it = par[1]
+        if l['has_product']:
+            continue
+        k = normalizar(it['nombre'])
+        pid = idx.get(k, 0)
+        if pid:
+            out.append((l['id'], pid))
+    return out
+
+
 def price_fixes(odoo_lines, items):
     """[(line_id, pu_target)] de las lineas con el precio pisado.
 
