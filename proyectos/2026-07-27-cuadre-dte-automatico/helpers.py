@@ -268,6 +268,41 @@ def alinear(odoo_lines, items):
     return list(zip(prod, items))
 
 
+def mapeos_a_aprender(lineas, items, conocidos):
+    """[(product_id, nombre)] a grabar como mapeo proveedor->producto.
+
+    Solo de lineas que YA tienen producto (alguien las vinculo a mano) y cuyo item
+    del DTE vino SIN codigo. El filtro por codigo mantiene el alcance en el caso A
+    y evita llenar product.supplierinfo con miles de registros que no hacen falta.
+
+    El nombre NO sale de la linea de Odoo: al vincular, el onchange pisa el `name`
+    con el del producto (verificado en FAC 7471136). El nombre del proveedor solo
+    sobrevive en el <NmbItem> del XML, que `alinear()` empareja por posicion.
+
+    `conocidos` es un set de nombres YA normalizados. Se devuelve el nombre sin
+    normalizar para que quede legible en el catalogo de compras.
+    """
+    out = []
+    vistos = {}
+    for k in conocidos:
+        vistos[k] = True
+    for par in alinear(lineas, items):
+        l = par[0]
+        it = par[1]
+        if not l['has_product']:
+            continue
+        if it['codigo']:
+            continue
+        k = normalizar(it['nombre'])
+        if not k:
+            continue
+        if k in vistos:
+            continue
+        vistos[k] = True
+        out.append((l['product_id'], it['nombre']))
+    return out
+
+
 def price_fixes(odoo_lines, items):
     """[(line_id, pu_target)] de las lineas con el precio pisado.
 

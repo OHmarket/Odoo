@@ -14,8 +14,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from helpers import (alinear, cuadra_3, dte_totales, exige_sku,  # noqa: E402
-                     lineas_sin_sku, motivo, normalizar, parse_items, price_fixes,
-                     recargo_embebido, tiene_ila_origen, unidad_ok, uom_mal)
+                     lineas_sin_sku, mapeos_a_aprender, motivo, normalizar,
+                     parse_items, price_fixes, recargo_embebido, tiene_ila_origen,
+                     unidad_ok, uom_mal)
 
 TOL = 2.0
 FX = json.loads((HERE / 'resultados' / 'fixtures.json').read_text(encoding='utf-8'))
@@ -274,6 +275,35 @@ check('abreviacion NO colapsa a la forma larga',
       normalizar('Hielo 2 k') == normalizar('HIELO 2 KILOS'), False)
 check('typo NO colapsa a la forma correcta',
       normalizar('recragas') == normalizar('RECARGAS'), False)
+
+print()
+print('=' * 74)
+print('11. mapeos_a_aprender — solo lineas CON producto y SIN codigo en el DTE')
+print('=' * 74)
+_ln = [{'id': 1, 'name': 'x', 'has_product': True,  'product_id': 100},
+       {'id': 2, 'name': 'y', 'has_product': True,  'product_id': 200},
+       {'id': 3, 'name': 'z', 'has_product': False, 'product_id': 0}]
+_it = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1},
+       {'nombre': 'CON CODIGO', 'codigo': '7231', 'qty': 1, 'monto': 1},
+       {'nombre': 'Recargas', 'codigo': '', 'qty': 1, 'monto': 1}]
+check('aprende solo la linea con producto y sin codigo',
+      mapeos_a_aprender(_ln, _it, set()), [(100, 'Hielo kilo')])
+check('devuelve el nombre SIN normalizar (legible en la UI)',
+      mapeos_a_aprender(_ln, _it, set())[0][1], 'Hielo kilo')
+check('no re-aprende lo ya conocido (compara normalizado)',
+      mapeos_a_aprender(_ln, _it, set(['hielo kilo'])), [])
+check('linea sin producto no aporta mapeo',
+      mapeos_a_aprender([_ln[2]], [_it[2]], set()), [])
+check('item CON codigo nunca se aprende (fuera de alcance: caso B)',
+      mapeos_a_aprender([_ln[1]], [_it[1]], set()), [])
+check('sin alineacion (largos distintos) no aprende nada',
+      mapeos_a_aprender(_ln, _it[:2], set()), [])
+_dup = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1},
+        {'nombre': 'HIELO KILO', 'codigo': '', 'qty': 1, 'monto': 1}]
+_ln2 = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100},
+        {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 100}]
+check('dos variantes del mismo nombre en UNA factura: aprende una sola',
+      len(mapeos_a_aprender(_ln2, _dup, set())), 1)
 
 print()
 if fails:
