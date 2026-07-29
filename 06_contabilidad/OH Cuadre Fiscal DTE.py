@@ -64,6 +64,9 @@ APRENDER_MAPEOS = True   # v0.9: al postear una factura limpia, graba en
                          # product.supplierinfo el mapeo (proveedor, nombre del
                          # DTE) -> producto de las lineas que el DTE mando SIN
                          # codigo. Es lo que despues permite vincularlas solas.
+VINCULAR_MAPEOS = True   # v0.9: usa los mapeos aprendidos para vincular las
+                         # lineas cuyo DTE no trae CdgItem. Re-asierta precio y
+                         # cantidad en el MISMO write: sin eso el onchange los pisa.
 CUENTA_FLETE = '410237'   # Costo de Mercaderias Vendidas - Transporte
 TAX_IVA_COMPRA = 2        # IVA 19% Compra (2024)
 NOMBRE_FLETE = 'RECARGO (flete)'   # marca del flete separado por el motor:
@@ -395,6 +398,36 @@ def mapeos_a_aprender(lineas, items, conocidos):
     return out
 
 
+def mapeo_por_nombre(lineas, items, mapeos):
+    # [(line_id, product_id)] de lineas SIN producto que matchean UN solo mapeo.
+    # `mapeos`: [{'nombre', 'product_id'}] del proveedor de la factura.
+    # Ante ambiguedad NO se vincula: dos mapeos con el mismo nombre normalizado
+    # apuntando a productos distintos anulan esa entrada. Vincular el producto
+    # equivocado imputa stock y costo a un SKU que no se compro, y eso contamina
+    # inventario, WAC y margen a la vez.
+    idx = {}
+    for mp in mapeos:
+        k = normalizar(mp['nombre'])
+        if not k:
+            continue
+        if k in idx:
+            if idx[k] != mp['product_id']:
+                idx[k] = 0          # 0 = ambiguo, se ignora al consultar
+            continue
+        idx[k] = mp['product_id']
+    out = []
+    for par in alinear(lineas, items):
+        l = par[0]
+        it = par[1]
+        if l['has_product']:
+            continue
+        k = normalizar(it['nombre'])
+        pid = idx.get(k, 0)
+        if pid:
+            out.append((l['id'], pid))
+    return out
+
+
 def price_fixes(odoo_lines, items):
     # [(line_id, pu_target)] por precio pisado. Excluye la fraccion de pack
     # (qty != QtyItem): ahi el price_unit YA es el correcto del DTE y
@@ -557,9 +590,80 @@ else:
             if tiene_ila_origen(l.tax_ids.ids):
                 ila = True
 
+        items = parse_items(xml)
+
+        # --- PASO 1.2: vincular por mapeo aprendido (todo-o-nada via savepoint)
+        # NO puede reusar el savepoint del PASO 1.5: aquel vive dentro de
+        # `if not ok and not ila:` y estas facturas suelen YA cuadrar (delta 0),
+        # asi que nunca entrarian ahi.
+        if VINCULAR_MAPEOS:
+            faltan_prod = []
+            for ln in lineas:
+                if not ln['has_product']:
+                    faltan_prod.append(ln)
+            if faltan_prod:
+                mapeos = []
+                sis = env['product.supplierinfo'].search(
+                    [('partner_id', '=', m.partner_id.id),
+                     ('product_name', '!=', False)])
+                for si in sis:
+                    pid = si.product_id.id
+                    if not pid and si.product_tmpl_id:
+                        variantes = si.product_tmpl_id.product_variant_ids
+                        # solo si la variante es UNICA: un template con varias es ambiguo
+                        if len(variantes) == 1:
+                            pid = variantes.id
+                    if pid:
+                        mapeos.append({'nombre': si.product_name, 'product_id': pid})
+                vincs = mapeo_por_nombre(lineas, items, mapeos)
+                if vincs:
+                    by_id = {}
+                    for l in prod_lines:
+                        by_id[l.id] = l
+                    env.flush_all()
+                    env.cr.execute("SAVEPOINT cuadre_vinc")
+                    for par in vincs:
+                        ln = by_id[par[0]]
+                        # RE-ASERTAR precio y cantidad en el MISMO write: asignar
+                        # product_id dispara el onchange que pisa price_unit con el
+                        # del maestro (medido: HIELO 1 KG 462 -> 454,48). El valor
+                        # explicito en la misma escritura gana.
+                        ln.write({'product_id': par[1],
+                                  'price_unit': ln.price_unit,
+                                  'quantity': ln.quantity,
+                                  'discount': 0.0})
+                    env.flush_all()
+                    okv, dnv, div, dtv = cuadra_3(m.amount_untaxed, m.amount_tax,
+                                                  m.amount_total, tot, TOL)
+                    if okv and not DRY_RUN:
+                        env.cr.execute("RELEASE SAVEPOINT cuadre_vinc")
+                        msgs.append('  %-16s VINCULA %d linea(s) por mapeo aprendido'
+                                    % (m.name, len(vincs)))
+                        # `lineas` quedo desactualizada: sin esto el PASO 2 sigue
+                        # viendo has_product=False y bloquea la factura recien arreglada.
+                        nuevas = []
+                        for ln in lineas:
+                            vinculada = False
+                            for par in vincs:
+                                if par[0] == ln['id']:
+                                    vinculada = True
+                            if vinculada:
+                                ln2 = dict(ln)
+                                ln2['has_product'] = True
+                                nuevas.append(ln2)
+                            else:
+                                nuevas.append(ln)
+                        lineas = nuevas
+                    else:
+                        env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_vinc")
+                        env.invalidate_all(flush=False)
+                        msgs.append('  %-16s VINCULARIA %d linea(s) -> %s%s'
+                                    % (m.name, len(vincs),
+                                       'cuadra' if okv else 'NO cuadra (rollback)',
+                                       ' [DRY]' if DRY_RUN else ''))
+
         # --- PASO 1.5: fix de precio pisado (todo-o-nada via savepoint)
         ok, dn, di, dt = cuadra_3(m.amount_untaxed, m.amount_tax, m.amount_total, tot, TOL)
-        items = parse_items(xml)
         if not ok and not ila:
             fixes = price_fixes(lineas, items)
             if fixes:
