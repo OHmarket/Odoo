@@ -1,4 +1,4 @@
-"""helpers v0.8 — funciones PURAS (sin env) del SA OH Cuadre Fiscal DTE.
+"""helpers v0.9 — funciones PURAS (sin env) del SA OH Cuadre Fiscal DTE.
 
 Se testean local con `python test_helpers.py` (sin Odoo) y se copian
 literalmente dentro del Server Action safe_eval. Fuente de verdad testeada.
@@ -21,6 +21,21 @@ Novedades respecto de v0.7 (helpers v0.8):
   price_fixes()       resta el recargo embebido de la base ANTES de
                       comparar contra price_subtotal (si no, el fix de
                       precio pisado infla el neto con el flete incluido)
+
+Fixes de review de rama respecto de v0.8 (helpers v0.9), los 3 primeros
+critical — cada uno era un camino real por el que se vinculaba el producto
+equivocado:
+  mapeos_a_aprender()  ya no aprende primer-escritor-gana cuando un nombre
+                       aparece 2 veces con product_id distinto en la MISMA
+                       factura (centinela, igual que mapeo_por_nombre); exige
+                       ademas que coincida la cantidad y descarta items cuyo
+                       monto se repite en la factura (guarda de plata ciega a
+                       montos iguales); y escala price_subtotal por el factor
+                       price_include antes de comparar contra MontoItem (antes
+                       no aprendia NADA para proveedores con ILA, en silencio)
+  mapeo_por_nombre()   agrega la guarda simetrica de codigo: si el DTE trae
+                       CdgItem no vincula por nombre (la llave fuerte es el
+                       codigo; caso B, fuera de alcance)
 """
 
 # --- parseo basico (identico a v0.6, se repite para que el archivo sea autonomo) ---
@@ -286,17 +301,40 @@ def mapeos_a_aprender(lineas, items, conocidos):
     linea sacar el precio buscando por product_id, y eso rompe cuando el mismo
     producto aparece dos veces en la misma factura.
 
-    Guarda de alineacion: `alinear()` empareja por POSICION. En `price_fixes` un
-    cruce lo atrapa el gate de 3 montos, pero aca no hay nada que lo detecte: si
-    un emisor manda el <Detalle> en otro orden se grabaria el par cruzado y los
-    montos no cambian, asi que nada lo notaria despues. Por eso se exige que la
-    linea y el item coincidan en plata (price_subtotal == monto) antes de
-    aprender el par. Es el riesgo residual mas serio del diseno.
+    Cuatro guardas antes de aprender un par, todas fallan cerrado:
+
+      1. cantidad: `abs(l['quantity'] - it['qty']) > 0.001` descarta la fraccion
+         de pack, igual que `price_fixes`.
+      2. montos duplicados EN LA FACTURA: si el mismo `MontoItem` aparece en dos
+         <Detalle>, un cruce posicional entre esas dos lineas pasaria la guarda
+         de plata igual (los montos calzan de cualquiera de los dos lados) y
+         nada lo notaria despues. Se descarta cualquier item cuyo monto se
+         repite, antes de mirar nombre o producto.
+      3. plata: `price_subtotal * factor == monto`. `alinear()` empareja por
+         POSICION; en `price_fixes` un cruce lo atrapa el gate de 3 montos,
+         pero aca no hay nada que lo detecte. Ademas, con un impuesto
+         price_include (el ILA de bebidas) `price_subtotal` viene DIVIDIDO por
+         el factor respecto del `MontoItem` (mismo gotcha que ya resuelve
+         `price_fixes` con `l['factor']`): sin escalar, la comparacion nunca
+         cierra para esos proveedores y la funcion no aprende NADA, en
+         silencio. `l.get('factor', 1.0)` para no romper llamadas/tests que
+         arman lineas sin esa clave.
+      4. conflicto de NOMBRE en la misma factura: si el mismo nombre
+         normalizado aparece dos veces apuntando a `product_id` DISTINTOS, no
+         se aprende NINGUNO de los dos (mismo centinela que usa
+         `mapeo_por_nombre`). Antes ganaba el primer escritor: quedaba un solo
+         registro grabado, y la guarda de ambiguedad de `mapeo_por_nombre`
+         (que exige DOS registros en conflicto) nunca se enteraba — ese nombre
+         quedaba resolviendo siempre al producto equivocado.
     """
-    out = []
+    montos_rep = {}
+    for it in items:
+        montos_rep[it['monto']] = montos_rep.get(it['monto'], 0) + 1
     vistos = {}
     for k in conocidos:
         vistos[k] = True
+    cand = {}
+    orden = []
     for par in alinear(lineas, items):
         l = par[0]
         it = par[1]
@@ -304,19 +342,34 @@ def mapeos_a_aprender(lineas, items, conocidos):
             continue
         if it['codigo']:
             continue
+        if abs(l['quantity'] - it['qty']) > 0.001:
+            continue
+        if montos_rep.get(it['monto'], 0) > 1:
+            continue
+        f = l.get('factor', 1.0)
         # Corrobora la alineacion POSICIONAL antes de grabar el par. Sin esto, un
         # emisor que mande el <Detalle> en otro orden haria aprender pares cruzados,
         # y nada los detectaria: los montos no cambian al vincular. Es el riesgo
         # residual que el diseno marca como el mas serio.
-        if abs(l['price_subtotal'] - it['monto']) > 1.0:
+        if abs(l['price_subtotal'] * f - it['monto']) > 1.0:
             continue
         k = normalizar(it['nombre'])
         if not k:
             continue
         if k in vistos:
             continue
-        vistos[k] = True
-        out.append((l['id'], l['product_id'], it['nombre']))
+        if k in cand:
+            if cand[k][0] != l['product_id']:
+                cand[k][0] = 0   # conflicto: dos productos para el mismo nombre, no se aprende ninguno
+            continue
+        cand[k] = [l['product_id'], l['id'], it['nombre']]
+        orden.append(k)
+    out = []
+    for k in orden:
+        pid = cand[k][0]
+        if not pid:
+            continue
+        out.append((cand[k][1], pid, cand[k][2]))
     return out
 
 
@@ -337,6 +390,13 @@ def mapeo_por_nombre(lineas, items, mapeos):
     exige `normalizar(l['name']) == normalizar(it['nombre'])` antes de vincular:
     si un emisor manda el <Detalle> en otro orden, el pareo cruzado no calza en
     nombre y se descarta, en vez de imputar stock/costo al SKU equivocado.
+
+    Guarda de codigo: simetrica a la de `mapeos_a_aprender` (`if it['codigo']:
+    continue`). Si el DTE trae `CdgItem`, esa es la llave FUERTE y resolverla
+    es otro proyecto (caso B, fuera de alcance). Vincular por nombre cuando hay
+    codigo disponible imputaria el SKU equivocado si el proveedor reusa un
+    nombre entre dos codigos (dato real: HDOSO ya empezo a mandar codigo en
+    algunas facturas).
     """
     idx = {}
     for mp in mapeos:
@@ -353,6 +413,12 @@ def mapeo_por_nombre(lineas, items, mapeos):
         l = par[0]
         it = par[1]
         if l['has_product']:
+            continue
+        # Simetrico con mapeos_a_aprender: si el DTE trae CdgItem, la llave fuerte
+        # es el codigo y resolverlo es otro proyecto (caso B). Vincular por nombre
+        # cuando hay codigo disponible imputaria el SKU equivocado si el proveedor
+        # reusa un nombre entre dos codigos.
+        if it['codigo']:
             continue
         k = normalizar(it['nombre'])
         pid = idx.get(k, 0)

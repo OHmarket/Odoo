@@ -280,12 +280,16 @@ print()
 print('=' * 74)
 print('11. mapeos_a_aprender — solo lineas CON producto y SIN codigo en el DTE')
 print('=' * 74)
-_ln = [{'id': 1, 'name': 'x', 'has_product': True,  'product_id': 100, 'price_subtotal': 1.0},
-       {'id': 2, 'name': 'y', 'has_product': True,  'product_id': 200, 'price_subtotal': 1.0},
-       {'id': 3, 'name': 'z', 'has_product': False, 'product_id': 0, 'price_subtotal': 1.0}]
+# montos DISTINTOS entre items (1/2/3): el nuevo guardado de "monto duplicado
+# en la factura" (C2) es ciego al resto de los filtros, asi que si dos items
+# cualquiera comparten monto se descartan aunque no tengan nada que ver entre
+# si. Se separan a proposito para no contaminar estos casos base.
+_ln = [{'id': 1, 'name': 'x', 'has_product': True,  'product_id': 100, 'price_subtotal': 1.0, 'quantity': 1},
+       {'id': 2, 'name': 'y', 'has_product': True,  'product_id': 200, 'price_subtotal': 2.0, 'quantity': 1},
+       {'id': 3, 'name': 'z', 'has_product': False, 'product_id': 0, 'price_subtotal': 3.0, 'quantity': 1}]
 _it = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1},
-       {'nombre': 'CON CODIGO', 'codigo': '7231', 'qty': 1, 'monto': 1},
-       {'nombre': 'Recargas', 'codigo': '', 'qty': 1, 'monto': 1}]
+       {'nombre': 'CON CODIGO', 'codigo': '7231', 'qty': 1, 'monto': 2},
+       {'nombre': 'Recargas', 'codigo': '', 'qty': 1, 'monto': 3}]
 check('aprende solo la linea con producto y sin codigo',
       mapeos_a_aprender(_ln, _it, set()), [(1, 100, 'Hielo kilo')])
 check('devuelve el nombre SIN normalizar (legible en la UI)',
@@ -299,17 +303,50 @@ check('item CON codigo nunca se aprende (fuera de alcance: caso B)',
 check('sin alineacion (largos distintos) no aprende nada',
       mapeos_a_aprender(_ln, _it[:2], set()), [])
 _dup = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1},
-        {'nombre': 'HIELO KILO', 'codigo': '', 'qty': 1, 'monto': 1}]
-_ln2 = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100, 'price_subtotal': 1.0},
-        {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 100, 'price_subtotal': 1.0}]
-check('dos variantes del mismo nombre en UNA factura: aprende una sola',
+        {'nombre': 'HIELO KILO', 'codigo': '', 'qty': 1, 'monto': 2}]
+_ln2 = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100, 'price_subtotal': 1.0, 'quantity': 1},
+        {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 100, 'price_subtotal': 2.0, 'quantity': 1}]
+check('dos variantes del mismo nombre en UNA factura, MISMO producto: aprende una sola',
       len(mapeos_a_aprender(_ln2, _dup, set())), 1)
+# C1: el mismo nombre normalizado apuntando a DOS productos distintos en la
+# MISMA factura ya no aprende ninguno de los dos (antes ganaba el primer
+# escritor en silencio, y el nombre quedaba resolviendo siempre al producto
+# equivocado porque el centinela de ambiguedad de mapeo_por_nombre exige DOS
+# registros en conflicto y nunca llegaba a verlos).
+_lnConfl = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100, 'price_subtotal': 1.0, 'quantity': 1},
+            {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 200, 'price_subtotal': 2.0, 'quantity': 1}]
+check('mismo nombre normalizado, DOS productos distintos en la misma factura -> no aprende ninguno',
+      mapeos_a_aprender(_lnConfl, _dup, set()), [])
+# C2.1: la guarda de CANTIDAD (fraccion de pack) — precio igualaria si se
+# llegara a comparar, pero la cantidad no coincide con QtyItem.
+_pack = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100,
+          'price_subtotal': 10.0, 'quantity': 1.0}]
+_itPack = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 2.0, 'monto': 10.0}]
+check('cantidad no coincide con QtyItem (fraccion de pack) -> no aprende',
+      mapeos_a_aprender(_pack, _itPack, set()), [])
+# C2.2: dos lineas con el MISMO monto y productos DISTINTOS -> el cruce
+# posicional pasaria la guarda de plata sin que nada lo note (ambos montos
+# calzan), asi que ninguna de las dos se aprende.
+_igMonto = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 1},
+            {'nombre': 'Sal kilo', 'codigo': '', 'qty': 1, 'monto': 1}]
+_lnIgMonto = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100, 'price_subtotal': 1.0, 'quantity': 1},
+              {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 200, 'price_subtotal': 1.0, 'quantity': 1}]
+check('dos lineas con el mismo monto y distinto producto -> no aprende (cruce indetectable)',
+      mapeos_a_aprender(_lnIgMonto, _igMonto, set()), [])
+# C4: impuesto price_include (ILA de bebidas). price_subtotal viene DIVIDIDO
+# por el factor respecto de MontoItem: sin escalar la comparacion (bug
+# anterior) esto NUNCA aprendia, en silencio, para estos proveedores.
+_ila = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100,
+         'price_subtotal': 1000.0, 'quantity': 1.0, 'factor': 1.315}]
+_itIla = [{'nombre': 'Cerveza ILA', 'codigo': '', 'qty': 1.0, 'monto': 1315.0}]
+check('impuesto price_include (factor 1.315): antes no aprendia nada, ahora si',
+      mapeos_a_aprender(_ila, _itIla, set()), [(1, 100, 'Cerveza ILA')])
 # I2: la guarda de alineacion posicional — linea e item que NO coinciden en
 # monto no se aprenden, aunque el resto de los filtros (producto, sin codigo)
 # los deje pasar. Sin esta guarda un emisor que mande el <Detalle> en otro
 # orden aprenderia el par cruzado en silencio.
 _desal = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100,
-           'price_subtotal': 999.0}]
+           'price_subtotal': 999.0, 'quantity': 1.0}]
 _iDesal = [{'nombre': 'Hielo kilo', 'codigo': '', 'qty': 1, 'monto': 100.0}]
 check('linea e item que NO coinciden en monto -> no aprende (alineacion dudosa)',
       mapeos_a_aprender(_desal, _iDesal, {}), [])
@@ -350,6 +387,12 @@ _mismo = [{'nombre': 'HIELO KILO', 'product_id': 20374},
           {'nombre': 'hielo kilo', 'product_id': 20374}]
 check('dos mapeos al MISMO producto no es ambiguo',
       mapeo_por_nombre([_l[0]], [_i[0]], _mismo), [(11, 20374)])
+# C3: el DTE trae CdgItem para este item. La llave fuerte es el codigo (caso B,
+# otro proyecto): aunque exista un mapeo por nombre disponible y el name de la
+# linea calce perfecto, NO se vincula por nombre.
+_iConCod = [{'nombre': 'HIELO KILO', 'codigo': '7231', 'qty': 1, 'monto': 1}]
+check('item CON codigo (aunque haya mapeo por nombre disponible) -> no vincula',
+      mapeo_por_nombre([_l[0]], _iConCod, _mp), [])
 # I3: guarda de alineacion posicional (igual espiritu que mapeos_a_aprender).
 # El name de la linea NO coincide con el NmbItem del item con el que alinear()
 # la empareja por posicion: sin la guarda, esto vincularia el producto de OTRA

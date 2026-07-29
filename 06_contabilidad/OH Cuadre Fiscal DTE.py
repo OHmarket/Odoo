@@ -365,16 +365,30 @@ def mapeos_a_aprender(lineas, items, conocidos):
     # Se devuelve tambien `line_id`: sin el, el llamador tiene que adivinar de que
     # linea sacar el precio buscando por product_id, y eso rompe cuando el mismo
     # producto aparece dos veces en la misma factura.
-    # Guarda de alineacion: `alinear()` empareja por POSICION. En `price_fixes` un
-    # cruce lo atrapa el gate de 3 montos, pero aca no hay nada que lo detecte: si
-    # un emisor manda el <Detalle> en otro orden se grabaria el par cruzado y los
-    # montos no cambian, asi que nada lo notaria despues. Por eso se exige que la
-    # linea y el item coincidan en plata (price_subtotal == monto) antes de
-    # aprender el par. Es el riesgo residual mas serio del diseno.
-    out = []
+    # Cuatro guardas antes de aprender un par, todas fallan cerrado:
+    #  1. cantidad: fraccion de pack, igual que price_fixes.
+    #  2. montos duplicados EN LA FACTURA: si el mismo MontoItem aparece en dos
+    #     <Detalle>, un cruce posicional entre esas dos lineas pasaria la guarda
+    #     de plata igual (los montos calzan de cualquiera de los dos lados).
+    #  3. plata: price_subtotal * factor == monto. Con un impuesto price_include
+    #     (ILA de bebidas) price_subtotal viene DIVIDIDO por el factor respecto
+    #     de MontoItem (mismo gotcha que resuelve price_fixes con l['factor']):
+    #     sin escalar, la comparacion nunca cierra para esos proveedores y la
+    #     funcion no aprende NADA, en silencio.
+    #  4. conflicto de NOMBRE en la misma factura: si el mismo nombre normalizado
+    #     aparece dos veces apuntando a product_id DISTINTOS, no se aprende
+    #     NINGUNO de los dos (mismo centinela que mapeo_por_nombre). Antes
+    #     ganaba el primer escritor y quedaba un solo registro grabado, y la
+    #     guarda de ambiguedad de mapeo_por_nombre (que exige DOS registros en
+    #     conflicto) nunca se enteraba.
+    montos_rep = {}
+    for it in items:
+        montos_rep[it['monto']] = montos_rep.get(it['monto'], 0) + 1
     vistos = {}
     for k in conocidos:
         vistos[k] = True
+    cand = {}
+    orden = []
     for par in alinear(lineas, items):
         l = par[0]
         it = par[1]
@@ -382,19 +396,34 @@ def mapeos_a_aprender(lineas, items, conocidos):
             continue
         if it['codigo']:
             continue
+        if abs(l['quantity'] - it['qty']) > 0.001:
+            continue
+        if montos_rep.get(it['monto'], 0) > 1:
+            continue
+        f = l.get('factor', 1.0)
         # Corrobora la alineacion POSICIONAL antes de grabar el par. Sin esto, un
         # emisor que mande el <Detalle> en otro orden haria aprender pares cruzados,
         # y nada los detectaria: los montos no cambian al vincular. Es el riesgo
         # residual que el diseno marca como el mas serio.
-        if abs(l['price_subtotal'] - it['monto']) > 1.0:
+        if abs(l['price_subtotal'] * f - it['monto']) > 1.0:
             continue
         k = normalizar(it['nombre'])
         if not k:
             continue
         if k in vistos:
             continue
-        vistos[k] = True
-        out.append((l['id'], l['product_id'], it['nombre']))
+        if k in cand:
+            if cand[k][0] != l['product_id']:
+                cand[k][0] = 0   # conflicto: dos productos para el mismo nombre, no se aprende ninguno
+            continue
+        cand[k] = [l['product_id'], l['id'], it['nombre']]
+        orden.append(k)
+    out = []
+    for k in orden:
+        pid = cand[k][0]
+        if not pid:
+            continue
+        out.append((cand[k][1], pid, cand[k][2]))
     return out
 
 
@@ -412,6 +441,11 @@ def mapeo_por_nombre(lineas, items, mapeos):
     # exige normalizar(l['name']) == normalizar(it['nombre']) antes de vincular:
     # si un emisor manda el <Detalle> en otro orden, el pareo cruzado no calza
     # en nombre y se descarta, en vez de imputar stock/costo al SKU equivocado.
+    # Guarda de codigo: simetrica a la de mapeos_a_aprender. Si el DTE trae
+    # CdgItem, esa es la llave FUERTE y resolverla es otro proyecto (caso B,
+    # fuera de alcance): vincular por nombre cuando hay codigo disponible
+    # imputaria el SKU equivocado si el proveedor reusa un nombre entre dos
+    # codigos (dato real: HDOSO ya empezo a mandar codigo en algunas facturas).
     idx = {}
     for mp in mapeos:
         k = normalizar(mp['nombre'])
@@ -427,6 +461,12 @@ def mapeo_por_nombre(lineas, items, mapeos):
         l = par[0]
         it = par[1]
         if l['has_product']:
+            continue
+        # Simetrico con mapeos_a_aprender: si el DTE trae CdgItem, la llave fuerte
+        # es el codigo y resolverlo es otro proyecto (caso B). Vincular por nombre
+        # cuando hay codigo disponible imputaria el SKU equivocado si el proveedor
+        # reusa un nombre entre dos codigos.
+        if it['codigo']:
             continue
         k = normalizar(it['nombre'])
         pid = idx.get(k, 0)
@@ -637,64 +677,82 @@ else:
                         by_id[l.id] = l
                     env.flush_all()
                     env.cr.execute("SAVEPOINT cuadre_vinc")
-                    for par in vincs:
-                        ln = by_id[par[0]]
-                        # log ANTES del write: ln.name todavia es el nombre del
-                        # proveedor, el onchange recien lo pisa con el del producto.
-                        # Sin esto la primera corrida real no es auditable: el
-                        # mensaje solo decia cuantas lineas se vincularon, no que->que.
-                        msgs.append('  %-16s   vincula "%s" -> %s'
-                                    % (m.name, (ln.name or '')[:30],
-                                       env['product.product'].browse(par[1]).display_name[:34]))
-                        # RE-ASERTAR precio y cantidad en el MISMO write: asignar
-                        # product_id dispara el onchange que pisa price_unit con el
-                        # del maestro (medido: HIELO 1 KG 462 -> 454,48). El valor
-                        # explicito en la misma escritura gana.
-                        ln.write({'product_id': par[1],
-                                  'price_unit': ln.price_unit,
-                                  'quantity': ln.quantity,
-                                  'discount': 0.0})
-                    env.flush_all()
-                    okv, dnv, div, dtv = cuadra_3(m.amount_untaxed, m.amount_tax,
-                                                  m.amount_total, tot, TOL)
-                    if okv and not DRY_RUN:
-                        env.cr.execute("RELEASE SAVEPOINT cuadre_vinc")
-                        msgs.append('  %-16s VINCULA %d linea(s) por mapeo aprendido'
-                                    % (m.name, len(vincs)))
-                        # `lineas` quedo desactualizada: sin esto el PASO 2 sigue
-                        # viendo has_product=False y bloquea la factura recien arreglada.
-                        nuevas = []
-                        for ln in lineas:
-                            vinculada = False
-                            for par in vincs:
-                                if par[0] == ln['id']:
-                                    vinculada = True
-                            if vinculada:
-                                rec = by_id[ln['id']]
-                                ln2 = dict(ln)
-                                # OJO: no alcanza con pisar has_product. uom_f/retail/std
-                                # se capturaron cuando la linea NO tenia producto (uom_f=1.0),
-                                # y unidad_ok() cortocircuita con `if uom_f == 1: return True`.
-                                # Sin refrescarlos, el gate de unidades queda apagado justo
-                                # en las lineas recien vinculadas.
-                                ln2['has_product'] = True
-                                ln2['product_id'] = rec.product_id.id or 0
-                                ln2['uom_f'] = rec.product_uom_id.factor_inv or 1.0
-                                ln2['retail'] = rec.product_id.list_price or 0.0
-                                ln2['std'] = rec.product_id.standard_price or 0.0
-                                ln2['factor'] = _factor(rec.tax_ids.ids, tax_by_id)
-                                ln2['price_subtotal'] = rec.price_subtotal
-                                nuevas.append(ln2)
-                            else:
-                                nuevas.append(ln)
-                        lineas = nuevas
-                    else:
+                    try:
+                        for par in vincs:
+                            ln = by_id[par[0]]
+                            # log ANTES del write: ln.name todavia es el nombre del
+                            # proveedor, el onchange recien lo pisa con el del producto.
+                            # Sin esto la primera corrida real no es auditable: el
+                            # mensaje solo decia cuantas lineas se vincularon, no que->que.
+                            msgs.append('  %-16s   vincula "%s" -> %s'
+                                        % (m.name, (ln.name or '')[:30],
+                                           env['product.product'].browse(par[1]).display_name[:34]))
+                            # RE-ASERTAR precio y cantidad en el MISMO write: asignar
+                            # product_id dispara el onchange que pisa price_unit con el
+                            # del maestro (medido: HIELO 1 KG 462 -> 454,48). El valor
+                            # explicito en la misma escritura gana.
+                            ln.write({'product_id': par[1],
+                                      'price_unit': ln.price_unit,
+                                      'quantity': ln.quantity,
+                                      'discount': 0.0})
+                        env.flush_all()
+                        okv, dnv, div, dtv = cuadra_3(m.amount_untaxed, m.amount_tax,
+                                                      m.amount_total, tot, TOL)
+                        if okv and not DRY_RUN:
+                            env.cr.execute("RELEASE SAVEPOINT cuadre_vinc")
+                            msgs.append('  %-16s VINCULA %d linea(s) por mapeo aprendido'
+                                        % (m.name, len(vincs)))
+                            # `lineas` quedo desactualizada: sin esto el PASO 2 sigue
+                            # viendo has_product=False y bloquea la factura recien arreglada.
+                            nuevas = []
+                            for ln in lineas:
+                                vinculada = False
+                                for par in vincs:
+                                    if par[0] == ln['id']:
+                                        vinculada = True
+                                if vinculada:
+                                    rec = by_id[ln['id']]
+                                    ln2 = dict(ln)
+                                    # OJO: no alcanza con pisar has_product. uom_f/retail/std
+                                    # se capturaron cuando la linea NO tenia producto (uom_f=1.0),
+                                    # y unidad_ok() cortocircuita con `if uom_f == 1: return True`.
+                                    # Sin refrescarlos, el gate de unidades queda apagado justo
+                                    # en las lineas recien vinculadas.
+                                    ln2['has_product'] = True
+                                    ln2['product_id'] = rec.product_id.id or 0
+                                    ln2['uom_f'] = rec.product_uom_id.factor_inv or 1.0
+                                    ln2['retail'] = rec.product_id.list_price or 0.0
+                                    ln2['std'] = rec.product_id.standard_price or 0.0
+                                    ln2['factor'] = _factor(rec.tax_ids.ids, tax_by_id)
+                                    ln2['price_subtotal'] = rec.price_subtotal
+                                    # I2: la linea recien vinculada puede traer un impuesto
+                                    # ILA-origen sin mapear (la fpos corrio antes de que
+                                    # existiera el producto). Sin recomputar esto aca,
+                                    # motivo() no ve el ILA origen y la factura se
+                                    # postearia con la cuenta equivocada.
+                                    if tiene_ila_origen(rec.tax_ids.ids):
+                                        ila = True
+                                    nuevas.append(ln2)
+                                else:
+                                    nuevas.append(ln)
+                            lineas = nuevas
+                        else:
+                            env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_vinc")
+                            env.invalidate_all(flush=False)
+                            msgs.append('  %-16s VINCULARIA %d linea(s) -> %s%s'
+                                        % (m.name, len(vincs),
+                                           'cuadra' if okv else 'NO cuadra (rollback)',
+                                           ' [DRY]' if DRY_RUN else ''))
+                    except Exception:
+                        # Simetrico con el PASO 3: ln.write() dispara recomputes de
+                        # impuestos/cuenta/UoM (mas propenso a fallar que el create()
+                        # de supplierinfo). Si revienta sin este aislamiento, el SA
+                        # aborta ANTES del pg_advisory_unlock; como el lock es de
+                        # SESION el rollback no lo libera y las corridas siguientes
+                        # salen calladas por "lock ocupado".
                         env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_vinc")
                         env.invalidate_all(flush=False)
-                        msgs.append('  %-16s VINCULARIA %d linea(s) -> %s%s'
-                                    % (m.name, len(vincs),
-                                       'cuadra' if okv else 'NO cuadra (rollback)',
-                                       ' [DRY]' if DRY_RUN else ''))
+                        msgs.append('  %-16s vinculado FALLO, sigue sin vincular' % m.name)
 
         # --- PASO 1.5: fix de precio pisado (todo-o-nada via savepoint)
         ok, dn, di, dt = cuadra_3(m.amount_untaxed, m.amount_tax, m.amount_total, tot, TOL)
