@@ -42,6 +42,21 @@ def _num(t):
         return 0.0
 
 
+def normalizar(s):
+    """Nombre de item comparable: sin mayusculas ni ruido de espacios.
+
+    `str.split()` sin argumento parte por CUALQUIER whitespace, asi que colapsa
+    tambien los \xa0 (nbsp) que traen algunos DTE (verificado en los nombres de
+    Santa Ema de LA VINOTECA).
+
+    A proposito NO resuelve abreviaciones ('Hielo 2 k') ni typos ('recragas'):
+    esos se mapean a mano una vez y quedan aprendidos como registros aparte. Un
+    match difuso resolveria esos dos casos a cambio de poder vincular el producto
+    equivocado en silencio, y ese error contamina stock, WAC y margen a la vez.
+    """
+    return ' '.join((s or '').split()).lower()
+
+
 # --- 1. totales del DTE ------------------------------------------------------
 
 def dte_totales(xml):

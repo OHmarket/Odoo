@@ -32,6 +32,9 @@ CASOS = {
     'FAC 7472785':   'recargo EMBEBIDO (Peumo): flete 78.962',
     'FAC 7472784':   'recargo EMBEBIDO (Peumo): flete 73.170, mezcla ILA 31,5%',
     'FAC 10149821':  'recargo FUERA del MontoItem (Embonor): NO debe tocarse (regresion)',
+    'FAC 007375':    'HDOSO sin CdgItem, variante capitalizada: Hielo kilo / Hielo 2 k / Recargas',
+    'FAC 007378':    'HDOSO sin CdgItem, variante MAYUSCULAS: HIELO KILO / HIELO 2 KILOS / RECARGAS',
+    'FAC 007390':    'HDOSO sin CdgItem, con typo del proveedor: recragas',
 }
 
 

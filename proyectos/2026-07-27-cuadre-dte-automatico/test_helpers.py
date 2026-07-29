@@ -14,7 +14,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from helpers import (alinear, cuadra_3, dte_totales, exige_sku,  # noqa: E402
-                     lineas_sin_sku, motivo, parse_items, price_fixes,
+                     lineas_sin_sku, motivo, normalizar, parse_items, price_fixes,
                      recargo_embebido, tiene_ila_origen, unidad_ok, uom_mal)
 
 TOL = 2.0
@@ -255,6 +255,25 @@ for fac in sorted(FX):
     print('   %-16s %-12s %-26s %s%s%s' % (fac, f['tipo_proveedor'][:12],
           mt or 'OK -> se postea', 'N' if dn else '.', 'I' if di else '.',
           'T' if dt else '.'))
+
+print()
+print('=' * 74)
+print('10. normalizar — las variantes reales de escritura de HDOSO')
+print('=' * 74)
+check('mayusculas', normalizar('HIELO KILO'), 'hielo kilo')
+check('capitalizado', normalizar('Hielo kilo'), 'hielo kilo')
+check('minusculas', normalizar('hielo kilo'), 'hielo kilo')
+check('espacio al final', normalizar('RECARGAS '), 'recargas')
+check('espacios multiples', normalizar('HIELO   2  KILOS'), 'hielo 2 kilos')
+# \xa0 (nbsp) aparece de verdad en los nombres de Santa Ema del DTE de LA VINOTECA
+check('nbsp se colapsa', normalizar('VINO SANTA EMA\xa0\xa0CARMENERE'), 'vino santa ema carmenere')
+check('None no rompe', normalizar(None), '')
+check('vacio', normalizar('   '), '')
+# Estas dos NO deben normalizar a lo mismo: se mapean a mano una sola vez.
+check('abreviacion NO colapsa a la forma larga',
+      normalizar('Hielo 2 k') == normalizar('HIELO 2 KILOS'), False)
+check('typo NO colapsa a la forma correcta',
+      normalizar('recragas') == normalizar('RECARGAS'), False)
 
 print()
 if fails:
