@@ -333,14 +333,6 @@ _lnIgMonto = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100, 'pr
               {'id': 2, 'name': 'y', 'has_product': True, 'product_id': 200, 'price_subtotal': 1.0, 'quantity': 1}]
 check('dos lineas con el mismo monto y distinto producto -> no aprende (cruce indetectable)',
       mapeos_a_aprender(_lnIgMonto, _igMonto, set()), [])
-# C4: impuesto price_include (ILA de bebidas). price_subtotal viene DIVIDIDO
-# por el factor respecto de MontoItem: sin escalar la comparacion (bug
-# anterior) esto NUNCA aprendia, en silencio, para estos proveedores.
-_ila = [{'id': 1, 'name': 'x', 'has_product': True, 'product_id': 100,
-         'price_subtotal': 1000.0, 'quantity': 1.0, 'factor': 1.315}]
-_itIla = [{'nombre': 'Cerveza ILA', 'codigo': '', 'qty': 1.0, 'monto': 1315.0}]
-check('impuesto price_include (factor 1.315): antes no aprendia nada, ahora si',
-      mapeos_a_aprender(_ila, _itIla, set()), [(1, 100, 'Cerveza ILA')])
 # I2: la guarda de alineacion posicional — linea e item que NO coinciden en
 # monto no se aprenden, aunque el resto de los filtros (producto, sin codigo)
 # los deje pasar. Sin esta guarda un emisor que mande el <Detalle> en otro

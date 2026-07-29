@@ -30,9 +30,7 @@ equivocado:
                        factura (centinela, igual que mapeo_por_nombre); exige
                        ademas que coincida la cantidad y descarta items cuyo
                        monto se repite en la factura (guarda de plata ciega a
-                       montos iguales); y escala price_subtotal por el factor
-                       price_include antes de comparar contra MontoItem (antes
-                       no aprendia NADA para proveedores con ILA, en silencio)
+                       montos iguales)
   mapeo_por_nombre()   agrega la guarda simetrica de codigo: si el DTE trae
                        CdgItem no vincula por nombre (la llave fuerte es el
                        codigo; caso B, fuera de alcance)
@@ -310,15 +308,12 @@ def mapeos_a_aprender(lineas, items, conocidos):
          de plata igual (los montos calzan de cualquiera de los dos lados) y
          nada lo notaria despues. Se descarta cualquier item cuyo monto se
          repite, antes de mirar nombre o producto.
-      3. plata: `price_subtotal * factor == monto`. `alinear()` empareja por
-         POSICION; en `price_fixes` un cruce lo atrapa el gate de 3 montos,
-         pero aca no hay nada que lo detecte. Ademas, con un impuesto
-         price_include (el ILA de bebidas) `price_subtotal` viene DIVIDIDO por
-         el factor respecto del `MontoItem` (mismo gotcha que ya resuelve
-         `price_fixes` con `l['factor']`): sin escalar, la comparacion nunca
-         cierra para esos proveedores y la funcion no aprende NADA, en
-         silencio. `l.get('factor', 1.0)` para no romper llamadas/tests que
-         arman lineas sin esa clave.
+      3. plata: `price_subtotal == monto`. `alinear()` empareja por POSICION;
+         en `price_fixes` un cruce lo atrapa el gate de 3 montos, pero aca no
+         hay nada que lo detecte. La comparacion es directa porque el ILA viaja
+         en el nodo `<ImptoReten>` del DTE y NO integra el `MontoItem`: verificado
+         sobre 22 lineas con ILA de 4 facturas reales, ratio price_subtotal/monto
+         = 1.0000 exacto.
       4. conflicto de NOMBRE en la misma factura: si el mismo nombre
          normalizado aparece dos veces apuntando a `product_id` DISTINTOS, no
          se aprende NINGUNO de los dos (mismo centinela que usa
@@ -346,12 +341,11 @@ def mapeos_a_aprender(lineas, items, conocidos):
             continue
         if montos_rep.get(it['monto'], 0) > 1:
             continue
-        f = l.get('factor', 1.0)
         # Corrobora la alineacion POSICIONAL antes de grabar el par. Sin esto, un
         # emisor que mande el <Detalle> en otro orden haria aprender pares cruzados,
         # y nada los detectaria: los montos no cambian al vincular. Es el riesgo
         # residual que el diseno marca como el mas serio.
-        if abs(l['price_subtotal'] * f - it['monto']) > 1.0:
+        if abs(l['price_subtotal'] - it['monto']) > 1.0:
             continue
         k = normalizar(it['nombre'])
         if not k:

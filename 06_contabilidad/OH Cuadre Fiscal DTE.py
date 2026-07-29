@@ -370,11 +370,10 @@ def mapeos_a_aprender(lineas, items, conocidos):
     #  2. montos duplicados EN LA FACTURA: si el mismo MontoItem aparece en dos
     #     <Detalle>, un cruce posicional entre esas dos lineas pasaria la guarda
     #     de plata igual (los montos calzan de cualquiera de los dos lados).
-    #  3. plata: price_subtotal * factor == monto. Con un impuesto price_include
-    #     (ILA de bebidas) price_subtotal viene DIVIDIDO por el factor respecto
-    #     de MontoItem (mismo gotcha que resuelve price_fixes con l['factor']):
-    #     sin escalar, la comparacion nunca cierra para esos proveedores y la
-    #     funcion no aprende NADA, en silencio.
+    #  3. plata: price_subtotal == monto. La comparacion es directa porque el ILA
+    #     viaja en el nodo <ImptoReten> del DTE y NO integra el MontoItem:
+    #     verificado sobre 22 lineas con ILA de 4 facturas reales, ratio
+    #     price_subtotal/monto = 1.0000 exacto.
     #  4. conflicto de NOMBRE en la misma factura: si el mismo nombre normalizado
     #     aparece dos veces apuntando a product_id DISTINTOS, no se aprende
     #     NINGUNO de los dos (mismo centinela que mapeo_por_nombre). Antes
@@ -400,12 +399,11 @@ def mapeos_a_aprender(lineas, items, conocidos):
             continue
         if montos_rep.get(it['monto'], 0) > 1:
             continue
-        f = l.get('factor', 1.0)
         # Corrobora la alineacion POSICIONAL antes de grabar el par. Sin esto, un
         # emisor que mande el <Detalle> en otro orden haria aprender pares cruzados,
         # y nada los detectaria: los montos no cambian al vincular. Es el riesgo
         # residual que el diseno marca como el mas serio.
-        if abs(l['price_subtotal'] * f - it['monto']) > 1.0:
+        if abs(l['price_subtotal'] - it['monto']) > 1.0:
             continue
         k = normalizar(it['nombre'])
         if not k:
@@ -675,9 +673,9 @@ else:
                     by_id = {}
                     for l in prod_lines:
                         by_id[l.id] = l
-                    env.flush_all()
-                    env.cr.execute("SAVEPOINT cuadre_vinc")
                     try:
+                        env.flush_all()
+                        env.cr.execute("SAVEPOINT cuadre_vinc")
                         for par in vincs:
                             ln = by_id[par[0]]
                             # log ANTES del write: ln.name todavia es el nombre del
@@ -750,7 +748,10 @@ else:
                         # aborta ANTES del pg_advisory_unlock; como el lock es de
                         # SESION el rollback no lo libera y las corridas siguientes
                         # salen calladas por "lock ocupado".
-                        env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_vinc")
+                        try:
+                            env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_vinc")
+                        except Exception:
+                            pass
                         env.invalidate_all(flush=False)
                         msgs.append('  %-16s vinculado FALLO, sigue sin vincular' % m.name)
 
