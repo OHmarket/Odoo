@@ -1,4 +1,4 @@
-# OH Cuadre Fiscal DTE v0.8  (ir.actions.server / account.move / safe_eval)
+# OH Cuadre Fiscal DTE v0.9  (ir.actions.server / account.move / safe_eval)
 #
 # Automatiza el ciclo manual, por factura:
 #     APLICAR posicion fiscal -> REVISAR -> GUARDAR -> siguiente
@@ -35,6 +35,12 @@
 #      FAC 7471135). Deteccion aritmetica: prc*qty - desc + rec == monto.
 #   2. POST_RECARGO=False: esas facturas quedan en draft para revision manual.
 #
+# Diferencias con v0.8:
+#   1. APRENDER_MAPEOS: al postear una factura limpia graba en product.supplierinfo
+#      el mapeo (proveedor, NmbItem del DTE) -> producto, solo de las lineas que el
+#      DTE mando SIN CdgItem. El nombre sale del XML: al vincular, el onchange pisa
+#      el `name` de la linea.
+#
 # Baseline medido 2026-07-27 (diag_cuadre.py, read-only): de 314 draft,
 #   117 cuadran hoy | 156 con ILA origen | 26 falta SKU real | 4 precio/impuesto
 # Helpers validados offline: test_helpers.py, 53/53.
@@ -54,6 +60,10 @@ FP_DEFAULT = 12        # posicion fiscal "Facturas de Compra"
 POST_RECARGO = False   # v0.8: las facturas cuadradas por la rama de recargo
                        # embebido quedan en DRAFT para revision manual. Pasar a
                        # True recien despues de mirar casos reales cuadrados.
+APRENDER_MAPEOS = True   # v0.9: al postear una factura limpia, graba en
+                         # product.supplierinfo el mapeo (proveedor, nombre del
+                         # DTE) -> producto de las lineas que el DTE mando SIN
+                         # codigo. Es lo que despues permite vincularlas solas.
 CUENTA_FLETE = '410237'   # Costo de Mercaderias Vendidas - Transporte
 TAX_IVA_COMPRA = 2        # IVA 19% Compra (2024)
 NOMBRE_FLETE = 'RECARGO (flete)'   # marca del flete separado por el motor:
@@ -81,6 +91,18 @@ def _num(t):
         return float(t)
     except Exception:
         return 0.0
+
+
+def normalizar(s):
+    # Nombre de item comparable: sin mayusculas ni ruido de espacios.
+    # str.split() sin argumento parte por CUALQUIER whitespace, asi que colapsa
+    # tambien los \xa0 (nbsp) que traen algunos DTE (verificado en los nombres de
+    # Santa Ema de LA VINOTECA).
+    # A proposito NO resuelve abreviaciones ('Hielo 2 k') ni typos ('recragas'):
+    # esos se mapean a mano una vez y quedan aprendidos como registros aparte. Un
+    # match difuso resolveria esos dos casos a cambio de poder vincular el producto
+    # equivocado en silencio, y ese error contamina stock, WAC y margen a la vez.
+    return ' '.join((s or '').split()).lower()
 
 
 def dte_totales(xml):
@@ -327,6 +349,37 @@ def alinear(odoo_lines, items):
     return list(zip(prod, items))
 
 
+def mapeos_a_aprender(lineas, items, conocidos):
+    # [(product_id, nombre)] a grabar como mapeo proveedor->producto.
+    # Solo de lineas que YA tienen producto (alguien las vinculo a mano) y cuyo item
+    # del DTE vino SIN codigo. El filtro por codigo mantiene el alcance en el caso A
+    # y evita llenar product.supplierinfo con miles de registros que no hacen falta.
+    # El nombre NO sale de la linea de Odoo: al vincular, el onchange pisa el `name`
+    # con el del producto (verificado en FAC 7471136). El nombre del proveedor solo
+    # sobrevive en el <NmbItem> del XML, que `alinear()` empareja por posicion.
+    # `conocidos` es un set de nombres YA normalizados. Se devuelve el nombre sin
+    # normalizar para que quede legible en el catalogo de compras.
+    out = []
+    vistos = {}
+    for k in conocidos:
+        vistos[k] = True
+    for par in alinear(lineas, items):
+        l = par[0]
+        it = par[1]
+        if not l['has_product']:
+            continue
+        if it['codigo']:
+            continue
+        k = normalizar(it['nombre'])
+        if not k:
+            continue
+        if k in vistos:
+            continue
+        vistos[k] = True
+        out.append((l['product_id'], it['nombre']))
+    return out
+
+
 def price_fixes(odoo_lines, items):
     # [(line_id, pu_target)] por precio pisado. Excluye la fraccion de pack
     # (qty != QtyItem): ahi el price_unit YA es el correcto del DTE y
@@ -374,7 +427,7 @@ def _tiene_flete_motor(move):
 
 env.cr.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_KEY,))
 if not env.cr.fetchone()[0]:
-    log('cuadre-fiscal v0.8: lock ocupado, salgo')
+    log('cuadre-fiscal v0.9: lock ocupado, salgo')
     action = {'type': 'ir.actions.act_window_close'}
 else:
     HOY = datetime.date.today()
@@ -446,7 +499,7 @@ else:
                 continue
         lote.append(m)
 
-    msgs = ['=== OH Cuadre Fiscal DTE v0.8 (dry=%s post=%s) mes=%s..%s ==='
+    msgs = ['=== OH Cuadre Fiscal DTE v0.9 (dry=%s post=%s) mes=%s..%s ==='
             % (DRY_RUN, DO_POST, DESDE, HASTA),
             'universo=%d  en_hold=%d  lote=%d  (tabaco excluido=%d, revision manual)'
             % (len(universo), en_hold, len(lote), n_tabaco)]
@@ -479,6 +532,7 @@ else:
             # de la unidad de medida (gate de unidades). No confundirlos.
             lineas.append({'id': l.id, 'name': l.name or '',
                            'has_product': bool(l.product_id),
+                           'product_id': l.product_id.id or 0,
                            'quantity': l.quantity,
                            'price_subtotal': l.price_subtotal,
                            'factor': _factor(l.tax_ids.ids, tax_by_id),
@@ -586,6 +640,33 @@ else:
                 # diario (lo que ademas puede migrar la cuenta de la linea de flete).
                 mt = 'flete_descuadrado'
             elif not DRY_RUN and DO_POST:
+                if APRENDER_MAPEOS:
+                    conocidos = {}
+                    sis = env['product.supplierinfo'].search(
+                        [('partner_id', '=', m.partner_id.id),
+                         ('product_name', '!=', False)])
+                    for si in sis:
+                        conocidos[normalizar(si.product_name)] = True
+                    nuevos = mapeos_a_aprender(lineas, items, conocidos)
+                    for par in nuevos:
+                        prod = env['product.product'].browse(par[0])
+                        if not prod.exists():
+                            continue
+                        # precio real de la factura: hace que una OC a este proveedor
+                        # proponga lo que se pago la ultima vez en vez del
+                        # standard_price (medido: HIELO 1 KG factura 462 vs std 454,48)
+                        pu = 0.0
+                        for pl in prod_lines:
+                            if pl.product_id.id == par[0]:
+                                pu = pl.price_unit
+                        env['product.supplierinfo'].create({
+                            'partner_id': m.partner_id.id,
+                            'product_tmpl_id': prod.product_tmpl_id.id,
+                            'product_id': prod.id,
+                            'product_name': par[1],
+                            'price': pu})
+                        msgs.append('  %-16s aprende mapeo: "%s" -> %s (precio %s)'
+                                    % (m.name, par[1][:28], prod.display_name[:34], pu))
                 m.action_post()
                 posteadas += 1
                 msgs.append('  %-16s POSTEADA (fpos %.0f ms)' % (m.name, ms))
@@ -651,6 +732,6 @@ else:
     env.cr.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
     action = {
         'type': 'ir.actions.client', 'tag': 'display_notification',
-        'params': {'title': 'Cuadre Fiscal DTE v0.8 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
+        'params': {'title': 'Cuadre Fiscal DTE v0.9 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
                    'message': texto, 'sticky': True},
     }
