@@ -1,4 +1,4 @@
-# OH Cuadre Fiscal DTE v0.9  (ir.actions.server / account.move / safe_eval)
+# OH Cuadre Fiscal DTE v0.10  (ir.actions.server / account.move / safe_eval)
 #
 # Automatiza el ciclo manual, por factura:
 #     APLICAR posicion fiscal -> REVISAR -> GUARDAR -> siguiente
@@ -40,6 +40,15 @@
 #      el mapeo (proveedor, NmbItem del DTE) -> producto, solo de las lineas que el
 #      DTE mando SIN CdgItem. El nombre sale del XML: al vincular, el onchange pisa
 #      el `name` de la linea.
+#   2. VINCULAR_MAPEOS: PASO 1.2, usa esos mapeos para vincular las lineas huerfanas
+#      re-asertando precio y cantidad en el MISMO write.
+#
+# Diferencias con v0.9:
+#   1. EXCLUIR_TABACO=False: BAT vuelve al universo. El descuadre NO era el IVA de
+#      margen sino que sus lineas cargaban TRES IVA del 19% (2 + 28-origen + 17)
+#      por no recibir NUNCA la posicion fiscal. El maestro esta bien (solo el 17).
+#      Con la fpos aplicada el neto cuadra exacto y el residuo es el margen (~1%).
+#      Las facturas de BAT sin cigarrillos ya cuadraban en +0 y se excluian igual.
 #
 # Baseline medido 2026-07-27 (diag_cuadre.py, read-only): de 314 draft,
 #   117 cuadran hoy | 156 con ILA origen | 26 falta SKU real | 4 precio/impuesto
@@ -528,7 +537,7 @@ def _tiene_flete_motor(move):
 
 env.cr.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_KEY,))
 if not env.cr.fetchone()[0]:
-    log('cuadre-fiscal v0.9: lock ocupado, salgo')
+    log('cuadre-fiscal v0.10: lock ocupado, salgo')
     action = {'type': 'ir.actions.act_window_close'}
 else:
     HOY = datetime.date.today()
@@ -561,11 +570,24 @@ else:
     for t in env['account.tax'].search([('type_tax_use', '=', 'purchase')]):
         tax_by_id[t.id] = {'price_include': t.price_include, 'amount': t.amount}
 
-    # --- tabaco: se excluye del UNIVERSO, no se saltea dentro del lote.
-    # Es inposteable por diseno (el IVA de margen cod 14 lo calcula Odoo, no
-    # esta en el XML, asi que el gate de 3 montos no puede validarlo). Salteandolo
-    # dentro del lote consumia cupo en CADA corrida: medido 2026-07-27, 62 draft
-    # de BAT en el mes y 10 de las 40 del primer lote. Mismo clog que curamos.
+    # --- tabaco: hasta v0.9 se excluia del UNIVERSO (y ademas se salteaba dentro
+    # del lote). El motivo declarado era que el IVA de margen (cod 14) lo calcula
+    # Odoo y el gate de 3 montos no podia validarlo.
+    #
+    # v0.10 lo reabre (EXCLUIR_TABACO=False). Medido 2026-07-29 sobre 10 draft:
+    #   - las facturas SIN cigarrillos (papel OCB) cuadran en +0: se excluian por
+    #     el proveedor, no por su contenido.
+    #   - en las de cigarrillos el descuadre NO era el IVA de margen: las lineas
+    #     cargaban TRES IVA del 19% a la vez (2 + 28-origen + 17), porque BAT nunca
+    #     recibia la posicion fiscal. El maestro esta bien: supplier_taxes_id es
+    #     solo [17 IVA No Recup.], y map_tax deja exactamente eso.
+    #     FAC 17111246: hoy neto -62.891 / imp +108.999; con la fpos aplicada el
+    #     neto cuadra EXACTO y queda -4.833, que si es el IVA de margen (1%).
+    #   - el clog que motivo excluirlas ya no aplica: desde v0.7 la que no cuadra
+    #     recibe hold y sale de la cola, no re-consume cupo en cada corrida.
+    # Volver a True revierte el comportamiento sin tocar nada mas.
+    EXCLUIR_TABACO = False
+
     tabaco_ids = []
     for p in env['res.partner'].search([('supplier_rank', '>', 0)]):
         if es_tabaco(p.vat, PROV_TABACO):
@@ -578,8 +600,10 @@ else:
         dom_base + [('partner_id', 'in', tabaco_ids)])
 
     # --- PASO 0: universo, mas RECIENTES primero
-    universo = env['account.move'].search(
-        dom_base + [('partner_id', 'not in', tabaco_ids)], order='id desc')
+    dom_univ = dom_base
+    if EXCLUIR_TABACO:
+        dom_univ = dom_base + [('partner_id', 'not in', tabaco_ids)]
+    universo = env['account.move'].search(dom_univ, order='id desc')
 
     lote = []
     en_hold = 0
@@ -600,9 +624,9 @@ else:
                 continue
         lote.append(m)
 
-    msgs = ['=== OH Cuadre Fiscal DTE v0.9 (dry=%s post=%s) mes=%s..%s ==='
+    msgs = ['=== OH Cuadre Fiscal DTE v0.10 (dry=%s post=%s) mes=%s..%s ==='
             % (DRY_RUN, DO_POST, DESDE, HASTA),
-            'universo=%d  en_hold=%d  lote=%d  (tabaco excluido=%d, revision manual)'
+            'universo=%d  en_hold=%d  lote=%d  (de los cuales tabaco=%d)'
             % (len(universo), en_hold, len(lote), n_tabaco)]
     posteadas = 0
     por_motivo = {}
@@ -612,7 +636,7 @@ else:
         xml = b64decode(m.l10n_cl_dte_file.datas).decode('latin-1', 'ignore')
         tot = dte_totales(xml)
 
-        if es_tabaco(m.partner_id.vat, PROV_TABACO):
+        if EXCLUIR_TABACO and es_tabaco(m.partner_id.vat, PROV_TABACO):
             msgs.append('  %-16s SKIP tabaco' % m.name)
             por_motivo['tabaco'] = por_motivo.get('tabaco', 0) + 1
             continue
@@ -990,6 +1014,6 @@ else:
     env.cr.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
     action = {
         'type': 'ir.actions.client', 'tag': 'display_notification',
-        'params': {'title': 'Cuadre Fiscal DTE v0.9 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
+        'params': {'title': 'Cuadre Fiscal DTE v0.10 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
                    'message': texto, 'sticky': True},
     }
