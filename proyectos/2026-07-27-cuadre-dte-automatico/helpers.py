@@ -1,4 +1,4 @@
-"""helpers v0.9 — funciones PURAS (sin env) del SA OH Cuadre Fiscal DTE.
+"""helpers v0.10 — funciones PURAS (sin env) del SA OH Cuadre Fiscal DTE.
 
 Se testean local con `python test_helpers.py` (sin Odoo) y se copian
 literalmente dentro del Server Action safe_eval. Fuente de verdad testeada.
@@ -34,6 +34,25 @@ equivocado:
   mapeo_por_nombre()   agrega la guarda simetrica de codigo: si el DTE trae
                        CdgItem no vincula por nombre (la llave fuerte es el
                        codigo; caso B, fuera de alcance)
+
+Novedades v0.10 (SA v0.13):
+  _redondeo_2dec()    redondeo HALF-UP a 2 dec (como la UoM de Odoo, no el
+                      banker's de round())
+  _es_fraccion_pack() distingue el redondeo benigno de fraccion de pack
+                      (qty == round(QtyItem,2)) del error real de cantidad
+  price_fixes()       ahora CUADRA la fraccion de pack (antes la excluia): la
+                      UoM capa QtyItem a 2 dec y el estructural rompe la
+                      historia; el WAC se desvia poco (qty chica, peso bajo)
+  unidad_ok()         deja pasar la fraccion de pack (misma cantidad redondeada,
+                      no un error de pack 12x)
+
+Novedades v0.11 (SA v0.14):
+  uom_fixes()         auto-fix INEQUIVOCO de UoM de pack: cuando qty ya == QtyItem
+                      y el arbitro (retail) dice que el stock esta mal, migra la
+                      linea a la unidad de referencia (factor 1) del producto. El
+                      caso ambiguo (qty != QtyItem) sigue en HOLD.
+  estado_texto()      stamp legible para el chatter de la factura (OK / OK tras
+                      auto-fix / HOLD con la descripcion del motivo).
 """
 
 # --- parseo basico (identico a v0.6, se repite para que el archivo sea autonomo) ---
@@ -428,12 +447,42 @@ def mapeo_por_nombre(lineas, items, mapeos):
     return out
 
 
-def price_fixes(odoo_lines, items):
-    """[(line_id, pu_target)] de las lineas con el precio pisado.
+def _redondeo_2dec(x):
+    """Redondeo HALF-UP a 2 decimales, igual que la UoM de Odoo/Postgres.
 
-    Excluye a proposito la fraccion de pack (qty != QtyItem): ahi el
-    price_unit YA es el correcto del DTE y desviarlo contaminaria costo/WAC
-    (trampa UoM).
+    NO se usa round() de Python: usa banker's rounding (round(0.125, 2) = 0.12)
+    y Odoo guarda 0.13 (medido FAC 104246127: QtyItem 0.125 -> qty 0.13). x es
+    siempre positivo (una QtyItem), asi que int(x*100 + 0.5) basta.
+    """
+    return int(x * 100 + 0.5) / 100.0
+
+
+def _es_fraccion_pack(qty, qty_dte):
+    """True si qty es el redondeo a 2 dec de QtyItem (fraccion de pack capada
+    por la UoM), y NO ya iguales (ese es el caso 'pisado', no redondeo).
+
+    Distingue el redondeo benigno (0.166666 -> 0.17, diferencia sub-unitaria)
+    del error real de cantidad (pack 12x: qty 12 donde el DTE dice 1), que el
+    gate de unidades sigue bloqueando. La UoM guarda 2 decimales, asi que si qty
+    == round(QtyItem, 2) la unica variable ajustable es el precio.
+    """
+    if abs(qty - qty_dte) <= 0.001:
+        return False
+    return abs(qty - _redondeo_2dec(qty_dte)) < 0.005
+
+
+def price_fixes(odoo_lines, items):
+    """[(line_id, pu_target)] de las lineas con el precio a cuadrar.
+
+    Dos casos, mismo target pu = monto/qty:
+      (a) precio PISADO: qty == QtyItem, el maestro piso el price_unit.
+      (b) fraccion de PACK: qty == round(QtyItem, 2). La UoM capa QtyItem a 2
+          decimales (0.166666 -> 0.17) y qty*pu deja de dar el MontoItem. El
+          estructural (subir decimal.precision) rompe la historia, asi que se
+          cuadra el precio. Desvia levemente el pu (y el WAC), pero estas
+          compras son fraccionarias -> peso bajo en el promedio ponderado.
+          Decision de negocio 2026-08-09 (antes se excluia por la trampa UoM).
+    Se RECHAZA el resto (diferencia real de cantidad: error de pack, etc.).
 
     v0.8: si el DTE trae el flete DENTRO del MontoItem (ver recargo_embebido),
     la base de la linea es monto - rec. Cobrar el flete dentro del precio del
@@ -446,7 +495,7 @@ def price_fixes(odoo_lines, items):
         qty = l['quantity']
         if qty == 0:
             continue
-        if abs(qty - it['qty']) > 0.001:
+        if abs(qty - it['qty']) > 0.001 and not _es_fraccion_pack(qty, it['qty']):
             continue
         monto = it['monto']
         if rec_emb:
@@ -484,6 +533,12 @@ def unidad_ok(qty, uom_f, it, retail, std):
     """
     if uom_f == 1 or not it['qty']:
         return True
+    # fraccion de pack capada por la UoM (qty == round(QtyItem, 2)): es la MISMA
+    # cantidad redondeada, no un error de pack 12x. La diferencia en stock es
+    # sub-unitaria (0.17*6 = 1.02 vs 1 botella), no la del gate. Simetrico con
+    # price_fixes: la cuadra en plata y aca no la bloquea por unidades.
+    if _es_fraccion_pack(qty, it['qty']):
+        return True
     if abs(qty * uom_f - it['qty']) <= 0.01:
         return True
     pu = it['monto'] / it['qty']
@@ -501,6 +556,44 @@ def uom_mal(pares):
         if unidad_ok(l['quantity'], l['uom_f'], it, l['retail'], l['std']) is False:
             return True
     return False
+
+
+def uom_fixes(odoo_lines, items):
+    """[(line_id, uom_ref_id, pu_target)] de lineas con UoM de pack a auto-corregir.
+
+    Auto-fix INEQUIVOCO (v0.14): solo cuando migrar de pack a unidad hace que el
+    stock sea EXACTAMENTE el QtyItem del DTE. Tres condiciones, todas fallan
+    cerrado:
+
+      1. `unidad_ok(...) is False` — el arbitro (retail) dice que la linea entrega
+         al stock una cantidad distinta a la del DTE (UoM de pack mal aplicada).
+      2. `abs(qty - QtyItem) <= 0.001` — el numero ya calza; lo unico que sobra es
+         el multiplicador del pack (Pares x2 / x6). Si qty != QtyItem el error es
+         real y AMBIGUO (pack 12x, etc.): queda en HOLD, no se adivina.
+      3. `uom_ref_factor == 1` — la unidad de referencia del producto es una
+         unidad segura a la que migrar. Si no la hay, no se toca.
+
+    `pu_target = MontoItem/qty * factor`: la plata NO cambia (qty*pu == MontoItem),
+    solo se corrige el stock (deja de inflar x2/x6). El SA re-asienta price_unit en
+    el MISMO write que cambia product_uom_id, porque cambiar la UoM re-dispara el
+    compute que pisa el precio (ver feedback-vincular-product-id-pisa-precio).
+
+    Acotado a proposito al caso inequivoco: preserva el espiritu del gate de
+    unidades (bloquear lo dudoso) y solo automatiza donde el resultado es exacto.
+    """
+    out = []
+    for (l, it) in alinear(odoo_lines, items):
+        qty = l['quantity']
+        if qty == 0:
+            continue
+        if unidad_ok(qty, l['uom_f'], it, l['retail'], l['std']) is not False:
+            continue
+        if abs(qty - it['qty']) > 0.001:
+            continue
+        if l['uom_ref_factor'] != 1:
+            continue
+        out.append((l['id'], l['uom_ref_id'], round((it['monto'] / qty) * l['factor'], 2)))
+    return out
 
 
 # --- 4. clasificacion del motivo --------------------------------------------
@@ -549,3 +642,38 @@ def motivo(falta_sku, ila_origen, unidades_mal, dn, di, dt):
     if dt:
         return 'linea_descuadrada'
     return ''
+
+
+# --- 5. estado legible para el chatter (v0.14) ------------------------------
+
+# Descripcion corta por codigo de motivo (la seleccion de x_error_dte). Sirve
+# para que el stamp del chatter sea legible sin abrir el detalle por linea.
+MOTIVO_DESC = {
+    'codigo_no_vinculado': 'codigo(s) sin vincular',
+    'impuesto_mal_clasificado': 'impuesto (ILA) sin re-mapear',
+    'uom_no_cuadra': 'UoM no calza (cantidad al stock erronea)',
+    'linea_descuadrada': 'neto e impuesto descuadran vs XML',
+    'precio': 'precio (neto) descuadra vs XML',
+    'diferencia_impuesto': 'impuesto descuadra vs XML',
+}
+
+
+def estado_texto(motivo_code, n_uom_fix):
+    """Stamp legible para el chatter de la factura (v0.14).
+
+    Tres estados:
+      - OK sin fix           -> 'validado vs XML + UoM validado'
+      - OK tras auto-fix UoM -> agrega '(pack->unidad, N linea/s)'
+      - HOLD                 -> la descripcion corta del motivo (MOTIVO_DESC)
+
+    La fecha la pone el chatter. La idempotencia (no re-postear el mismo texto en
+    cada corrida del cron) la maneja el SA comparando con el ultimo mensaje
+    'Cuadre DTE' de la factura.
+    """
+    if motivo_code:
+        desc = MOTIVO_DESC.get(motivo_code, motivo_code)
+        return 'Cuadre DTE HOLD - ' + desc
+    if n_uom_fix:
+        return ('Cuadre DTE OK - validado vs XML + UoM auto-corregida '
+                '(pack->unidad, %d linea/s)' % n_uom_fix)
+    return 'Cuadre DTE OK - validado vs XML + UoM validado'

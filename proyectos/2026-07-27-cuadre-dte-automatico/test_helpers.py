@@ -13,10 +13,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from helpers import (alinear, cuadra_3, dte_totales, exige_sku,  # noqa: E402
-                     lineas_sin_sku, mapeo_por_nombre, mapeos_a_aprender, motivo,
-                     normalizar, parse_items, price_fixes, recargo_embebido,
-                     tiene_ila_origen, unidad_ok, uom_mal)
+from helpers import (_redondeo_2dec, alinear, cuadra_3, dte_totales,  # noqa: E402
+                     estado_texto, exige_sku, lineas_sin_sku, mapeo_por_nombre,
+                     mapeos_a_aprender, motivo, normalizar, parse_items,
+                     price_fixes, recargo_embebido, tiene_ila_origen,
+                     unidad_ok, uom_fixes, uom_mal)
 
 TOL = 2.0
 FX = json.loads((HERE / 'resultados' / 'fixtures.json').read_text(encoding='utf-8'))
@@ -241,6 +242,37 @@ check('sin recargo embebido: target = monto/qty (sin cambios)',
 
 print()
 print('=' * 74)
+print('9.b price_fixes — FRACCION DE PACK (Embonor: qty = round(QtyItem, 2))')
+print('=' * 74)
+# redondeo half-up como Odoo, NO el banker's de Python (round(0.125,2)=0.12).
+check('_redondeo_2dec(0.166666) -> 0.17', _redondeo_2dec(0.166666), 0.17)
+check('_redondeo_2dec(0.125) -> 0.13 (half-up, no banker)', _redondeo_2dec(0.125), 0.13)
+check('_redondeo_2dec(0.041666) -> 0.04', _redondeo_2dec(0.041666), 0.04)
+# FAC 104313665 coctel: QtyItem 0.166666 capada a 0.17, monto 591, subtotal pisado.
+_frac = [{'id': 0, 'name': 'x', 'quantity': 0.17, 'price_subtotal': 603.0, 'factor': 1.0}]
+_ifr = [{'qty': 0.166666, 'monto': 591, 'prc': 4032.0, 'desc': 81.0, 'rec': 0.0}]
+check('fraccion de pack -> cuadra pu = monto/qty_odoo (591/0.17)',
+      price_fixes(_frac, _ifr), [(0, 3476.47)])
+# QtyItem 0.125 -> Odoo guarda 0.13 (half-up): tambien es fraccion de pack.
+_f125 = [{'id': 0, 'name': 'x', 'quantity': 0.13, 'price_subtotal': 1933.0, 'factor': 1.0}]
+_i125 = [{'qty': 0.125, 'monto': 1859, 'prc': 21088.0, 'desc': 0.0, 'rec': 0.0}]
+check('QtyItem 0.125 -> qty 0.13 tambien se cuadra (1859/0.13)',
+      price_fixes(_f125, _i125), [(0, 14300.0)])
+# Diferencia REAL de cantidad (no redondeo): NO se toca (error de pack, etc.).
+_freal = [{'id': 0, 'name': 'x', 'quantity': 2.0, 'price_subtotal': 100.0, 'factor': 1.0}]
+_ireal = [{'qty': 0.166666, 'monto': 591, 'prc': 4032.0, 'desc': 0.0, 'rec': 0.0}]
+check('diferencia real de qty (2.0 vs 0.166666) -> excluida', price_fixes(_freal, _ireal), [])
+# gate de unidades: la fraccion de pack NO bloquea aunque no haya retail ni std.
+check('unidad_ok: fraccion de pack pasa (benigno, sin retail/std)',
+      unidad_ok(0.17, 6, {'qty': 0.166666, 'monto': 591}, 0, 0), True)
+check('unidad_ok: qty 0.13 de QtyItem 0.125 tambien pasa',
+      unidad_ok(0.13, 8, {'qty': 0.125, 'monto': 1859}, 0, 0), True)
+# el error de pack REAL (qty 10 == QtyItem, factor 2, bajo retail) sigue bloqueando.
+check('unidad_ok: pack real bajo retail sigue bloqueando (no es redondeo)',
+      unidad_ok(10, 2, {'qty': 10.0, 'monto': 21650}, 2490, 1422), False)
+
+print()
+print('=' * 74)
 print('6. Ciclo completo sobre los fixtures')
 print('=' * 74)
 print('   %-16s %-12s %-26s %s' % ('factura', 'tipo prov', 'motivo', 'n/i/t'))
@@ -400,6 +432,69 @@ check('linea que YA tiene producto no se re-vincula',
 check('sin mapeos no vincula nada', mapeo_por_nombre(_l, _i, []), [])
 check('sin alineacion (largos distintos) no vincula nada',
       mapeo_por_nombre(_l, _i[:2], _mp), [])
+
+print()
+print('=' * 74)
+print('13. uom_fixes — auto-fix de UoM inequivoco (v0.14, casos reales Embonor)')
+print('=' * 74)
+# Cada linea culpable lleva la unidad de referencia del producto (uom_ref_id /
+# uom_ref_factor). El fix solo se emite si: el arbitro dice que el stock esta mal
+# (unidad_ok False), qty ya == QtyItem, y hay una unidad de factor 1 a la que
+# migrar. pu_target = MontoItem / qty (la plata no cambia).
+def _lu(**kw):
+    base = {'name': 'x', 'factor': 1.0, 'std': 0, 'uom_ref_id': 1, 'uom_ref_factor': 1}
+    base.update(kw)
+    return base
+# FAC 104500756: BENEDICTINO SIN GAS 6.5L, UoM Pares (x2), qty=2=DTE, pu 2165<2490.
+_beni = [_lu(id=1, quantity=2, price_subtotal=4330, uom_f=2, retail=2490, std=1424.1)]
+_ibeni = [{'qty': 2.0, 'monto': 4330, 'prc': 2165.0, 'desc': 0.0, 'rec': 0.0}]
+check('Benedictino Pares x2 -> migra a Unidades (id 1), pu 2165',
+      uom_fixes(_beni, _ibeni), [(1, 1, 2165.0)])
+# FAC 104478434: BEBIDA COCA COLA 250 CC, UoM x6, qty=1=DTE, pu 753<990.
+_coca = [_lu(id=2, name='BEBIDA COCA COLA 250 CC', quantity=1, price_subtotal=753, uom_f=6, retail=990)]
+_icoca = [{'qty': 1.0, 'monto': 753, 'prc': 753.0, 'desc': 0.0, 'rec': 0.0}]
+check('Coca 250 x6 -> migra a Unidades, pu 753',
+      uom_fixes(_coca, _icoca), [(2, 1, 753.0)])
+# FAC 104482239: PISCO HACIENDA LA TORRE GR, UoM x6, qty=6=DTE, pu 7897<16990.
+_pisco = [_lu(id=3, quantity=6, price_subtotal=47382, uom_f=6, retail=16990)]
+_ipisco = [{'qty': 6.0, 'monto': 47382, 'prc': 7897.0, 'desc': 0.0, 'rec': 0.0}]
+check('Pisco GR x6 -> migra a Unidades, pu 7897',
+      uom_fixes(_pisco, _ipisco), [(3, 1, 7897.0)])
+# Caja LEGITIMA (Coca 3L x6, pu 9927.5 > retail 3200): el arbitro dice OK, NO se toca.
+_cocacaja = [_lu(id=4, quantity=10, price_subtotal=99275, uom_f=6, retail=3200)]
+_icocacaja = [{'qty': 10.0, 'monto': 99275, 'prc': 9927.5, 'desc': 0.0, 'rec': 0.0}]
+check('caja legitima (pu>retail) -> NO se corrige',
+      uom_fixes(_cocacaja, _icocacaja), [])
+# qty != QtyItem (error real de cantidad, ambiguo): sigue en HOLD, NO se auto-fija.
+_qtymal = [_lu(id=5, quantity=3, price_subtotal=6495, uom_f=2, retail=2490, std=1422)]
+_iqtymal = [{'qty': 10.0, 'monto': 21650, 'prc': 2165.0, 'desc': 0.0, 'rec': 0.0}]
+check('qty != QtyItem (error real) -> NO se auto-fija (queda HOLD)',
+      uom_fixes(_qtymal, _iqtymal), [])
+# UoM ya en unidades (factor 1): el arbitro no la marca, no hay nada que corregir.
+_yaunit = [_lu(id=6, quantity=2, price_subtotal=4330, uom_f=1, retail=2490)]
+_iyaunit = [{'qty': 2.0, 'monto': 4330, 'prc': 2165.0, 'desc': 0.0, 'rec': 0.0}]
+check('UoM ya en unidades (factor 1) -> nada que corregir',
+      uom_fixes(_yaunit, _iyaunit), [])
+# Sin unidad de referencia factor 1: no hay a donde migrar -> NO se toca (HOLD).
+_sinref = [_lu(id=7, quantity=2, price_subtotal=4330, uom_f=2, retail=2490,
+               std=1424.1, uom_ref_id=99, uom_ref_factor=2)]
+check('sin unidad de referencia factor 1 -> NO se corrige (queda HOLD)',
+      uom_fixes(_sinref, _ibeni), [])
+
+print()
+print('=' * 74)
+print('14. estado_texto — stamp legible al chatter (v0.14)')
+print('=' * 74)
+check('OK sin fix', estado_texto('', 0),
+      'Cuadre DTE OK - validado vs XML + UoM validado')
+check('OK tras auto-fix de UoM', estado_texto('', 2),
+      'Cuadre DTE OK - validado vs XML + UoM auto-corregida (pack->unidad, 2 linea/s)')
+check('HOLD con motivo uom_no_cuadra', estado_texto('uom_no_cuadra', 0),
+      'Cuadre DTE HOLD - UoM no calza (cantidad al stock erronea)')
+check('HOLD con motivo codigo_no_vinculado', estado_texto('codigo_no_vinculado', 0),
+      'Cuadre DTE HOLD - codigo(s) sin vincular')
+check('HOLD con motivo desconocido cae al code crudo', estado_texto('otro_x', 0),
+      'Cuadre DTE HOLD - otro_x')
 
 print()
 if fails:
