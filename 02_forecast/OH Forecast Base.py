@@ -149,6 +149,20 @@ ALPHA_ERRATIC = 0.7
 # estructura, sanity limpio; 768/1135 erratic (68%) rescatadas. Apagar con context vn_gating=False.
 VN_GATING_DEFAULT = True
 VN_THRESHOLD_DEFAULT = 0.7
+# Piso Abril Cigarros (capa opt-in, default OFF). Recomprar cigarros al nivel pre-quiebre:
+# la venta de la categoria cigarros colapso a ~34% del nivel de abril-2026 por quiebre
+# de stock generalizado (24 SKU top de abril hoy en CERO, todos vivos en supplierinfo BAT
+# -> quiebre, no baja de catalogo). El forecast del motor heredo esa censura y sub-abastece.
+# Con el flag ON, para las categorias de cigarros se aplica un PISO por SKUxsala:
+#   mu = max(mu_motor, venta_abril_2026 / semanas_abril)  (SOLO levanta, nunca recorta).
+# Asi Analisis de Stock genera la reposicion al nivel de abril sin tocar el motor global.
+# Es efimero: la proxima corrida normal (flag OFF, el default) regenera mu sano -> vuelve
+# a operar normal sin restore. Las filas pisadas quedan marcadas con sufijo '_pisoAbr' en
+# el model_code (auditoria). Diagnostico: proyectos/2026-08-20-forecast-cigarros.
+PISO_ABRIL_CIGARROS_DEFAULT = False
+CIGARROS_PISO_CATEG_IDS_DEFAULT = [1719, 1628, 1629, 1694, 1708]   # raiz + hijas
+PISO_ABRIL_INI_DEFAULT = '2026-04-01'
+PISO_ABRIL_FIN_DEFAULT = '2026-04-30'
 BATCH_SIZE = 500
 
 
@@ -389,6 +403,11 @@ DOW_PROFILE_WEEKS = max(1, int(CTX.get('dow_profile_weeks', DOW_PROFILE_WEEKS_DE
 CLEANSE_BASE_WEEKS = max(1, int(CTX.get('cleanse_base_weeks', CLEANSE_BASE_WEEKS_DEFAULT)))
 CLEANSE_LOOKBACK_WEEKS = max(1, int(CTX.get('cleanse_lookback_weeks', CLEANSE_LOOKBACK_WEEKS_DEFAULT)))
 SMA_TAIL_WEEKS = max(1, int(CTX.get('sma_tail_weeks', SMA_TAIL_WEEKS_DEFAULT)))
+# Piso Abril Cigarros (opt-in, default OFF)
+PISO_ABRIL_CIGARROS = bool(CTX.get('piso_abril_cigarros', PISO_ABRIL_CIGARROS_DEFAULT))
+CIGARROS_PISO_CATEG_IDS = _to_int_list(CTX.get('cigarros_piso_categ_ids')) or list(CIGARROS_PISO_CATEG_IDS_DEFAULT)
+PISO_ABRIL_INI = str(CTX.get('piso_abril_ini', PISO_ABRIL_INI_DEFAULT) or PISO_ABRIL_INI_DEFAULT)
+PISO_ABRIL_FIN = str(CTX.get('piso_abril_fin', PISO_ABRIL_FIN_DEFAULT) or PISO_ABRIL_FIN_DEFAULT)
 
 TEAM_IDS = _to_int_list(CTX.get('team_ids')) or list(FILTERED_TEAM_IDS_DEFAULT)
 company = env.company
@@ -533,6 +552,73 @@ else:
                 for pid, cid in env.cr.fetchall():
                     categ_of[_safe_int(pid)] = _safe_int(cid)
 
+            # ----------------------
+            # PISO ABRIL CIGARROS (opt-in). Venta POS de abril-2026 por (team, product)
+            # para los SKU de categorias cigarros presentes en la venta. Mismo patron
+            # combo-expandido del CTE de arriba, acotado a abril y a esos productos.
+            # abril_sem[(tid,pid)] = qty_abril / semanas_abril. Solo se construye si el
+            # flag esta ON (una query extra), para no penalizar la corrida normal.
+            # ----------------------
+            abril_sem = {}
+            if PISO_ABRIL_CIGARROS and pids and CIGARROS_PISO_CATEG_IDS:
+                cig_pids = [p for p in pids if categ_of.get(p) in CIGARROS_PISO_CATEG_IDS]
+                if cig_pids:
+                    try:
+                        ab_ini = datetime.datetime.fromisoformat(PISO_ABRIL_INI).date()
+                        ab_fin = datetime.datetime.fromisoformat(PISO_ABRIL_FIN).date()
+                    except Exception:
+                        ab_ini = datetime.date(2026, 4, 1)
+                        ab_fin = datetime.date(2026, 4, 30)
+                    n_sem_ab = max((ab_fin - ab_ini).days / 7.0, 1.0)
+                    ab_params = {'company_id': company.id, 'date_from': ab_ini,
+                                 'date_to': ab_fin, 'tz': TZ_NAME, 'cig_pids': cig_pids}
+                    ab_team = ''
+                    if TEAM_IDS:
+                        ab_team = ' AND ' + team_col_sql + ' = ANY(%(team_ids)s) '
+                        ab_params['team_ids'] = TEAM_IDS
+                    ab_sql = """
+                        WITH base AS (
+                            SELECT {team_col} AS team_id, pol.id AS line_id, pol.combo_parent_id,
+                                   pp.id AS product_id, {dtype_sql} AS dtype,
+                                   COALESCE(pol.qty, 0.0) AS qty
+                            FROM pos_order_line pol
+                            JOIN pos_order po ON po.id = pol.order_id
+                            LEFT JOIN pos_session ps ON ps.id = po.session_id
+                            LEFT JOIN pos_config pc ON pc.id = ps.config_id
+                            JOIN product_product pp ON pp.id = pol.product_id
+                            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                            WHERE po.company_id = %(company_id)s
+                              AND po.state IN ('paid','done','invoiced')
+                              AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date >= %(date_from)s
+                              AND (po.date_order AT TIME ZONE 'UTC' AT TIME ZONE %(tz)s)::date <= %(date_to)s
+                              AND pp.id = ANY(%(cig_pids)s)
+                              AND {team_col} IS NOT NULL
+                              {team_filter}
+                        ),
+                        standalone AS (
+                            SELECT team_id, product_id, SUM(qty) AS units FROM base
+                            WHERE combo_parent_id IS NULL AND COALESCE(dtype,'') NOT IN ('combo','service')
+                            GROUP BY 1,2
+                        ),
+                        combo_children AS (
+                            SELECT c.team_id, c.product_id, SUM(c.qty) AS units
+                            FROM base c JOIN base p ON p.line_id = c.combo_parent_id
+                            WHERE c.combo_parent_id IS NOT NULL AND COALESCE(c.dtype,'') <> 'service'
+                            GROUP BY 1,2
+                        )
+                        SELECT team_id, product_id, SUM(units) AS units
+                        FROM (SELECT * FROM standalone UNION ALL SELECT * FROM combo_children) su
+                        GROUP BY 1,2
+                    """.format(team_col=team_col_sql, dtype_sql=dtype_sql, team_filter=ab_team)
+                    env.cr.execute(ab_sql, ab_params)
+                    for _tid, _pid, _u in env.cr.fetchall():
+                        tid = _safe_int(_tid); pid = _safe_int(_pid)
+                        if not tid or not pid:
+                            continue
+                        u = _safe_float(_u, 0.0)
+                        if u > 0.0:
+                            abril_sem[(tid, pid)] = u / n_sem_ab
+
             # ABC y CICLO DE VIDA GLOBAL por producto desde x_calculo_abc_xyz.
             # ciclo_de_vida es el PLC canonico (PROXY Levitt) ya calculado en la
             # segmentacion (dead/intermittent/new/declining/seasonal/ramp_up/mature);
@@ -672,6 +758,7 @@ else:
             n_nonzero = 0
             mu_total = 0.0
             n_cleansed = 0            # combos con >=1 semana levantada por cleansing
+            n_piso_abril = 0          # filas cigarros levantadas al piso de abril
             model_counts = {}
             for (tid, pid), wkmap in sales.items():
                 raw_vals = [_safe_float(wkmap.get(w, 0.0), 0.0) for w in window_weeks]   # crudo
@@ -732,6 +819,18 @@ else:
 
                 if mu < 0.0:
                     mu = 0.0
+
+                # PISO ABRIL CIGARROS (opt-in): recomprar al nivel pre-quiebre. Para los
+                # SKU de categorias cigarros, si la venta/sem de abril-2026 supera el mu del
+                # motor (censurado por quiebre), se levanta mu a ese piso. SOLO levanta.
+                # Marca '_pisoAbr' en el model_code para auditar que filas se ajustaron.
+                if (PISO_ABRIL_CIGARROS and categ_of.get(pid) in CIGARROS_PISO_CATEG_IDS):
+                    _piso = abril_sem.get((tid, pid), 0.0)
+                    if _piso > mu:
+                        mu = _piso
+                        model_code = model_code + '_pisoAbr'
+                        n_piso_abril += 1
+
                 # sigma desde la media de las 4 (safety stock), robusto a 1 dato
                 if len(last4) > 1:
                     sigma = (sum((x - mean4) ** 2 for x in last4) / len(last4)) ** 0.5
@@ -768,17 +867,19 @@ else:
             try:
                 mc = ' '.join('%s=%s' % (k, v) for k, v in sorted(model_counts.items()))
                 dec = ('ON cleansed_combos=%s base%sw min%sd sev%s qsem=%s' % (n_cleansed, CLEANSE_BASE_WEEKS, CLEANSE_MIN_DAYS, CLEANSE_SEVERE_WEIGHT, len(qweight))) if DECENSOR else 'OFF'
-                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | teams=%s' % (
+                piso = ('ON filas=%s abril=%s..%s categ=%s' % (n_piso_abril, PISO_ABRIL_INI, PISO_ABRIL_FIN, CIGARROS_PISO_CATEG_IDS)) if PISO_ABRIL_CIGARROS else 'OFF'
+                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | piso_abril[%s] | teams=%s' % (
                     VERSION_ID, target_date, window_weeks[0], window_weeks[-1],
-                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, len(TEAM_IDS)), level='info')
+                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, piso, len(TEAM_IDS)), level='info')
             except Exception:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
                 'title': 'Forecast Base v1.6',
-                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s' % (
+                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s | piso_abril=%s' % (
                     target_date, n_created, n_nonzero, round(mu_total, 0),
-                    ('%s combos' % n_cleansed) if DECENSOR else 'off'),
+                    ('%s combos' % n_cleansed) if DECENSOR else 'off',
+                    ('%s filas' % n_piso_abril) if PISO_ABRIL_CIGARROS else 'off'),
                 'type': 'success', 'sticky': True}}
     finally:
         env.cr.execute('SELECT pg_advisory_unlock(%s)', (LOCK_KEY,))

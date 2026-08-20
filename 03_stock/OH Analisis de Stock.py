@@ -570,7 +570,7 @@ def _ceil_moq(qty, moq):
     return float(n * moq)
 
 
-def _smart_moq_box_or_wait(qty_need, moq, stock_base, mu_week, target_units, target_weeks, cover_label, force_min=False, abcxyz=None, display_stock_units=0.0):
+def _smart_moq_box_or_wait(qty_need, moq, stock_base, mu_week, target_units, target_weeks, cover_label, force_min=False, abcxyz=None, display_stock_units=0.0, nearest_rounding=False):
     # Politica global caja-o-esperar para evitar sobrecompra sistematica por MOQ.
     # Regla:
     #   - Calcula floor y ceil de la necesidad exacta.
@@ -578,8 +578,21 @@ def _smart_moq_box_or_wait(qty_need, moq, stock_base, mu_week, target_units, tar
     #   - Si la necesidad exacta es menor que 1 caja y no hay quiebre/critico, se espera.
     #   - Si hay quiebre/critico, se permite caja minima.
     #   - Ceil se permite si no supera target_weeks * MOQ_MAX_POST_FACTOR.
+    #
+    # nearest_rounding (cigarros): redondea la necesidad al multiplo de caja MAS CERCANO,
+    # sin la excepcion 'quiebre -> caja completa'. Cigarros de baja rotacion y margen bajo
+    # no justifican traer 2-3 semanas de stock por el MOQ cuando toda la categoria esta en
+    # quiebre (sin_stock fuerza ceil en 396 SKU -> +$14,8M de exceso sistematico). Con la
+    # categoria colapsada, el ceil-por-criticidad infla el pedido ~2x. round-al-mas-cercano:
+    # need 7, caja 20 -> 0 (espera); need 14, caja 20 -> 20 (1 caja). Medido: -48% del
+    # valor del pedido de cigarros (dry-run proyectos/2026-08-20-forecast-cigarros).
     moq = max(_safe_float(moq, 1.0), 1.0)
     need = max(_safe_float(qty_need, 0.0), 0.0)
+    if nearest_rounding and moq > 1.0:
+        if need <= 0.0:
+            return 0.0
+        n = int(need / moq + 0.5)   # round-half-up al multiplo de caja mas cercano
+        return float(n * moq)
     stock = max(_safe_float(stock_base, 0.0), 0.0)
     mu = max(_safe_float(mu_week, 0.0), 0.0)
     target = max(_safe_float(target_units, 0.0), 0.0)
@@ -856,6 +869,11 @@ PAYMENT_DAYS        = _safe_float(CTX.get('payment_days',        PAYMENT_DAYS_DE
 PURCHASE_CYCLE_DAYS = _safe_float(CTX.get('purchase_cycle_days', PURCHASE_CYCLE_DAYS_DEFAULT), PURCHASE_CYCLE_DAYS_DEFAULT)
 MOQ_COVER_GUARD     = _safe_float(CTX.get('moq_cover_guard',     MOQ_COVER_GUARD_DEFAULT),     MOQ_COVER_GUARD_DEFAULT)
 SMART_MOQ_ROUNDING = bool(CTX.get('smart_moq_rounding', SMART_MOQ_ROUNDING_DEFAULT))
+# Cigarros: round-al-mas-cercano del MOQ (en vez de ceil-por-quiebre). Evita el exceso
+# sistematico (~2x) cuando toda la categoria esta en quiebre y cae en 'sin_stock -> caja
+# completa'. Baja rotacion + margen bajo: no traer 2-3 sem de stock por el MOQ. Default ON;
+# apagar con context cigarros_moq_nearest=False. Medido -48% del pedido (2026-08-20).
+CIGARROS_MOQ_NEAREST = bool(CTX.get('cigarros_moq_nearest', True))
 MOQ_MAX_POST_FACTOR = _safe_float(CTX.get('moq_max_post_factor', MOQ_MAX_POST_FACTOR_DEFAULT), MOQ_MAX_POST_FACTOR_DEFAULT)
 MOQ_CRITICAL_FACTOR = _safe_float(CTX.get('moq_critical_factor', MOQ_CRITICAL_FACTOR_DEFAULT), MOQ_CRITICAL_FACTOR_DEFAULT)
 CENTRAL_RESERVE_PCT = _safe_float(CTX.get('central_reserve_pct', CENTRAL_RESERVE_PCT_DEFAULT), CENTRAL_RESERVE_PCT_DEFAULT)
@@ -2355,7 +2373,7 @@ else:
                         # no goteo semanal). Al disparar, refilla al lote completo S.
                         if cola_larga_rop is not None and stock_proyectado > cola_larga_rop:
                             qty_neta_pre = 0.0
-                        qty_buy_pre  = (_smart_moq_box_or_wait(qty_neta_pre, moq, stock_proyectado, demanda_semanal, target_units, reorder_target_weeks, cover_label, False, abcxyz, display_stock_units) if SMART_MOQ_ROUNDING else _ceil_moq(qty_neta_pre, moq))
+                        qty_buy_pre  = (_smart_moq_box_or_wait(qty_neta_pre, moq, stock_proyectado, demanda_semanal, target_units, reorder_target_weeks, cover_label, False, abcxyz, display_stock_units, nearest_rounding=(is_cigarros and CIGARROS_MOQ_NEAREST)) if SMART_MOQ_ROUNDING else _ceil_moq(qty_neta_pre, moq))
 
                         if qty_buy_pre > 0.0:
                             _denom = max(demanda_semanal, DEMAND_FLOOR_WEEK)
@@ -2579,7 +2597,7 @@ else:
 
                     if rec.get('es_compra_cd'):
                         qty_need_units = _ceil_units(need)
-                        qty_buy_moq    = (_smart_moq_box_or_wait(need, rec.get('moq'), rec.get('stock_proyectado'), rec.get('demanda_semanal'), rec.get('target_units'), rec.get('reorder_target_weeks'), rec.get('cover_label'), rec.get('cover_label') in ('sin_stock', 'critico'), rec.get('abcxyz'), rec.get('display_stock_units')) if SMART_MOQ_ROUNDING else _ceil_moq(qty_need_units, rec.get('moq')))
+                        qty_buy_moq    = (_smart_moq_box_or_wait(need, rec.get('moq'), rec.get('stock_proyectado'), rec.get('demanda_semanal'), rec.get('target_units'), rec.get('reorder_target_weeks'), rec.get('cover_label'), rec.get('cover_label') in ('sin_stock', 'critico'), rec.get('abcxyz'), rec.get('display_stock_units'), nearest_rounding=(rec.get('is_cigarros') and CIGARROS_MOQ_NEAREST)) if SMART_MOQ_ROUNDING else _ceil_moq(qty_need_units, rec.get('moq')))
                         rec['purchase_qty_need_exact'] = need
                         rec['purchase_qty_need_units'] = qty_need_units
                         rec['purchase_qty_net']        = qty_buy_moq
@@ -2620,7 +2638,7 @@ else:
 
                         qty_net = max(need - transfer_qty, 0.0)
                         qty_need_units = _ceil_units(qty_net)
-                        qty_buy = (_smart_moq_box_or_wait(qty_net, rec.get('moq'), _safe_float(rec.get('stock_proyectado'), 0.0) + transfer_qty, rec.get('demanda_semanal'), rec.get('target_units'), rec.get('reorder_target_weeks'), rec.get('cover_label'), rec.get('cover_label') in ('sin_stock', 'critico'), rec.get('abcxyz'), rec.get('display_stock_units')) if SMART_MOQ_ROUNDING else _ceil_moq(qty_need_units, rec.get('moq')))
+                        qty_buy = (_smart_moq_box_or_wait(qty_net, rec.get('moq'), _safe_float(rec.get('stock_proyectado'), 0.0) + transfer_qty, rec.get('demanda_semanal'), rec.get('target_units'), rec.get('reorder_target_weeks'), rec.get('cover_label'), rec.get('cover_label') in ('sin_stock', 'critico'), rec.get('abcxyz'), rec.get('display_stock_units'), nearest_rounding=(rec.get('is_cigarros') and CIGARROS_MOQ_NEAREST)) if SMART_MOQ_ROUNDING else _ceil_moq(qty_need_units, rec.get('moq')))
                         if qty_buy > 0.0:
                             _dem = max(_safe_float(rec.get('demanda_semanal'), 0.0), DEMAND_FLOOR_WEEK)
                             cover_after_supply = (
@@ -2726,9 +2744,11 @@ else:
 
                     if exact_need_sum > 0.0:
                         if SMART_MOQ_ROUNDING:
+                            _cd_cig = bool(arr and arr[0].get('is_cigarros') and CIGARROS_MOQ_NEAREST)
                             qty_order_cd = _smart_moq_box_or_wait(
                                 exact_need_sum, moq_sku, stock_sum, demand_sum,
-                                target_sum, target_weeks_agg, worst_cover_label, any_critical, worst_abcxyz, display_sum
+                                target_sum, target_weeks_agg, worst_cover_label, any_critical, worst_abcxyz, display_sum,
+                                nearest_rounding=_cd_cig
                             )
                         else:
                             qty_order_cd = _ceil_moq(_ceil_units(exact_need_sum), moq_sku)
@@ -3138,6 +3158,7 @@ else:
                             cover_label_cd in ('sin_stock', 'critico'),
                             abcxyz_cd,
                             0.0,
+                            nearest_rounding=(base.get('is_cigarros') and CIGARROS_MOQ_NEAREST),
                         )
                     else:
                         qty_compra_cd = _ceil_moq(_ceil_units(qty_neta_cd), moq_sku)
@@ -3611,7 +3632,8 @@ else:
                     c = central_team_map.get(tid) or {}
                     meta = tmpl_meta.get(tid) or {}
                     moq = max(_safe_float(c.get('moq'), 1.0), 1.0)
-                    qty_a_pedir = (_smart_moq_box_or_wait(_safe_float(c.get('qty_a_pedir'), 0.0), moq, _safe_float(c.get('stock_proyectado'), 0.0), 0.0, _safe_float(c.get('qty_a_pedir'), 0.0), 1.0, '', True) if SMART_MOQ_ROUNDING else _ceil_moq(_safe_float(c.get('qty_a_pedir'), 0.0), moq))
+                    _cb_cig = bool(_safe_int(meta.get('categ_id'), 0) in CIGARROS_CATEGORY_IDS and CIGARROS_MOQ_NEAREST)
+                    qty_a_pedir = (_smart_moq_box_or_wait(_safe_float(c.get('qty_a_pedir'), 0.0), moq, _safe_float(c.get('stock_proyectado'), 0.0), 0.0, _safe_float(c.get('qty_a_pedir'), 0.0), 1.0, '', True, nearest_rounding=_cb_cig) if SMART_MOQ_ROUNDING else _ceil_moq(_safe_float(c.get('qty_a_pedir'), 0.0), moq))
                     qty_transferir = _round_units(_safe_float(c.get('qty_transferir'), 0.0))
                     qty_retorno_cd = _round_units(_safe_float(c.get('qty_retorno_cd'), 0.0))
                     qty_a_pedir_cajas = (qty_a_pedir / moq) if moq and moq > 0.0 else 0.0
