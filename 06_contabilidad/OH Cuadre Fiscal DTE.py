@@ -1,4 +1,14 @@
-# OH Cuadre Fiscal DTE v0.15  (ir.actions.server / account.move / safe_eval)
+# OH Cuadre Fiscal DTE v0.16  (ir.actions.server / account.move / safe_eval)
+#
+# Diferencias con v0.15:
+#   1. PASO 1.9: cuadre fino del IVA al DTE, DENTRO del savepoint del margen
+#      (PASO 1.7). El IVA 19% que Odoo suma por linea difiere del <IVA> del DTE
+#      por unos pesos de redondeo en facturas de muchas lineas; ese residuo hacia
+#      que cuadra_3 fallara TRAS ajustar el margen y el savepoint revirtiera el
+#      ajuste de margen CORRECTO -> la factura de BAT quedaba en hold eterno
+#      (medido FAC 17197644: +3 de IVA, total 13.961.426 vs DTE 13.961.423). Ahora
+#      se lleva la linea de IVA a tot['iva'] (solo amount_currency, Odoo re-balancea)
+#      si el residuo es <= TOL_IVA (redondeo); un descuadre grande de IVA NO se toca.
 #
 # Automatiza el ciclo manual, por factura:
 #     APLICAR posicion fiscal -> REVISAR -> GUARDAR -> siguiente
@@ -156,6 +166,10 @@ PISO_DESDE = '2026-07-01'  # v0.11: piso duro de la ventana. DESDE se calcula de
                        # medida que se cierran los meses; nunca dejarlo en None.
 MAX_POST = 20          # tope de posteos por corrida
 TOL = 2.0              # tolerancia $ en CADA uno de los 3 montos
+TOL_IVA = 30.0         # v0.16: umbral del residuo de IVA que el PASO 1.9 corrige
+                       # como redondeo (Odoo suma el 19% por linea; en facturas de
+                       # muchas lineas el total difiere del <IVA> del DTE por unos
+                       # pesos). Sobre TOL_IVA NO se toca: es error real, no redondeo.
 PROV_TABACO = {'885029000'}   # BAT 88502900-0 (IVA de margen cod 14: no esta en el XML)
 LOCK_KEY = 99123055
 FP_DEFAULT = 12        # posicion fiscal "Facturas de Compra"
@@ -1100,6 +1114,28 @@ else:
                     env.cr.execute("SAVEPOINT cuadre_margen")
                     l44.write({'amount_currency': round(l44.amount_currency + delta, 2)})
                     env.flush_all()
+                    # PASO 1.9: cuadre fino del IVA al DTE (dentro del MISMO savepoint).
+                    # Odoo calcula el IVA 19% por linea y lo redondea; en facturas
+                    # grandes (muchas lineas) la suma difiere del <IVA> del DTE por unos
+                    # pocos pesos de redondeo. Ese residuo hacia que cuadra_3 fallara
+                    # DESPUES de ajustar el margen (TOL=2 no lo absorbe) -> el savepoint
+                    # revertia el ajuste de margen CORRECTO y la factura quedaba en hold
+                    # eterno (medido FAC 17197644: +3 de IVA, total 13.961.426 vs DTE
+                    # 13.961.423). El DTE es el documento fiscal autoritativo, asi que se
+                    # lleva la linea de IVA a tot['iva'] escribiendo SOLO amount_currency
+                    # (mismo mecanismo que el margen; Odoo re-balancea el termino de pago).
+                    # Guarda: solo si el residuo del IVA es <= TOL_IVA (redondeo, no error
+                    # real); un descuadre grande de IVA NO se toca y sigue en hold.
+                    liva = m.line_ids.filtered(
+                        lambda l: l.tax_line_id and l.tax_line_id.id != TAX_MARGEN
+                        and l.balance)
+                    if liva:
+                        liva = liva.sorted(key=lambda l: abs(l.balance))[-1]
+                        d_iva = round(tot['iva'] - liva.balance, 2)
+                        if abs(d_iva) > TOL and abs(d_iva) <= TOL_IVA:
+                            liva.write({'amount_currency':
+                                        round(liva.amount_currency + d_iva, 2)})
+                            env.flush_all()
                     ok3, dn3, di3, dt3 = cuadra_3(m.amount_untaxed, m.amount_tax,
                                                   m.amount_total, tot, TOL)
                     if ok3 and not DRY_RUN:
