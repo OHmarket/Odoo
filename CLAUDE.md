@@ -202,7 +202,8 @@ Si alguna respuesta es "no", detenerse y resolver eso primero.
 
 ## Sincronizacion con GitHub
 
-El repo local `C:\Users\sanhu\Odoo` esta vinculado a `OHmarket/Odoo` en GitHub.
+El repo local `d:\Desarrollo\OH Market\OH Odoo` esta vinculado a `OHmarket/Odoo`
+en GitHub (`https://github.com/OHmarket/Odoo.git`).
 Cada cambio promovido a productivo debe quedar reflejado en el repo remoto para
 que el historial sea auditable.
 

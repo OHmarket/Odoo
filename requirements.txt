@@ -1,0 +1,24 @@
+# Dependencias de OH Odoo (taller de scripts).
+# Generado 2026-08-22 desde el entorno en uso, antes de formatear C:.
+#
+# Solo aplica a lo que corre LOCALMENTE (harness, backtests, diagnostico via
+# XML-RPC). Los Server Actions corren dentro de Odoo bajo safe_eval y no usan
+# nada de esto.
+#
+# Instalar tras formatear:  pip install -r requirements.txt
+
+pandas==3.0.2
+numpy==2.4.4
+scipy==1.17.1
+openpyxl==3.1.5
+
+# Lectura de .xls antiguo (Excel 97-2003)
+xlrd==2.0.2
+
+# HTTP y parseo XML de DTE
+requests==2.34.2
+lxml==6.1.1
+
+# Solo para los extractores de precio de competencia (04_analitica).
+# Requiere ademas: playwright install chromium
+playwright
