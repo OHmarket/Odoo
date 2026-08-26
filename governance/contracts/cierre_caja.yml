@@ -1,0 +1,173 @@
+model: x_cierre_caja
+status: PROPUESTO
+# ATENCION: este modelo NO existe todavia en Odoo. Este contrato es el diseno
+# previo, escrito para dirigir la validacion contra el servidor. Ningun nombre
+# de campo esta confirmado. Ver `validacion_pendiente` al final.
+
+description: >
+  Snapshot inmutable del cierre de caja de POS, desglosado por metodo de pago.
+  Una fila por sesion de POS y metodo. Es la capa de observabilidad sobre la
+  cadena de caja: cierre -> deposito bancario -> liquidacion Mercado Pago.
+  Hoy los tres tramos existen en Odoo (pos.session, conciliacion bancaria,
+  MP como metodo de pago del POS) pero nadie los cruza.
+
+written_by: 06_contabilidad/OH Cierre de Cajas.py   # no escrito todavia
+read_by:
+  - Agente diario de gestion (OH Finanzas), via shared/odoo_xmlrpc.py (read-only)
+
+granularity: (x_studio_session_id, x_studio_payment_method_id)
+# 1 registro por par (sesion de POS, metodo de pago). APPEND-ONLY: nunca se
+# actualiza una fila existente. Se agrega hacia arriba (dia, sala, metodo);
+# nunca se desagrega.
+
+key_fields:
+  - x_studio_session_id
+  - x_studio_payment_method_id
+  - x_studio_fecha_snapshot
+
+critical_fields:
+  x_studio_session_id:
+    type: many2one
+    comodel: pos.session
+    description: Identidad del cierre. Origen de todos los demas campos.
+  x_studio_fecha_cierre:
+    type: date
+    description: >
+      Fecha de negocio del cierre, no timestamp. Un turno que cruza medianoche
+      pertenece a la fecha de apertura de la sesion.
+  x_studio_team_id:
+    type: many2one
+    comodel: crm.team
+    description: >
+      Equipo de ventas = sala. NOMBRE SIN CONFIRMAR: el campo puede ser
+      crm_team_id o team_id segun version (gotcha ya documentado en CLAUDE.md).
+      Verificar con fields_get sobre pos.config y pos.session antes de crear.
+  x_studio_config_id:
+    type: many2one
+    comodel: pos.config
+    description: Punto de venta dentro de la sala. Una sala puede tener varios.
+  x_studio_usuario_cierre:
+    type: many2one
+    comodel: res.users
+    description: >
+      Quien cerro la sesion. Eje necesario para detectar patrones de diferencia
+      por persona o por turno. Si las salas operan con una sola sesion diaria,
+      este eje pierde poder discriminante.
+  x_studio_payment_method_id:
+    type: many2one
+    comodel: pos.payment.method
+    description: Metodo de pago del POS.
+  x_studio_tipo_metodo:
+    type: char
+    values: [efectivo, tarjeta, mercadopago, otro]
+    description: >
+      Normalizacion del metodo. Necesaria porque Mercado Pago puede estar
+      configurado como varios pos.payment.method (QR, debito, credito) y el
+      analisis los trata como un solo liquidador.
+  x_studio_monto_teorico:
+    type: float
+    description: >
+      Lo que el sistema dice que deberia haber para ese metodo. SIN CONFIRMAR
+      si Odoo lo expone nativo por metodo o solo para efectivo.
+  x_studio_monto_declarado:
+    type: float
+    description: >
+      Lo efectivamente contado al cierre. SOLO APLICA A EFECTIVO: tarjeta y MP
+      no se cuentan a mano. En esos metodos el campo va vacio, NO en cero.
+      Un cero aqui significa "se conto y habia cero", no "no aplica".
+  x_studio_diferencia:
+    type: float
+    description: >
+      declarado - teorico. Positivo es sobrante, negativo faltante.
+      NO SUMAR entre tipos de metodo distintos: ver `reglas` abajo.
+  x_studio_n_transacciones:
+    type: integer
+    description: >
+      Cantidad de pagos de ese metodo en la sesion. Contexto para dimensionar
+      la diferencia: $5.000 sobre 3 transacciones y sobre 800 no son lo mismo.
+  x_studio_fecha_snapshot:
+    type: datetime
+    description: >
+      Momento de captura. Parte de la clave: si la sesion se reabre y cambia,
+      se escribe una fila NUEVA con otro snapshot, no se actualiza la anterior.
+  x_studio_origen:
+    type: char
+    description: Script y version que escribio la fila. Trazabilidad de calculo.
+
+reglas:
+  snapshot_inmutable: >
+    APPEND-ONLY. Capturado el cierre, la fila no se recalcula nunca. Si la
+    sesion se reabre y cambia, fila nueva con otro x_studio_fecha_snapshot.
+    Sin esto no hay auditoria sino un espejo del presente que borra su propia
+    historia, y la pregunta "esto ya estaba mal ayer?" queda sin respuesta.
+
+  efectivo_y_mp_no_se_suman: >
+    Una diferencia en efectivo es faltante o sobrante fisico, y se investiga
+    contra una persona y un turno. Una diferencia en tarjeta o MP es desfase
+    de liquidacion o comision, y se investiga contra el liquidador. No pueden
+    compartir una columna agregada de descuadre: el numero resultante mezcla
+    robo con timing de acreditacion y nadie puede actuar sobre el.
+
+  frontera_de_escritura: >
+    El script escribe UNICAMENTE en x_cierre_caja. Nunca en pos.*, account.*,
+    purchase.* ni stock.*. El agente que lo consume no escribe en absoluto:
+    usa shared/odoo_xmlrpc.py, que es read-only por diseno.
+
+modelo_canonico: >
+  Patron de cuentas puente (clearing accounts) de SAP Retail, Oracle Retail
+  Xstore y NetSuite: cash over/short para el cierre, cash in transit /
+  undeposited funds para el deposito, merchant clearing account para MP.
+  El saldo residual de cada cuenta ES la metrica de control; un saldo antiguo
+  es por definicion una excepcion a investigar. Esta tabla es la capa de
+  observabilidad sobre ese patron, no un metodo de cuadratura propio.
+
+validacion_pendiente:
+  # Nada se crea en Odoo hasta que las 6 esten respondidas con evidencia.
+  # Todas read-only y baratas: fields_get, search_read sobre tablas chicas,
+  # read_group. Ninguna trae filas de negocio en volumen.
+  - id: 1
+    pregunta: >
+      Existen ya cuentas puente de diferencias de caja, dinero en transito y
+      clearing de Mercado Pago en el plan de cuentas?
+    como: search_read sobre account.account, filtrado por nombre y codigo
+    bloquea: >
+      Decide si esto es observabilidad sobre estructura existente, o si falta
+      la estructura contable y habria que crearla primero. Son dos proyectos
+      muy distintos. ES LA PRIMERA CONSULTA A CORRER.
+  - id: 2
+    pregunta: Cual es el campo de equipo en pos.config / pos.session?
+    como: fields_get
+    bloquea: Define x_studio_team_id. crm_team_id vs team_id.
+  - id: 3
+    pregunta: Una sesion por dia por sala, o varias por turno?
+    como: read_group sobre pos.session por fecha y config
+    bloquea: Confirma el grano y si el eje usuario/turno tiene poder.
+  - id: 4
+    pregunta: Nombres reales de los campos de diferencia y de pos.payment
+    como: fields_get
+    bloquea: Define el mapeo completo. No hardcodear ninguno sin esto.
+  - id: 5
+    pregunta: Mercado Pago es un pos.payment.method o varios?
+    como: search_read sobre pos.payment.method (tabla chica)
+    bloquea: Define los valores de x_studio_tipo_metodo.
+  - id: 6
+    pregunta: Existe teorico por metodo, o solo declarado de efectivo?
+    como: fields_get + una muestra acotada con limit explicito
+    bloquea: Define si x_studio_monto_teorico es nativo o hay que calcularlo.
+
+no_resuelto_por_codigo:
+  # Dependen de politica o contrato. Se declaran como supuesto, no se asumen.
+  - Tolerancia aceptable de diferencia. Sin ella todo descuadre de $1 alerta
+    y el informe muere por ruido. La define el usuario.
+  - Que representa hoy un deposito al banco en Odoo (asiento, linea de
+    extracto, o nada). Determina si el tramo 2 es viable.
+  - Si Mercado Pago liquida en un abono neto agregado o desglosado por
+    transaccion. Determina si el tramo 3 cuadra por transaccion o por lote.
+  - Comision pactada con Mercado Pago. Sin el porcentaje contractual solo se
+    puede reportar la comision efectiva, no verificar si es la correcta.
+
+tablas_hermanas_futuras:
+  # Otro grano: un deposito agrupa varias sesiones; una liquidacion de MP
+  # agrupa varios dias. NO se meten en x_cierre_caja.
+  - x_deposito_banco     # tramo 2, sin disenar
+  - x_liquidacion_mp     # tramo 3, sin disenar
