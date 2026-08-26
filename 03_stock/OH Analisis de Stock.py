@@ -1,7 +1,17 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.14.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.15.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.15.0 (2026-08-25): punto de reorden (ROP) CANONICO. El gatillo de reponer_ahora
+#   pasa de 50%*target (proxy) a ROP = mu*(L+REVIEW) + z*sigma*sqrt(L+REVIEW)
+#   (Silver-Pyke-Peterson). El proxy 50%*target estaba calibrado para ciclo semanal
+#   (target ~15d, 50% ~= lead+safety); con R=30d por proveedor quedaba ~2 semanas
+#   inflado -> reordenaba muy temprano (sobre-stock) en R largos y muy tarde en R
+#   cortos (el ROP escalaba con R, el tamano de pedido, en vez de con el lead). Ahora
+#   el ROP se liga al lead+review, igual que ya hacia la cola larga. REVIEW = cada
+#   cuanto se re-evalua/ordena (default 1d, diario). Solo cambia el GATILLO; el target
+#   (order-up-to = mu*R + z*sigma*sqrt(L)) y las bandas de sobrestock no cambian.
 #
 # v9.14.0 (2026-08-25): elimina el cover_cap (techo 15d/30d por rotacion, v9.7.0) y
 #   flipea LEAD_SAFETY a default TRUE (modelo validado en produccion). El cover_cap
@@ -203,7 +213,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_14_0_DROP_COVER_CAP'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_15_0_ROP_CANONICO'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -285,6 +295,10 @@ CD_ECHELON_PERIOD_ENABLED_DEFAULT = False
 #   se elimino en v9.14.0). Para correr el legacy: .with_context(lead_safety=False).run()
 LEAD_SAFETY_ENABLED_DEFAULT = True
 LEAD_DIAS_DEFAULT = 4.0   # v9.11.0: FALLBACK global del lead (L) si el proveedor no tiene x_studio_lead_entrega_dias poblado.
+# v9.15.0: REVIEW = cada cuanto se re-evalua y se puede colocar una orden. Entra al
+# ROP canonico junto con el lead: ROP = mu*(L+REVIEW) + z*sigma*sqrt(L+REVIEW).
+# Default 1d (diario). Tuneable por context review_dias.
+REVIEW_DIAS_DEFAULT = 1.0
 # v9.12.0: default global del horizonte R (dias de cobertura de compra) cuando el
 # proveedor no tiene x_studio_dias_cobertura_compra poblado. Reemplaza el fallback
 # a si.delay (que ya no se lee). 7d = NEUTRAL: los proveedores sin poblar hoy corren
@@ -544,30 +558,28 @@ def _calc_cola_larga_lote(mu_week, moq, lead_weeks, objetivo_dias, plazo_pago_di
     return S, rop
 
 
-def _cover_label(cover_weeks, mu_real, coverage_target_weeks):
+def _cover_label(cover_weeks, mu_real, coverage_target_weeks, rop_weeks=None):
     # v9.5.0: clasificacion de cobertura canonica (SAP Range of Coverage / Oracle
-    # Days of Cover). C = TARGET COMPLETO planificado (reorder_target_weeks =
-    # demanda x lead + safety + vitrina), NO la demanda sola: el canon ancla la
-    # salud de stock al nivel planificado (ROP abajo, Max arriba). Safety y vitrina
-    # son piso defendido pero stock real -> cuentan en cover_weeks, no se netean.
-    # Bandas:
+    # Days of Cover). C = TARGET COMPLETO planificado (order-up-to = Max), rop_weeks =
+    # punto de reorden (ROP). El canon ancla la salud de stock al nivel planificado
+    # (ROP abajo, Max arriba). Safety y vitrina son piso defendido pero stock real ->
+    # cuentan en cover_weeks, no se netean. Bandas:
     #   sin_salida: sin demanda    sin_stock: cover = 0
     #   critico: < 3d (piso absoluto, CRITICO_COVER_WEEKS)
-    #   bajo:    < 50% C           normal: 50%-100% C (en target)
-    #   alto:    100%-150% C       exceso: > 150% C (sobrestock real)
-    # El reorden (label -> accion, _buy_action_from_cover) dispara en
-    # sin_stock/critico/bajo => cover < 50% C. PROXY: el ROP canonico es
-    # demanda*(lead+review)+safety; aca usamos 50%*target como aproximacion (para
-    # ciclo semanal con target ~15d, 50%*target ~= lead+safety). Proporcional a la
-    # cobertura de cada SKU (uno de ciclo corto dispara antes en dias absolutos).
+    #   bajo:    < ROP             normal: ROP..C (entre reorden y target)
+    #   alto:    C..150% C         exceso: > 150% C (sobrestock real)
+    # v9.15.0: el reorden dispara en cover < ROP_weeks = (mu*(L+review)+z*sigma*
+    # sqrt(L+review))/mu, el ROP CANONICO (Silver-Pyke-Peterson), no el proxy 50%*C.
+    # Ligado al lead+review, no al tamano de pedido (R). Fallback 50%*C si rop=None.
     if mu_real <= DEMAND_FLOOR_WEEK:
         return 'sin_salida'
     if cover_weeks <= 0.0:
         return 'sin_stock'
     C = max(_safe_float(coverage_target_weeks, 0.0), DEMAND_FLOOR_WEEK)
+    reorder_at = (C * 0.5) if rop_weeks is None else min(max(_safe_float(rop_weeks, 0.0), 0.0), C)
     if cover_weeks < CRITICO_COVER_WEEKS:
         return 'critico'
-    if cover_weeks < C * 0.5:
+    if cover_weeks < reorder_at:
         return 'bajo'
     if cover_weeks <= C:
         return 'normal'
@@ -919,6 +931,8 @@ CD_ECHELON_PERIOD   = bool(CTX.get('cd_echelon_period', CD_ECHELON_PERIOD_ENABLE
 LEAD_SAFETY         = bool(CTX.get('lead_safety', LEAD_SAFETY_ENABLED_DEFAULT))
 LEAD_DIAS           = _safe_float(CTX.get('lead_dias', LEAD_DIAS_DEFAULT), LEAD_DIAS_DEFAULT)
 LEAD_WEEKS          = max(LEAD_DIAS / 7.0, 0.0)
+REVIEW_DIAS         = _safe_float(CTX.get('review_dias', REVIEW_DIAS_DEFAULT), REVIEW_DIAS_DEFAULT)
+REVIEW_WEEKS        = max(REVIEW_DIAS / 7.0, 0.0)
 DEFAULT_COBERTURA_DIAS  = _safe_float(CTX.get('default_cobertura_dias', DEFAULT_COBERTURA_DIAS_DEFAULT), DEFAULT_COBERTURA_DIAS_DEFAULT)
 DEFAULT_COBERTURA_WEEKS = max(DEFAULT_COBERTURA_DIAS / 7.0, 0.0)   # piso PURCHASE_CYCLE_WEEKS se aplica en period_weeks
 PAYMENT_DAYS        = _safe_float(CTX.get('payment_days',        PAYMENT_DAYS_DEFAULT),        PAYMENT_DAYS_DEFAULT)
@@ -2407,7 +2421,12 @@ else:
                             # contra la demanda sola; asi 'normal' = en target, 'alto'/'exceso' =
                             # sobrestock real. Safety y vitrina son stock real (piso defendido):
                             # cuentan en la cobertura, NO se netean.
-                            cover_label = _cover_label(cover_weeks, demanda_semanal, reorder_target_weeks)
+                            # v9.15.0: ROP canonico = mu*(L+review) + z*sigma*sqrt(L+review),
+                            # ligado al lead+review (no al 50%*target). Dispara reponer_ahora.
+                            _rop_prot_w = max(L_sku_weeks + REVIEW_WEEKS, 0.0)
+                            _rop_units  = demanda_semanal * _rop_prot_w + safety_factor_used * max(sigma_week, 0.0) * (_rop_prot_w ** 0.5)
+                            _rop_weeks  = (_rop_units / demanda_semanal) if demanda_semanal > 0.0 else None
+                            cover_label = _cover_label(cover_weeks, demanda_semanal, reorder_target_weeks, rop_weeks=_rop_weeks)
 
                         if demanda_semanal <= 0.0:
                             projected_cover_weeks = 999.0
