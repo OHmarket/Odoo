@@ -1,7 +1,35 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.15.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.18.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.18.0 (2026-08-27): el proveedor sale del campo 'Proveedor Compra' del producto
+#   (x_studio_proveedor_compra, char), como fuente AUTORITATIVA. Antes el proveedor se
+#   infernia de la ultima factura (x_vendor_bill_cost_lin); con codigos duplicados las DTE
+#   se enlazan al producto equivocado y el proveedor salia mal (ej. VINO Castillo de Molina
+#   -> proveedor real CCU, pero facturas de Embonor mal enlazadas por code 9030 -> caia en
+#   la OC de Embonor). Ahora: se lee x_studio_proveedor_compra, se resuelve texto->partner_id
+#   en 1 query (name exacto), y manda sobre fwd_supplier y sobre el partner de la factura.
+#   Vacio o sin match -> fallback al orden anterior (fwd -> factura -> supplierinfo). 84% de
+#   los productos tienen el campo poblado. Solo cambia el PROVEEDOR, no el costo.
+#
+# v9.17.0 (2026-08-27): purchase_ok=False ahora corta la compra tambien para solo_bodega.
+#   El gate no_disponible_compra = (not purchase_ok) and (not solo_bodega) EXIMIA a los
+#   solo_bodega -> un SKU con opcion de compra desactivada se compraba igual via compra_cd
+#   en el CD (26 SKU, ~$1,5M: ej. 1534 Nectar del Valle, Coca Light, Pepsi Zero, licores).
+#   Se agrega guard en el loop del echelon CD: si not purchase_ok -> qty_a_pedir=0 y skip.
+#   No compra ni bodega ni sala; los ENVIOS INTERNOS (traslados CD->sala) siguen activos
+#   para drenar el stock existente. Semantica estandar de purchase_ok (comprar, no mover).
+#
+# v9.16.0 (2026-08-27): la sala surtida por CD (solo_bodega) usa el CICLO COMPLETO del
+#   proveedor (period_weeks = R) tambien para rotacion ALTA. El cap fast-lead 7d
+#   (CD_FAST_LEAD_DAYS, v9.8.0) queda ELIMINADO por decision comercial: los rotadores
+#   estables (ej. bebidas) se mantienen ~1 mes en sala en vez de 7d + colchon. sala_work
+#   pasa de min(period_weeks, 7d) a period_weeks; el safety sigue sobre 1 sem (lead
+#   CD->sala) y la vitrina se suma aparte (base-stock canonico). Sube capital en las 12
+#   salas para estos SKU; sin riesgo de vencimiento en estables. Constantes CD_FAST_LEAD_DAYS
+#   y CD_FAST_UNITS_WEEK (+ sus context) removidas: quedaban muertas. OJO: solo llega a R
+#   si el proveedor tiene x_studio_dias_cobertura_compra poblado; sino cae al fallback 7d.
 #
 # v9.15.0 (2026-08-25): punto de reorden (ROP) CANONICO. El gatillo de reponer_ahora
 #   pasa de 50%*target (proxy) a ROP = mu*(L+REVIEW) + z*sigma*sqrt(L+REVIEW)
@@ -213,7 +241,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_15_0_ROP_CANONICO'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_18_0_PROVEEDOR_COMPRA_AUTORITATIVO'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -360,15 +388,9 @@ COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
 
 # v9.14.0: COVER_CAP_* (techo cobertura por rotacion, v9.7.0) ELIMINADO -> estaba
 # muerto (no mordia solo_bodega; compra directa exenta/cubre ciclo). Ver v9.14.0 header.
-# v9.8.0: rotacion ALTA surtida por CD -> LEAD DE TRABAJO corto (7d) en vez del ciclo
-# completo (period, cap 15d). El CD repone seguido (pass-through): la sala no necesita
-# cargar el ciclo entero de un rapido. NO es un cap sobre el total (eso estriparia el
-# colchon); es el horizonte de trabajo. El target sigue siendo canonico base-stock:
-#   S = mu*lead(7d) + z*sigma*sqrt(lead_seguridad) + vitrina  -> da 7d + colchon.
-# Rotacion alta se mide en UNIDADES/sem por sala (el moq distorsiona: caja de 6 hace ver
-# 'lento' a algo que vende harto). Solo toca solo_bodega; compra directa a sala intacta.
-CD_FAST_LEAD_DAYS_DEFAULT  = 7.0   # dias de trabajo para la sala rapida surtida por CD
-CD_FAST_UNITS_WEEK_DEFAULT = 2.0   # umbral rotacion alta, unidades/sem por sala
+# v9.16.0: CD_FAST_LEAD_DAYS (cap 7d fast-lead, v9.8.0) y CD_FAST_UNITS_WEEK (umbral
+# rotacion alta) ELIMINADOS. La sala surtida por CD (solo_bodega) ahora usa el ciclo
+# completo del proveedor (period_weeks = R) para toda rotacion; ver header v9.16.0.
 
 # Cigarros (categ_id=1628): techo de nivel de servicio. El z se topa a
 # normal-inversa(CIGARROS_SERVICE_LEVEL). 0.50 -> z=0 (sin colchon: margen bajo
@@ -964,8 +986,6 @@ COLA_UMBRAL_WEEK     = _safe_float(CTX.get('cola_umbral_week',     COLA_UMBRAL_W
 COLA_OBJETIVO_DIAS   = _safe_float(CTX.get('cola_objetivo_dias',   COLA_OBJETIVO_DIAS_DEFAULT),   COLA_OBJETIVO_DIAS_DEFAULT)
 COLA_PLAZO_PAGO_DIAS = _safe_float(CTX.get('cola_plazo_pago_dias', COLA_PLAZO_PAGO_DIAS_DEFAULT), COLA_PLAZO_PAGO_DIAS_DEFAULT)
 COLA_PISO_UNIDADES   = _safe_float(CTX.get('cola_piso_unidades',   COLA_PISO_UNIDADES_DEFAULT),   COLA_PISO_UNIDADES_DEFAULT)
-CD_FAST_LEAD_DAYS  = _safe_float(CTX.get('cd_fast_lead_days',  CD_FAST_LEAD_DAYS_DEFAULT),  CD_FAST_LEAD_DAYS_DEFAULT)
-CD_FAST_UNITS_WEEK = _safe_float(CTX.get('cd_fast_units_week', CD_FAST_UNITS_WEEK_DEFAULT), CD_FAST_UNITS_WEEK_DEFAULT)
 
 # XYZ local por team: si esta activo, el Z del safety se elige por
 # ABC_global + XYZ_local (cuando viene poblado desde el forecast).
@@ -1219,6 +1239,11 @@ else:
                 read_fields.append('raw_product_price')
             if pt_fields.get('x_studio_comprar_solo_en_bodega'):
                 read_fields.append('x_studio_comprar_solo_en_bodega')
+            # v9.18.0: 'Proveedor Compra' (char) del producto -> fuente AUTORITATIVA del
+            # proveedor. Se lee aca y se resuelve texto->partner_id mas abajo.
+            _has_prov_compra = bool(pt_fields.get('x_studio_proveedor_compra'))
+            if _has_prov_compra:
+                read_fields.append('x_studio_proveedor_compra')
 
             for r in tmpl_recs.read(read_fields):
                 tid   = r['id']
@@ -1231,7 +1256,26 @@ else:
                     'raw_product_price':      _safe_float(r.get('raw_product_price'), 0.0),
                     'solo_bodega':            bool(r.get('x_studio_comprar_solo_en_bodega')),
                     'purchase_ok':            bool(r.get('purchase_ok')),
+                    'proveedor_compra_txt':   (r.get('x_studio_proveedor_compra') or '').strip(),
+                    'proveedor_compra_id':    False,   # resuelto abajo (v9.18.0)
                 }
+
+            # v9.18.0: resuelve el texto de 'Proveedor Compra' -> res.partner.id en UNA query.
+            # El campo guarda el name exacto del partner (RUT + razon social); si no matchea
+            # (typo / partner archivado) queda False y el proveedor cae al fallback de siempre.
+            if _has_prov_compra:
+                _prov_names = sorted({m['proveedor_compra_txt'] for m in tmpl_meta.values()
+                                      if m.get('proveedor_compra_txt')})
+                if _prov_names:
+                    _name_to_pid = {}
+                    for _p in env['res.partner'].sudo().search(
+                            [('name', 'in', _prov_names)]).read(['id', 'name']):
+                        # primer match por nombre gana (nombres de proveedor son unicos en la practica)
+                        _name_to_pid.setdefault(_p['name'], _p['id'])
+                    for _m in tmpl_meta.values():
+                        _txt = _m.get('proveedor_compra_txt')
+                        if _txt:
+                            _m['proveedor_compra_id'] = _name_to_pid.get(_txt, False)
 
             # Derivar set de category IDs excluidos del check de CD.
             # Recibe IDs padre en NO_CD_PARENT_CATEGORY_IDS y expande via
@@ -2068,13 +2112,18 @@ else:
                     _vendor = _safe_float(_prow.get('purchase_price_cash_unit'), 0.0)
                     _std = _safe_float(_meta.get('standard_price'), 0.0)
                     _vendor_supplier = _prow.get('partner_id') or False
+                    # v9.18.0: 'Proveedor Compra' (x_studio_proveedor_compra) del producto es
+                    # la fuente AUTORITATIVA del proveedor y manda sobre fwd_supplier y sobre el
+                    # partner de la factura (que puede venir mal enlazado por codigo duplicado).
+                    # Si el campo esta vacio o no resolvio -> se respeta el orden anterior.
+                    _prov_compra = _meta.get('proveedor_compra_id') or False
                     if _raw > 0.0:
-                        return _raw, 'raw_product_price', (_supplier_fallback or _vendor_supplier or False)
+                        return _raw, 'raw_product_price', (_prov_compra or _supplier_fallback or _vendor_supplier or False)
                     if _vendor > 0.0:
-                        return _vendor, 'vendor_bill', (_vendor_supplier or _supplier_fallback or False)
+                        return _vendor, 'vendor_bill', (_prov_compra or _vendor_supplier or _supplier_fallback or False)
                     if _std > 0.0:
-                        return _std, 'standard_price', (_supplier_fallback or _vendor_supplier or False)
-                    return 0.0, 'none', (_supplier_fallback or _vendor_supplier or False)
+                        return _std, 'standard_price', (_prov_compra or _supplier_fallback or _vendor_supplier or False)
+                    return 0.0, 'none', (_prov_compra or _supplier_fallback or _vendor_supplier or False)
 
                 def _kit_component_cost_for_tmpl(_kit_tid):
                     _comps = kit_components_tmpl.get(_kit_tid) or []
@@ -2310,23 +2359,16 @@ else:
                                 price_cash_source = kit_component_cost_source
 
                         solo_bodega = bool(meta.get('solo_bodega'))
-                        # Sala surtida por CD: horizonte de TRABAJO = period_weeks (R). El SAFETY
-                        # va sobre el ciclo logistico (1 sem), desacoplado del trabajo.
-                        # v9.13.0: MAX_COVER_WEEKS (cap 15d) eliminado -> estaba subsumido por el
-                        # fast-lead 7d (abajo) y la cola larga; nunca decidia el horizonte.
+                        # Sala surtida por CD: horizonte de TRABAJO = period_weeks (R, ciclo
+                        # completo del proveedor). El SAFETY va sobre el ciclo logistico (1 sem),
+                        # desacoplado del trabajo. v9.13.0: MAX_COVER_WEEKS (cap 15d) eliminado.
+                        # v9.16.0: cap fast-lead 7d (v9.8.0) ELIMINADO -> la sala carga el ciclo
+                        # entero del proveedor tambien para rotacion alta (decision comercial:
+                        # rotadores estables ~1 mes en sala en vez de 7d). El target sigue siendo
+                        # base-stock canonico: S = mu*R + z*sigma*sqrt(1 sem) + vitrina.
                         if solo_bodega:
                             _work_base = period_weeks
-                            # v9.8.0: rotacion ALTA surtida por CD -> lead de trabajo corto (7d).
-                            # El CD repone seguido (pass-through), la sala no necesita el ciclo
-                            # completo de un rapido. Rotacion en UNIDADES/sem (el moq distorsiona:
-                            # caja de 6 hace ver 'lento' a algo que vende harto). safety(z) y
-                            # vitrina se suman aparte -> el target da 7d + colchon, no 7d pelado.
-                            # min() -> solo recorta: si el ciclo ya es < 7d, no lo sube.
-                            _mu_rot = mu_week if mu_week > DEMAND_FLOOR_WEEK else demanda_semanal
-                            if _mu_rot >= CD_FAST_UNITS_WEEK:
-                                sala_work_weeks = min(_work_base, CD_FAST_LEAD_DAYS / 7.0)
-                            else:
-                                sala_work_weeks = _work_base
+                            sala_work_weeks = _work_base
                         else:
                             _work_base = 0.0
                             sala_work_weeks = 0.0
@@ -3012,6 +3054,16 @@ else:
                     if not bool(meta.get('solo_bodega')):
                         continue
 
+                    # v9.17.0: purchase_ok=False -> el CD NO compra, aunque sea solo_bodega.
+                    # Antes solo_bodega quedaba EXENTO del gate de compra (no_disponible_compra
+                    # lleva 'and not solo_bodega'), asi que un SKU con compra desactivada se
+                    # compraba igual via compra_cd. Ahora se corta la COMPRA nueva; los envios
+                    # internos (traslados CD->sala) siguen vivos y drenan el stock existente.
+                    # Va antes del filtro CD_ELIGIBLE -> cubre todas las clases ABC.
+                    if not bool(meta.get('purchase_ok')):
+                        base['qty_a_pedir'] = 0.0
+                        continue
+
                     abcxyz_cd = (base.get('abcxyz') or '').strip()
                     if abcxyz_cd not in CD_ELIGIBLE_ABCXYZ:
                         # C-class / no elegible: respeta el diferencial pass-through.
@@ -3068,11 +3120,11 @@ else:
 
                     # v9.9.0: el CD compra a SU horizonte, no al de la sala.
                     #
-                    # target_installation (Σ target_salas) trae el cap de cobertura de la sala
-                    # (via CD_FAST_LEAD_DAYS): ~7d para rotacion alta. Ese cap es correcto
-                    # para lo que se ENTREGA a sala, pero no para lo que se COMPRA al proveedor:
-                    # a CCU se le compra cada si.delay dias (p.ej. 15). Comprar 7d de red con
-                    # ciclo de compra de 15d no ahorra caja, garantiza ~8d de quiebre por ciclo.
+                    # target_installation (Σ target_salas) trae la cobertura de cada sala.
+                    # v9.16.0: sin el cap fast-lead, la sala ya carga el ciclo completo (R), asi
+                    # que target_installation ~= target_echelon para rotadores. El echelon (compra
+                    # al ciclo R del proveedor) sigue siendo el piso canonico de lo que se COMPRA;
+                    # el max() de abajo elige el mayor, aunque hoy las salas absorban casi todo.
                     #
                     # Canon: order-up-to de revision periodica sobre echelon stock (Clark-Scarf
                     # 1960). period_weeks_sku ya viene de si.delay con piso PURCHASE_
