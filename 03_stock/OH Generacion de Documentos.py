@@ -2,7 +2,14 @@
 # OH Generacion de Documentos - Crea OCs y traslados desde Analisis Stock
 # ============================================================
 #
-# Version activa: v1.7 (ver CHANGELOG.md para historial completo)
+# Version activa: v1.8 (ver CHANGELOG.md para historial completo)
+#
+# v1.8 (2026-08-27): STRICT_PURCHASE_UOM_BOX ya no bloquea la compra unitaria
+#   legitima. Antes descartaba TODO producto con uom_po == unidad base (motivo
+#   uom_compra_no_caja) -> 119 SKU con compra por unidad (destilados, etc., ~$5-7M)
+#   nunca entraban a la OC (ej. 9078/9079 Red Label). Ahora bloquea solo el
+#   misconfig peligroso: uom_po == unidad Y moq > 1 (ahi qty/precio se descuadran).
+#   moq <= 1 = compra por unidad -> pasa.
 #
 # Objetivo:
 #   - Lee x_analisis_de_stock y crea documentos en Odoo:
@@ -24,7 +31,7 @@
 # Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = 'OH_SUPPLY_GENERATION_v1_7_PRIORITY_ABC_CATEG'
+VERSION_ID = 'OH_SUPPLY_GENERATION_v1_8_UNIT_PURCHASE_OK'
 
 ACTION_STOCK_ANALYSIS_ID = 1502
 CENTRAL_WAREHOUSE_ID     = 15
@@ -436,8 +443,13 @@ try:
                 skipped.append('%s_sin_uom_po' % (product.default_code or product.id))
                 continue
 
+            # STRICT_PURCHASE_UOM_BOX: bloquea SOLO el misconfig peligroso -> UoM de compra
+            # = unidad base (no hay caja) Y moq > 1. Ahi qty/precio se descuadran (product_qty
+            # queda en cajas pero uom es unidad, price = unit*moq). Con moq <= 1 la compra es
+            # unitaria legitima (ej. destilados por botella): se permite. Ver skipped='uom_compra_no_caja'.
             if STRICT_PURCHASE_UOM_BOX:
-                if (not product.uom_po_id) or (product.uom_po_id.id == product.uom_id.id):
+                _no_box_uom = (not product.uom_po_id) or (product.uom_po_id.id == product.uom_id.id)
+                if _no_box_uom and moq > 1.0:
                     skipped.append('%s_uom_compra_no_caja' % (product.default_code or product.id))
                     continue
 
