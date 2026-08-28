@@ -1,7 +1,17 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.18.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.19.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.19.0 (2026-08-27): gatillo ROP ELIMINADO -> reorden hasta el TARGET (order-up-to).
+#   El ROP canonico de revision continua (v9.15.0: mu*(L+review)+z*sigma*sqrt(L+review))
+#   disparaba recien cerca del vacio (~lead+review), mal calzado con la compra PERIODICA:
+#   OH pide a cada proveedor cada R dias (Fo de Compra = x_studio_dias_cobertura_compra) con
+#   timing manual. Sintoma: SKU con stock << target quedaban en 'no_comprar' (ej. 0154 Coca
+#   Cola 3L Panguipulli: stock 40, target 111, cover 1.78 sem > ROP 0.72 sem -> no pedia).
+#   Ahora reorder_at = C (target): cualquier cobertura < target dispara reponer_ahora y
+#   rellena hasta target. El MOQ box_or_wait evita pedidos sub-caja. Es (R,S) con revision
+#   por proveedor gobernada por el operador (genera la OC cuando toca pedirle a ese proveedor).
 #
 # v9.18.0 (2026-08-27): el proveedor sale del campo 'Proveedor Compra' del producto
 #   (x_studio_proveedor_compra, char), como fuente AUTORITATIVA. Antes el proveedor se
@@ -241,7 +251,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_18_0_PROVEEDOR_COMPRA_AUTORITATIVO'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_19_0_SIN_ROP_REORDEN_A_TARGET'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -323,10 +333,8 @@ CD_ECHELON_PERIOD_ENABLED_DEFAULT = False
 #   se elimino en v9.14.0). Para correr el legacy: .with_context(lead_safety=False).run()
 LEAD_SAFETY_ENABLED_DEFAULT = True
 LEAD_DIAS_DEFAULT = 4.0   # v9.11.0: FALLBACK global del lead (L) si el proveedor no tiene x_studio_lead_entrega_dias poblado.
-# v9.15.0: REVIEW = cada cuanto se re-evalua y se puede colocar una orden. Entra al
-# ROP canonico junto con el lead: ROP = mu*(L+REVIEW) + z*sigma*sqrt(L+REVIEW).
-# Default 1d (diario). Tuneable por context review_dias.
-REVIEW_DIAS_DEFAULT = 1.0
+# v9.19.0: REVIEW_DIAS (ROP canonico, v9.15.0) ELIMINADO -> el gatillo ya no usa ROP,
+# se reordena hasta el target (order-up-to). Ver header v9.19.0.
 # v9.12.0: default global del horizonte R (dias de cobertura de compra) cuando el
 # proveedor no tiene x_studio_dias_cobertura_compra poblado. Reemplaza el fallback
 # a si.delay (que ya no se lee). 7d = NEUTRAL: los proveedores sin poblar hoy corren
@@ -590,9 +598,10 @@ def _cover_label(cover_weeks, mu_real, coverage_target_weeks, rop_weeks=None):
     #   critico: < 3d (piso absoluto, CRITICO_COVER_WEEKS)
     #   bajo:    < ROP             normal: ROP..C (entre reorden y target)
     #   alto:    C..150% C         exceso: > 150% C (sobrestock real)
-    # v9.15.0: el reorden dispara en cover < ROP_weeks = (mu*(L+review)+z*sigma*
-    # sqrt(L+review))/mu, el ROP CANONICO (Silver-Pyke-Peterson), no el proxy 50%*C.
-    # Ligado al lead+review, no al tamano de pedido (R). Fallback 50%*C si rop=None.
+    # v9.15.0: el reorden dispara en cover < rop_weeks (punto de reorden). Fallback 50%*C
+    # si rop=None. v9.19.0: el caller pasa rop_weeks = C (target) -> ROP ELIMINADO, se
+    # reordena hasta el target (order-up-to, revision periodica R,S por proveedor). La
+    # funcion sigue siendo generica; el gatillo se decide en el call site.
     if mu_real <= DEMAND_FLOOR_WEEK:
         return 'sin_salida'
     if cover_weeks <= 0.0:
@@ -953,8 +962,6 @@ CD_ECHELON_PERIOD   = bool(CTX.get('cd_echelon_period', CD_ECHELON_PERIOD_ENABLE
 LEAD_SAFETY         = bool(CTX.get('lead_safety', LEAD_SAFETY_ENABLED_DEFAULT))
 LEAD_DIAS           = _safe_float(CTX.get('lead_dias', LEAD_DIAS_DEFAULT), LEAD_DIAS_DEFAULT)
 LEAD_WEEKS          = max(LEAD_DIAS / 7.0, 0.0)
-REVIEW_DIAS         = _safe_float(CTX.get('review_dias', REVIEW_DIAS_DEFAULT), REVIEW_DIAS_DEFAULT)
-REVIEW_WEEKS        = max(REVIEW_DIAS / 7.0, 0.0)
 DEFAULT_COBERTURA_DIAS  = _safe_float(CTX.get('default_cobertura_dias', DEFAULT_COBERTURA_DIAS_DEFAULT), DEFAULT_COBERTURA_DIAS_DEFAULT)
 DEFAULT_COBERTURA_WEEKS = max(DEFAULT_COBERTURA_DIAS / 7.0, 0.0)   # piso PURCHASE_CYCLE_WEEKS se aplica en period_weeks
 PAYMENT_DAYS        = _safe_float(CTX.get('payment_days',        PAYMENT_DAYS_DEFAULT),        PAYMENT_DAYS_DEFAULT)
@@ -2465,10 +2472,14 @@ else:
                             # cuentan en la cobertura, NO se netean.
                             # v9.15.0: ROP canonico = mu*(L+review) + z*sigma*sqrt(L+review),
                             # ligado al lead+review (no al 50%*target). Dispara reponer_ahora.
-                            _rop_prot_w = max(L_sku_weeks + REVIEW_WEEKS, 0.0)
-                            _rop_units  = demanda_semanal * _rop_prot_w + safety_factor_used * max(sigma_week, 0.0) * (_rop_prot_w ** 0.5)
-                            _rop_weeks  = (_rop_units / demanda_semanal) if demanda_semanal > 0.0 else None
-                            cover_label = _cover_label(cover_weeks, demanda_semanal, reorder_target_weeks, rop_weeks=_rop_weeks)
+                            # v9.19.0: gatillo ROP ELIMINADO. Se reordena hasta el TARGET
+                            # (order-up-to): reorder_at = C, asi cualquier cobertura < target
+                            # dispara reponer_ahora. La compra es periodica por proveedor (cada
+                            # R = Fo de Compra, con timing manual); el ROP canonico de revision
+                            # continua (mu*(L+review)+z*sigma*sqrt(L+review)) disparaba muy tarde
+                            # para ese esquema (stock < target y no compraba). El MOQ box_or_wait
+                            # sigue evitando pedidos sub-caja.
+                            cover_label = _cover_label(cover_weeks, demanda_semanal, reorder_target_weeks, rop_weeks=reorder_target_weeks)
 
                         if demanda_semanal <= 0.0:
                             projected_cover_weeks = 999.0
