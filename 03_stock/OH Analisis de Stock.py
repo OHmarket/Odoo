@@ -1,7 +1,41 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.19.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.21.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.21.0 (2026-09-05): DEPLOYMENT (CD->sala) SEPARADO de PROCUREMENT (CD<-proveedor).
+#   La sala solo_bodega se dimensiona al Fo de ENVIO (deployment horizon), NO al ciclo de
+#   compra R del proveedor. Target sala = mu*Fo_envio + z*sigma*sqrt(1sem). El CD sigue
+#   COMPRANDO a R (echelon, mu_red*R) y guarda el colchon de red POOLED; solo cambia el
+#   ritmo de DESPACHO a sala. Modelo SAP APO (procurement vs deployment). REVIERTE v9.16.0
+#   (que habia fusionado sala_work con R = ~1 mes en sala). Fuente del Fo: warehouse CD,
+#   campo Studio x_studio_fo_envio_sala (config de bodega); context cd_deploy_dias manda;
+#   vacio -> CD_DEPLOY_DIAS_DEFAULT = 7d (despacho semanal). Global (un valor para todas las
+#   salas). Efecto: mucho menos stock parado en salas lentas, colchon pooled en CD, menos
+#   racionamiento por sala (la red pide ~1 sem, no ~1 mes). Ej.: Merlot 6230 Mehuin target
+#   10 -> ~4; necesidad de red del SKU 61 -> 22 (el CD de 41 ya no raciona). _work_base sigue
+#   = period_weeks solo para el financial_ceiling. Fair Share (v9.4.0) intacto.
+#   DEPENDENCIA CRITICA: prende CD_ECHELON_PERIOD (default False -> True). Sin el echelon,
+#   target_red = Σtarget_salas; al acortar la sala esa suma colapsa y el CD deja de comprar
+#   el buffer mensual -> quiebre al drenar el stock. Con echelon ON el CD compra a R
+#   (mu_red*R) y el colchon queda pooled en el CD (procurement mensual + deployment semanal).
+#   Las dos mitades van juntas. VALIDAR dry-run (mirar log CD_ECHELON delta_cash de flota).
+#
+# v9.20.0 (2026-09-05): COLA LARGA DESACTIVADA -> regla UNICA order-up-to para todo
+#   mu > DEMAND_FLOOR. Se elimina el segmento intermedio 0.23-3/sem que "armaba caja"
+#   (lote (s,S) por caja autofinanciada, v9.6.0). Ahora solo quedan 2 segmentos:
+#     mu <= 0.23 (DEMAND_FLOOR): sin_salida / congelar (sin cambio).
+#     mu >  0.23: regla normal order-up-to (solo_bodega: mu*R + z*sigma*sqrt(1sem);
+#                 compra directa: _calc_target_units). z por ABCXYZ (canon SAP/Oracle).
+#   Motivo: el segmento "arma-caja" es un hack no-canonico; los ERPs grandes usan un solo
+#   order-up-to con z diferenciado por ABC, no un tratamiento especial por rotacion baja.
+#   Mecanismo: COLA_UMBRAL_WEEK 3.0 -> 0.0 (cierra el gate; el bloque cola larga queda
+#   dormido, reversible por context cola_umbral_week). COLA_OBJETIVO/PLAZO_PAGO/PISO quedan
+#   INERTES. IMPACTO MEDIDO (7.872 lineas del segmento, prod snapshot): +32.774 u (+38.5%),
+#   ~$54M CLP en las que suben; 90% cae en X-class (lentos estables) por el safety que la
+#   cola larga sacaba (z*sigma); componente cobertura=0 (proveedores ~30d). REVIERTE parte
+#   de la calibracion 2026-06-04 que habia recortado ese colchon. Fair Share (reparto CD
+#   corto, v9.4.0) NO se toca. VALIDAR con dry-run A/B antes de promover.
 #
 # v9.19.0 (2026-08-27): gatillo ROP ELIMINADO -> reorden hasta el TARGET (order-up-to).
 #   El ROP canonico de revision continua (v9.15.0: mu*(L+review)+z*sigma*sqrt(L+review))
@@ -251,7 +285,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_19_0_SIN_ROP_REORDEN_A_TARGET'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_21_0_DEPLOYMENT_SPLIT_FO_ENVIO'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -308,6 +342,7 @@ MOQ_CRITICAL_FACTOR_DEFAULT   = 0.50   # critico si cobertura < periodo * este f
 RETURN_HOLD_WEEKS_DEFAULT    = 8.0
 RETURN_TRIGGER_WEEKS_DEFAULT = 8.0
 CD_DELIVERY_EXTRA_DAYS_DEFAULT = 0.0  # buffer logistico CD->sala ELIMINADO (sala_H = 1.0 sem exacta; el CD entrega dentro de la semana). Override por context cd_delivery_extra_days si se requiere holgura puntual.
+CD_DEPLOY_DIAS_DEFAULT = 7.0  # v9.21.0: Fo de ENVIO CD->sala (deployment horizon), SEPARADO del ciclo de compra R. La sala solo_bodega se dimensiona a este horizonte (mu*Fo_envio + safety), no al ciclo de compra del proveedor. Fuente: stock.warehouse(CD).x_studio_fo_envio_sala; vacio -> este default (7d = despacho semanal). Override por context cd_deploy_dias. El CD sigue COMPRANDO a R (echelon), solo cambia el ritmo de DESPACHO a sala (SAP APO: procurement vs deployment).
 CENTRAL_TEAM_ID_DEFAULT = 26
 
 # ── Flags de prueba (v9.9.0) ─────────────────────────────────────────────────
@@ -321,11 +356,15 @@ DRY_RUN_DEFAULT = False
 
 # CD_ECHELON_PERIOD: v9.9.0. Off = el CD compra Σ target_salas (comportamiento
 #   v9.8.0, hereda el cap de cobertura de la sala). On = el CD compra a SU
-#   horizonte (si.delay). Existe para poder correr A/B sobre la misma data.
-#   Default False para el primer despliegue, igual que ENABLE_XYZ_LOCAL: se
-#   activa por contexto, se valida, y recien ahi se cambia el default.
-#     .with_context(dry_run=True, cd_echelon_period=True).run()
-CD_ECHELON_PERIOD_ENABLED_DEFAULT = False
+#   horizonte (R = ciclo del proveedor). Existe para poder correr A/B sobre la misma data.
+#   v9.21.0: DEFAULT True. Es la OTRA MITAD del deployment split: al acortar la sala al
+#   Fo de envio (~7d), Σ target_salas colapsa al horizonte corto -> con echelon OFF el CD
+#   compraria solo ~1 sem de red (Σtargets) y NO repondria el buffer mensual -> quiebre
+#   cuando drena el stock actual. Con echelon ON el CD compra a R (mu_red*R + safety) y
+#   mantiene el colchon POOLED, que es el objetivo del modelo SAP APO (procurement mensual,
+#   deployment semanal). disponible_red netea el stock de salas (no double-count). Para el
+#   legacy Σtarget_salas: .with_context(cd_echelon_period=False).run()
+CD_ECHELON_PERIOD_ENABLED_DEFAULT = True
 
 # LEAD_SAFETY: v9.10.0. Modelo order-point (s,Q): safety sobre el LEAD (L), no sobre
 #   el ciclo (R). v9.14.0: DEFAULT True (validado en prod). On = safety sobre L=lead
@@ -389,10 +428,10 @@ PRESENTATION_PACK       = 6
 # Politica de cola larga (CD->sala): lote minimo (s,S) por caja autofinanciada.
 # Completa hacia abajo la curva de minimos (presentacion solo cubre mu>3/sem).
 # Ver proyectos/2026-06-30-cola-larga-lote-caja/diseno.md
-COLA_UMBRAL_WEEK_DEFAULT     = 3.0     # gate: mu_for_target <= umbral entra a la politica
-COLA_OBJETIVO_DIAS_DEFAULT   = 30.0    # cobertura objetivo del lote (1 mes); dimensiona la fraccion
-COLA_PLAZO_PAGO_DIAS_DEFAULT = 45.0    # techo: caja entera si rinde <= esto; sino fracciona. PROXY: global, no por proveedor
-COLA_PISO_UNIDADES_DEFAULT   = 1.0     # presencia minima / piso del ROP
+COLA_UMBRAL_WEEK_DEFAULT     = 0.0     # v9.20.0: 0 = cola larga DESACTIVADA. El segmento 0.23-3/sem ya NO arma caja/lote especial; cae en la regla normal order-up-to (mu*R + z*sigma). Regla unica para todo mu > DEMAND_FLOOR. Historico: 3.0. Override por context cola_umbral_week si se quiere reactivar.
+COLA_OBJETIVO_DIAS_DEFAULT   = 30.0    # INERTE con umbral=0. cobertura objetivo del lote (1 mes); dimensiona la fraccion
+COLA_PLAZO_PAGO_DIAS_DEFAULT = 45.0    # INERTE con umbral=0. techo: caja entera si rinde <= esto; sino fracciona. PROXY: global, no por proveedor
+COLA_PISO_UNIDADES_DEFAULT   = 1.0     # INERTE con umbral=0. presencia minima / piso del ROP
 
 # v9.14.0: COVER_CAP_* (techo cobertura por rotacion, v9.7.0) ELIMINADO -> estaba
 # muerto (no mordia solo_bodega; compra directa exenta/cubre ciclo). Ver v9.14.0 header.
@@ -1042,6 +1081,21 @@ Team        = env['crm.team'].sudo()
 StockLoc    = env['stock.location'].sudo()
 StockWh     = env['stock.warehouse'].sudo()
 PosConfig   = env['pos.config'].sudo()
+
+# v9.21.0: Fo de ENVIO CD->sala (deployment). Se lee del warehouse CD (config de bodega,
+# campo Studio x_studio_fo_envio_sala). Context cd_deploy_dias manda; luego el campo del CD;
+# vacio/ausente -> CD_DEPLOY_DIAS_DEFAULT (7d). Se resuelve UNA vez (global para todas las salas).
+CD_DEPLOY_DIAS = _safe_float(CTX.get('cd_deploy_dias', 0.0), 0.0)
+if CD_DEPLOY_DIAS <= 0.0:
+    try:
+        _cd_wh_cfg = StockWh.browse(CENTRAL_WAREHOUSE_ID)
+        if _cd_wh_cfg and _cd_wh_cfg.exists():
+            CD_DEPLOY_DIAS = _safe_float(_cd_wh_cfg.x_studio_fo_envio_sala, 0.0)
+    except Exception:
+        CD_DEPLOY_DIAS = 0.0
+if CD_DEPLOY_DIAS <= 0.0:
+    CD_DEPLOY_DIAS = CD_DEPLOY_DIAS_DEFAULT
+CD_DEPLOY_WEEKS = max(CD_DEPLOY_DIAS / 7.0, 0.0)
 
 fields_map  = Anal._fields or {}
 pt_fields   = ProductTmpl._fields or {}
@@ -2366,16 +2420,24 @@ else:
                                 price_cash_source = kit_component_cost_source
 
                         solo_bodega = bool(meta.get('solo_bodega'))
-                        # Sala surtida por CD: horizonte de TRABAJO = period_weeks (R, ciclo
-                        # completo del proveedor). El SAFETY va sobre el ciclo logistico (1 sem),
-                        # desacoplado del trabajo. v9.13.0: MAX_COVER_WEEKS (cap 15d) eliminado.
-                        # v9.16.0: cap fast-lead 7d (v9.8.0) ELIMINADO -> la sala carga el ciclo
-                        # entero del proveedor tambien para rotacion alta (decision comercial:
-                        # rotadores estables ~1 mes en sala en vez de 7d). El target sigue siendo
-                        # base-stock canonico: S = mu*R + z*sigma*sqrt(1 sem) + vitrina.
+                        # Sala surtida por CD: horizonte de TRABAJO = Fo de ENVIO (deployment,
+                        # CD_DEPLOY_WEEKS del warehouse CD, default 7d). El SAFETY va sobre el ciclo
+                        # logistico (1 sem), desacoplado del trabajo. Target base-stock canonico:
+                        # S = mu*Fo_envio + z*sigma*sqrt(1 sem) + vitrina.
+                        # Historia del horizonte de trabajo: v9.8.0 cap fast-lead 7d; v9.16.0 lo
+                        # elimino -> sala cargaba el ciclo COMPLETO del proveedor (R, ~1 mes) tambien
+                        # para rotacion alta; v9.21.0 REVIERTE eso y separa deployment (Fo envio) de
+                        # procurement (R): la sala se dimensiona al Fo de envio, el CD compra a R via
+                        # echelon. El colchon de red queda pooled en el CD (SAP APO). MAX_COVER_WEEKS
+                        # (cap 15d, v9.13.0) sigue eliminado.
                         if solo_bodega:
                             _work_base = period_weeks
-                            sala_work_weeks = _work_base
+                            # v9.21.0: la sala se dimensiona al Fo de ENVIO (deployment,
+                            # CD_DEPLOY_WEEKS del warehouse CD), NO al ciclo de compra R
+                            # (=_work_base). _work_base se conserva solo para el financial_ceiling
+                            # (acortar el horizonte de trabajo no debe apretar la guardia). El CD
+                            # sigue comprando a R via echelon; solo cambia el ritmo de despacho a sala.
+                            sala_work_weeks = CD_DEPLOY_WEEKS
                         else:
                             _work_base = 0.0
                             sala_work_weeks = 0.0
