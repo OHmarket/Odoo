@@ -16,8 +16,8 @@ sys.path.insert(0, str(HERE))
 from helpers import (_redondeo_2dec, alinear, cuadra_3, dte_totales,  # noqa: E402
                      estado_texto, exige_sku, lineas_sin_sku, mapeo_por_nombre,
                      mapeos_a_aprender, motivo, normalizar, parse_items,
-                     price_fixes, recargo_embebido, tiene_ila_origen,
-                     unidad_ok, uom_fixes, uom_mal)
+                     price_fixes, recargo_embebido, tiene_especifico_diesel,
+                     tiene_ila_origen, unidad_ok, uom_fixes, uom_mal)
 
 TOL = 2.0
 FX = json.loads((HERE / 'resultados' / 'fixtures.json').read_text(encoding='utf-8'))
@@ -495,6 +495,27 @@ check('HOLD con motivo codigo_no_vinculado', estado_texto('codigo_no_vinculado',
       'Cuadre DTE HOLD - codigo(s) sin vincular')
 check('HOLD con motivo desconocido cae al code crudo', estado_texto('otro_x', 0),
       'Cuadre DTE HOLD - otro_x')
+
+print()
+print('=' * 74)
+print('N. tiene_especifico_diesel — senal del PASO 1.6 (combustible CodImpAdic 28)')
+print('=' * 74)
+# recorte real de la linea del DTE de Copec FAC 31908071 (con el <ImptoReten>
+# buggeado en $1): la senal fuerte es CodImpAdic 28 en el <Detalle>.
+_diesel = ('<Detalle><NmbItem>PETROLEO DIESEL GRADO B</NmbItem>'
+           '<QtyItem>17.02</QtyItem><PrcItem>1109.34195</PrcItem>'
+           '<CodImpAdic>28</CodImpAdic><MontoItem>18881</MontoItem></Detalle>'
+           '<ImptoReten><TipoImp>28</TipoImp><MontoImp>1</MontoImp></ImptoReten>')
+check('diesel (CodImpAdic 28) -> True', tiene_especifico_diesel(_diesel), True)
+check('factura normal sin CodImpAdic -> False',
+      tiene_especifico_diesel('<Detalle><NmbItem>WHISKY</NmbItem>'
+                              '<MontoItem>9990</MontoItem></Detalle>'), False)
+# gasolina y otros impuestos adicionales NO son el especifico diesel (cod 28)
+check('otro CodImpAdic (no 28) -> False',
+      tiene_especifico_diesel('<Detalle><CodImpAdic>35</CodImpAdic></Detalle>'), False)
+check('CodImpAdic con 28 embebido en otro numero (280/128) -> False',
+      tiene_especifico_diesel('<Detalle><CodImpAdic>280</CodImpAdic>'
+                              '<CodImpAdic>128</CodImpAdic></Detalle>'), False)
 
 print()
 if fails:

@@ -120,6 +120,27 @@ def dte_totales(xml):
             'total': _num(_seg(tot, '<MntTotal>', '</MntTotal>'))}
 
 
+def tiene_especifico_diesel(xml):
+    """True si alguna linea del DTE declara el Impuesto Especifico Diesel
+    (CodImpAdic 28, Ley 18.502). Es la senal del PASO 1.6 del SA: Copec/G&G
+    netean el especifico del total a pagar, el DTE trae neto+IVA > MntTotal y el
+    <ImptoReten> cod 28 viene buggeado en $1 (medido FAC 31908071 y 256280), asi
+    que el gap real (Odoo_total - MntTotal) es el especifico, no un error del XML.
+    Parseo por str.find (safe_eval: sin re). Gasolina lleva otro codigo, no 28.
+    """
+    i = 0
+    while True:
+        a = xml.find('<CodImpAdic>', i)
+        if a == -1:
+            return False
+        b = xml.find('</CodImpAdic>', a)
+        if b == -1:
+            return False
+        if xml[a + len('<CodImpAdic>'):b].strip() == '28':
+            return True
+        i = b
+
+
 def parse_items(xml):
     """DTE -> lista de items EN ORDEN: nombre/codigo/ean/qty/monto/prc/desc/rec.
 

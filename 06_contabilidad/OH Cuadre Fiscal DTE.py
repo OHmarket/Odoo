@@ -1,4 +1,24 @@
-# OH Cuadre Fiscal DTE v0.16  (ir.actions.server / account.move / safe_eval)
+# OH Cuadre Fiscal DTE v0.17  (ir.actions.server / account.move / safe_eval)
+#
+# Diferencias con v0.16:
+#   1. PASO 1.6: especifico diesel NO recuperable (combustible, CodImpAdic 28,
+#      Ley 18.502). Copec/G&G ('Petroleo') netean el Impuesto Especifico Diesel
+#      del total a pagar -> el DTE trae neto+IVA > MntTotal y el <ImptoReten>
+#      cod 28 viene buggeado en $1; el gap real (Odoo_total - MntTotal) ES el
+#      especifico (medido FAC 31908071: 2.468; 256280: 10.287; 370012: 810). OH lo
+#      CONSUME para mover la logistica (vehiculos en via publica) y NO lo recupera
+#      (no aplica art.7 Ley 18.502 -uso no vehicular- ni tramo Ley 19.764
+#      -transporte de carga-) -> el especifico es COSTO. En el MISMO savepoint
+#      (todo-o-nada) se hace: (a) el fix de precio del PASO 1.5 -el diesel viene
+#      con QtyItem de 3 decimales (ej 14.663) que la UoM capa a 14.66 y deja el
+#      neto corto por unos pesos; sin este fix PASO 1.5 lo revierte solo porque el
+#      total aun no cuadra por el especifico (deadlock)- y (b) una linea de ajuste
+#      -esp SIN impuesto a la cuenta de gasto del combustible, dejando el IVA
+#      credito (19% del neto) intacto. El neto esperado baja en esp (el especifico
+#      reduce el gasto): el gate cuadra neto-esp / IVA / MntTotal. Idempotente
+#      (marca NOMBRE_ESPECIFICO). Espejo del PASO 1.7 (tabaco) con el signo del gap
+#      invertido (alli el ImptoReten SUMA al total, aca RESTA). Helper puro nuevo:
+#      tiene_especifico_diesel(xml).
 #
 # Diferencias con v0.15:
 #   1. PASO 1.9: cuadre fino del IVA al DTE, DENTRO del savepoint del margen
@@ -191,6 +211,10 @@ TAX_MARGEN = 44           # IVA Margen Comercializacion Tabaco (1,22% plano, sii
 NOMBRE_FLETE = 'RECARGO (flete)'   # marca del flete separado por el motor:
                                    # persiste en la factura y bloquea el posteo
                                    # mientras POST_RECARGO sea False
+NOMBRE_ESPECIFICO = 'Ajuste Impuesto Especifico Diesel (no recuperable)'  # v0.17:
+                                   # marca de la linea de ajuste del especifico
+                                   # diesel (PASO 1.6). Idempotente: si ya existe
+                                   # en la factura, no se re-agrega.
 MARCA_HOLD = 'cuadre v0.7:'   # firma de los holds propios (ver PASO 0) — NO TOCAR: v0.8 sigue usando esta firma
 
 
@@ -248,6 +272,26 @@ def dte_totales(xml):
             'iva': _num(_seg(tot, '<IVA>', '</IVA>')),
             'otros': otros,
             'total': _num(_seg(tot, '<MntTotal>', '</MntTotal>'))}
+
+
+def tiene_especifico_diesel(xml):
+    # True si alguna linea del DTE declara el Impuesto Especifico Diesel
+    # (CodImpAdic 28, Ley 18.502). Es la senal del PASO 1.6: Copec/G&G netean el
+    # especifico del total a pagar, el DTE trae neto+IVA > MntTotal y el
+    # <ImptoReten> cod 28 viene buggeado en $1 (medido FAC 31908071 y 256280), asi
+    # que el gap real (Odoo_total - MntTotal) es el especifico, no un error del XML.
+    # Parseo por str.find (safe_eval: sin re). Gasolina lleva otro codigo, no 28.
+    i = 0
+    while True:
+        a = xml.find('<CodImpAdic>', i)
+        if a == -1:
+            return False
+        b = xml.find('</CodImpAdic>', a)
+        if b == -1:
+            return False
+        if xml[a + len('<CodImpAdic>'):b].strip() == '28':
+            return True
+        i = b
 
 
 def cuadra_3(untaxed, tax, total, tot, tol):
@@ -738,7 +782,7 @@ def _post_estado(move, texto):
 
 env.cr.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_KEY,))
 if not env.cr.fetchone()[0]:
-    log('cuadre-fiscal v0.15: lock ocupado, salgo')
+    log('cuadre-fiscal v0.17: lock ocupado, salgo')
     action = {'type': 'ir.actions.act_window_close'}
 else:
     HOY = datetime.date.today()
@@ -838,7 +882,7 @@ else:
                 continue
         lote.append(m)
 
-    msgs = ['=== OH Cuadre Fiscal DTE v0.15 (dry=%s post=%s) ventana=%s..%s ==='
+    msgs = ['=== OH Cuadre Fiscal DTE v0.17 (dry=%s post=%s) ventana=%s..%s ==='
             % (DRY_RUN, DO_POST, DESDE, HASTA),
             'universo=%d  en_hold=%d  lote=%d  (de los cuales tabaco=%d)'
             % (len(universo), en_hold, len(lote), n_tabaco)]
@@ -1089,6 +1133,80 @@ else:
                                 % (m.name, len(fixes),
                                    'cuadraria' if ok2 else 'NO cuadra',
                                    ' [DRY]' if DRY_RUN else ''))
+
+        # --- PASO 1.6: especifico diesel NO recuperable (combustible)
+        # Copec/G&G ('Petroleo') netean el Impuesto Especifico Diesel (CodImpAdic
+        # 28, Ley 18.502) del total a pagar: el DTE trae neto+IVA > MntTotal y el
+        # <ImptoReten> cod 28 viene buggeado en $1, asi que el gap real
+        # (Odoo_total - MntTotal) ES el especifico (medido FAC 31908071: 2.468;
+        # 256280: 10.287; 370012: 810). OH lo CONSUME para logistica (via publica)
+        # y NO lo recupera -> el especifico es COSTO. En el MISMO savepoint (todo-o-
+        # nada) se hace: (1) el fix de precio del PASO 1.5 -el diesel viene con
+        # QtyItem de 3 decimales (14.663) que la UoM capa a 14.66 y deja el neto
+        # corto por unos pesos; sin este fix el neto no calza y PASO 1.5 lo revierte
+        # solo porque el total aun no cuadra por el especifico (deadlock); y (2) una
+        # linea de ajuste -esp SIN impuesto a la cuenta de gasto del combustible,
+        # dejando el IVA credito (19% del neto) intacto. El neto esperado baja en
+        # esp (el especifico reduce el gasto): el gate cuadra neto-esp / IVA /
+        # MntTotal. Idempotente por la marca NOMBRE_ESPECIFICO. Distinto del PASO
+        # 1.7 (tabaco): alli el ImptoReten SUMA al total, aca RESTA (signo opuesto).
+        if not ok and not di and dt and tiene_especifico_diesel(xml):
+            ya = False
+            for l in m.invoice_line_ids:
+                if (l.name or '') == NOMBRE_ESPECIFICO:
+                    ya = True
+            cta_esp = 0
+            mejor = -1.0
+            for l in prod_lines:
+                if abs(l.price_subtotal) > mejor:
+                    mejor = abs(l.price_subtotal)
+                    cta_esp = l.account_id.id
+            if not ya and cta_esp:
+                by_id = {}
+                for l in prod_lines:
+                    by_id[l.id] = l
+                env.flush_all()
+                env.cr.execute("SAVEPOINT cuadre_esp")
+                # (1) cuadrar el neto: redondeo de qty capada por la UoM (mismo
+                # price_fixes del PASO 1.5, que aca se auto-revirtio por el total).
+                for (lid, pu) in price_fixes(lineas, items):
+                    by_id[lid].write({'price_unit': pu, 'discount': 0.0})
+                env.flush_all()
+                # (2) el especifico = lo que resta para llegar al MntTotal del DTE.
+                esp = round(m.amount_total - tot['total'], 2)
+                oke = False
+                if esp > TOL:
+                    m.write({'invoice_line_ids': [(0, 0, {
+                        'name': NOMBRE_ESPECIFICO,
+                        'quantity': 1.0,
+                        'price_unit': -esp,
+                        'account_id': cta_esp,
+                        'tax_ids': [(6, 0, [])]})]})
+                    env.flush_all()
+                    tot_e = dict(tot)
+                    tot_e['neto'] = tot['neto'] - esp
+                    oke, dne, die, dte2 = cuadra_3(m.amount_untaxed, m.amount_tax,
+                                                   m.amount_total, tot_e, TOL)
+                if oke and not DRY_RUN:
+                    env.cr.execute("RELEASE SAVEPOINT cuadre_esp")
+                    ok, dn, di, dt = oke, dne, die, dte2
+                    msgs.append('  %-16s AJUSTE especifico diesel -%d (no recup) -> cuadra'
+                                % (m.name, int(round(esp))))
+                else:
+                    env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_esp")
+                    # ver PASO 1.5: invalidate_all(flush=False) para NO re-persistir lo revertido.
+                    env.invalidate_all(flush=False)
+                    if esp <= TOL:
+                        msgs.append('  %-16s especifico diesel: gap<=TOL tras cuadrar neto (no ajusta)'
+                                    % m.name)
+                    else:
+                        msgs.append('  %-16s ajuste especifico -%d -> %s%s'
+                                    % (m.name, int(round(esp)),
+                                       'cuadraria' if oke else 'NO cuadra',
+                                       ' [DRY]' if DRY_RUN else ''))
+            elif not cta_esp:
+                msgs.append('  %-16s especifico diesel: sin cuenta de gasto en la linea (no ajusta)'
+                            % m.name)
 
         # --- PASO 1.7: ajuste del IVA de margen de tabaco (cod 14) al DTE.
         # BAT factura el IVA de margen presunto (ImptoReten cod 14) como un monto
@@ -1362,6 +1480,6 @@ else:
     env.cr.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
     action = {
         'type': 'ir.actions.client', 'tag': 'display_notification',
-        'params': {'title': 'Cuadre Fiscal DTE v0.15 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
+        'params': {'title': 'Cuadre Fiscal DTE v0.17 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
                    'message': texto, 'sticky': True},
     }
