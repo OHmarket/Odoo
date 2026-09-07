@@ -161,7 +161,7 @@ Validacion post-pipeline:
 
 Capas paralelas (no bloquean el pipeline):
 - `02_forecast/OH Cambio de Precio.py` (snapshot de eventos -> insumo de Price Correccion)
-- `04_analitica/` (Team, Categoria, SKU, Margen, Precios Competencia Trebol)
+- `04_analitica/` (Team, Categoria, SKU, Margen)
 - `05_finanzas/OH Flujo de Caja.py` (proyeccion 90 dias)
 
 Laboratorio (solo backtests):
