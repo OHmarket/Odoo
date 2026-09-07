@@ -34,6 +34,7 @@ ALLOWED_METHODS = frozenset({
     'search_read',
     'search_count',
     'read',
+    'read_group',
     'fields_get',
     'read_group',
     'name_search',
@@ -116,6 +117,37 @@ class OdooReader:
 
     def search_count(self, model: str, domain: list | None = None) -> int:
         return self.execute(model, 'search_count', domain or [])
+
+    def read_group(
+        self,
+        model: str,
+        domain: list | None = None,
+        fields: list[str] | None = None,
+        groupby: list[str] | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+        orderby: str | None = None,
+        lazy: bool = False,
+    ) -> list[dict]:
+        """Agregacion SERVER-SIDE. Preferir sobre search_read masivo.
+
+        El CLAUDE.md del repo lo pide explicito: traer cientos de miles de filas
+        por XML-RPC mata la cache del POS en una instancia productiva. read_group
+        agrega en Postgres y devuelve decenas de filas.
+
+        lazy=False agrupa por TODOS los campos de groupby a la vez (comportamiento
+        esperado); lazy=True (default de Odoo) agrupa solo por el primero.
+        """
+        kw: dict = {'lazy': lazy}
+        if limit is not None:
+            kw['limit'] = limit
+        if offset:
+            kw['offset'] = offset
+        if orderby is not None:
+            kw['orderby'] = orderby
+        return self.execute(
+            model, 'read_group', domain or [], fields or [], groupby or [], **kw
+        )
 
     def fields_get(self, model: str, attributes: list[str] | None = None) -> dict:
         kw = {'attributes': attributes} if attributes else {}
