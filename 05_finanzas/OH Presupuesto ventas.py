@@ -2,7 +2,7 @@
 # OH Presupuesto Ventas - Recalc ayer + futuro hasta 31-12-2026
 # ============================================================
 #
-# Version activa: v13 (ver CHANGELOG.md para historial completo)
+# Version activa: v14 (ver CHANGELOG.md para historial completo)
 #
 # Objetivo:
 #   - Recalcula presupuesto de ayer (D-1) y proyecta hacia el futuro
@@ -13,6 +13,15 @@
 #   - Feriados leidos desde x_holiday_occurrence + x_holiday_master.
 #     La politica de offsets P/H por codigo queda en este archivo.
 #   - Logica especial Ano Nuevo cross-year.
+#   - EFECTO FERIADO ADITIVO (v14) para bloques con feriado grande que cambia de
+#     dia de semana entre anos (dieciocho). En la ventana D-5..D+3:
+#       RAMPA  (offset <= +1): proj = baseline_TY[weekday] + YoY * surplus[offset]
+#       RESACA (offset >= +2): proj = baseline_TY[weekday] * min(1.0, ratio[offset])
+#     surplus/ratio se miden weekday-limpios del ano base (venta_LY vs baseline_LY
+#     de ESE weekday) y se anclan al OFFSET al feriado, no al dia de semana.
+#     El surplus es de red y se reparte por sala segun tamano (share rolling30),
+#     lo que cubre salas con hueco de datos o reaperturas.
+#     Canon: holiday effect aditivo (Prophet), event lift (SAP IBP / Oracle Demantra).
 #   - SAFE_EVAL friendly: sin imports, sin global, sin getattr.
 #   - Parametros: ALPHA_BLEND=0.25, ROLL_WINDOW_DAYS=45, LONG_WINDOW_DAYS=365,
 #     WEEKS_FOR_WD_AVG=4, MIN_BASE_IN_WINDOW=30M.
@@ -20,7 +29,7 @@
 # Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = "PRESU_WD_TAG_v13_HOLIDAYS_FROM_MODEL__OFFSET_POLICY_IN_CODE"
+VERSION_ID = "PRESU_WD_TAG_v14_HOLIDAY_ADDITIVE__DIECIOCHO_OFFSET_SURPLUS"
 
 # ================== Parametros ==================
 TZ_NAME = 'America/Santiago'
@@ -68,6 +77,24 @@ TEAM_DAILY_FLOOR_ABS_MIN = 300000
 TEAM_DAILY_FLOOR_APPLY_PAST = True
 TEAM_DAILY_FLOOR_APPLY_FUTURE = True
 TEAM_DAILY_FLOOR_SCALE_MAX = 1.50
+
+# === v14: Efecto feriado ADITIVO (Prophet-style holiday effect) ===
+# Regla:  proj[d] = baseline_TY[weekday] + factor_YoY * surplus[offset_al_feriado]
+#         surplus[offset] = venta_LY[offset] - baseline_LY[weekday_de_ese_dia_LY]  (red)
+# El surplus de red se reparte por sala segun tamano (share del rolling30).
+# Ancla el efecto al OFFSET al feriado (no al weekday) -> sobrevive el cambio de dia
+# entre anos. Aditivo -> nunca hunde un dia bajo su normal (salvo resaca real).
+ENABLE_HOLIDAY_ADDITIVE = True
+HOL_WINDOW_PRE = 5          # dias antes del feriado (D-5)
+HOL_WINDOW_POST = 3         # dias despues (D+3)
+HOLIDAY_ADDITIVE_CODES = set(['INDEPENDENCE_DAY'])  # dieciocho; extensible por codigo
+HOLIDAY_ADDITIVE_BASE_YEARS_BACK = [1]  # surplus desde LY. [1,2] = promediar 2 anos (requiere escalado por-ano)
+HOL_CLEAN_BASELINE_WEEKS = 5           # semanas para baseline limpio de weekday
+# Resaca por POSICION (no por signo): dias con offset >= este umbral son cola
+# post-feriado -> efecto proporcional (ratio) capado a <=1.0 (el evento solo deprime
+# la cola, nunca la sube). Definir por offset evita que el weekday del ano base
+# contamine el signo (backtest 2025: D+2 cayo viernes en 2024 -> sabado en 2025).
+HOL_RESACA_MIN_OFFSET = 2
 
 # === Override piso absoluto por team (reaperturas / sucursales especiales) ===
 # San José (11): override quitado 2026-06-17. La sala ya tiene 82 días de venta
@@ -606,6 +633,107 @@ team_name_cache = {}
 for t in env['crm.team'].sudo().browse(teams_iter):
     team_name_cache[t.id] = t.display_name or t.name or ('Equipo %s' % t.id)
 
+# ================== 4.1) v14: Efecto feriado ADITIVO (precompute) ==================
+# Construye:
+#   share_frac[tid]                -> tamano relativo de la sala (share del rolling30)
+#   event_surplus_ty_by_date[d]    -> RAMPA (surplus > 0): pesos de red (nivel TY) que
+#                                     aporta el feriado; se reparten por share en el loop.
+#   event_resaca_ratio_by_date[d]  -> RESACA (surplus < 0): el dia queda a este % de su
+#                                     nivel normal. El bajon post-feriado es proporcional
+#                                     (no absoluto): un aditivo negativo medido en un dia
+#                                     de baseline alto (sab) sobre-resta en uno bajo (dom).
+event_surplus_ty_by_date = {}
+event_resaca_ratio_by_date = {}
+share_frac = {}
+
+if ENABLE_HOLIDAY_ADDITIVE:
+    # (1) share por sala = tamano relativo (rolling30). Robusto a huecos/reaperturas.
+    _sz_tot = 0.0
+    for tid in teams_iter:
+        _sz_tot += (avg_rolling30_by_team.get(tid, 0.0) or 0.0)
+    _n_teams = len(teams_iter) if teams_iter else 1
+    for tid in teams_iter:
+        if _sz_tot > 0.0:
+            share_frac[tid] = (avg_rolling30_by_team.get(tid, 0.0) or 0.0) / _sz_tot
+        else:
+            share_frac[tid] = 1.0 / _n_teams
+
+    # (2) venta diaria de RED (suma de salas)
+    net_daily = {}
+    for tid in teams_iter:
+        tmap = sales_by_team.get(tid, {})
+        for dd_k, vv in tmap.items():
+            net_daily[dd_k] = net_daily.get(dd_k, 0.0) + (vv or 0.0)
+
+    # (3) YoY de red (nivel TY vs LY) sobre ventana larga real vs weekday-eq
+    _cy = 0.0
+    _by = 0.0
+    _k = 0
+    while _k < LONG_WINDOW_DAYS:
+        dd_k = calc_today - datetime.timedelta(days=_k)
+        _cy += net_daily.get(dd_k, 0.0)
+        _beq = _weekday_eq_in_base_year(dd_k, dd_k.year - 1)
+        _by += net_daily.get(_beq, 0.0)
+        _k += 1
+    yoy_net = (_cy / _by) if _by > 0.0 else 1.0
+
+    # (4) baseline limpio de red para un weekday dado, buscando hacia atras desde el
+    #     ancla LY. Recorre DIA A DIA (no de 7 en 7): junta los ultimos N dias de ese
+    #     weekday que sean no-feriado y con venta. Top-level def -> sin closure sobre locals.
+    def _net_clean_wd_baseline(anchor_day, wd_target):
+        vals = []
+        dd_b = anchor_day - datetime.timedelta(days=1)
+        steps = 0
+        while (len(vals) < int(HOL_CLEAN_BASELINE_WEEKS)) and (steps < 90):
+            if dd_b.weekday() == wd_target and holiday_class_by_year.get(dd_b.year, {}).get(dd_b, 'N') == 'N':
+                v_b = net_daily.get(dd_b, 0.0) or 0.0
+                if v_b > 0.0:
+                    vals.append(v_b)
+            dd_b = dd_b - datetime.timedelta(days=1)
+            steps += 1
+        return (sum(vals) / float(len(vals))) if vals else 0.0
+
+    # (5) surplus TY por dia del bloque feriado, promediado sobre anos base disponibles
+    for _tgt_year in list(target_years):
+        for _code in HOLIDAY_ADDITIVE_CODES:
+            _a_ty = base_main_by_tag_by_year.get(_tgt_year, {}).get(_code)
+            if not _a_ty:
+                continue
+            _off = -int(HOL_WINDOW_PRE)
+            while _off <= int(HOL_WINDOW_POST):
+                _d_tgt = _a_ty + datetime.timedelta(days=_off)
+                if date_from_target <= _d_tgt <= horizon_end:
+                    _surp_vals = []
+                    _ratio_vals = []
+                    for _yb in HOLIDAY_ADDITIVE_BASE_YEARS_BACK:
+                        _a_ly = base_main_by_tag_by_year.get(_tgt_year - int(_yb), {}).get(_code)
+                        if not _a_ly:
+                            continue
+                        _ly_day = _a_ly + datetime.timedelta(days=_off)
+                        _net_real = net_daily.get(_ly_day, 0.0) or 0.0
+                        if _net_real <= 0.0:
+                            continue
+                        _net_bl = _net_clean_wd_baseline(_a_ly, _ly_day.weekday())
+                        if _net_bl <= 0.0:
+                            continue
+                        _surp_vals.append(_net_real - _net_bl)
+                        _ratio_vals.append(_net_real / _net_bl)
+                    if _surp_vals:
+                        if _off >= int(HOL_RESACA_MIN_OFFSET):
+                            # RESACA (por posicion): dia a X% de su nivel normal.
+                            # Capado a 1.0: la cola post-feriado nunca proyecta sobre
+                            # su normal, aunque en el ano base ese offset cayera en un
+                            # weekday todavia ocupado.
+                            _rt = sum(_ratio_vals) / float(len(_ratio_vals))
+                            if _rt > 1.0:
+                                _rt = 1.0
+                            event_resaca_ratio_by_date[_d_tgt] = _rt
+                        else:
+                            # RAMPA: efecto aditivo (empujon ~absoluto del feriado)
+                            _surp_avg = sum(_surp_vals) / float(len(_surp_vals))
+                            event_surplus_ty_by_date[_d_tgt] = yoy_net * _surp_avg
+                _off += 1
+
 # ================== 5) Crear AYER -> FIN 2026 ==================
 rows = []
 ty4_cache = {}
@@ -617,6 +745,9 @@ while d <= horizon_end:
     base_year = tgt_year - 1
 
     tgt_cls = holiday_class_by_year.get(tgt_year, {}).get(d, 'N')
+
+    # v14: este dia cae dentro de un bloque feriado (rampa aditiva o resaca proporcional)
+    hol_add = ENABLE_HOLIDAY_ADDITIVE and ((d in event_surplus_ty_by_date) or (d in event_resaca_ratio_by_date))
 
     d_base_eq = _weekday_eq_in_base_year(d, base_year)
     baseeq_cls = holiday_class_by_year.get(base_year, {}).get(d_base_eq, 'N')
@@ -755,6 +886,31 @@ while d <= horizon_end:
                         proj = floor_team
                         floor_team_applied = True
 
+        # ================== v14: OVERRIDE feriado ADITIVO ==================
+        # Reemplaza la proyeccion de los dias del bloque feriado por:
+        #   baseline_TY[weekday] + share_sala * surplus_TY_red[offset]
+        # (sobrescribe lo que hayan calculado CAL/LY4/floor; esos quedan sin efecto)
+        if hol_add:
+            keyc2 = (tid, d)
+            base_ty = ty4_cache.get(keyc2)
+            if base_ty is None:
+                cap_day2 = d - datetime.timedelta(days=1)
+                base_ty = _avg_lastN_same_weekday_ty(sales_by_team[tid], holiday_class_by_year.get(tgt_year, {}), d, wd, WEEKS_FOR_WD_AVG, cap_day2)
+                if base_ty <= 0.0:
+                    base_ty = avg_rolling30_by_team.get(tid, 0.0) or 0.0
+                ty4_cache[keyc2] = base_ty
+            if d in event_resaca_ratio_by_date:
+                # RESACA: dia a X% de su nivel normal (proporcional, weekday-limpio)
+                proj = base_ty * (event_resaca_ratio_by_date.get(d, 1.0) or 1.0)
+            else:
+                # RAMPA: baseline + share del surplus de red (aditivo)
+                _surp_d = event_surplus_ty_by_date.get(d, 0.0) or 0.0
+                proj = base_ty + (share_frac.get(tid, 0.0) or 0.0) * _surp_d
+            if proj < 0.0:
+                proj = 0.0
+            base_mode = 'HOL_ADD'
+            floor_team_applied = False
+
         # === métricas vs real: solo hasta AYER ===
         if d <= calc_today:
             bruto_curr = v_curr
@@ -778,6 +934,9 @@ while d <= horizon_end:
                 _trat = 'PROM_4_SEMANAS'
             else:
                 _trat = 'NORMAL'
+
+        if base_mode == 'HOL_ADD':
+            _trat = 'FERIADO_ADITIVO'
 
         vals = {
             'x_name': label,
@@ -891,7 +1050,7 @@ action = {
     'tag': 'display_notification',
     'params': {
         'title': 'Presupuesto de Ventas',
-        'message': 'OK | v13 | HolidaysFromModel | Desde %s a %s | Hoy=%s | Ayer=%s | Registros=%s'
+        'message': 'OK | v14 | HolidayAdditive | Desde %s a %s | Hoy=%s | Ayer=%s | Registros=%s'
                    % (_d2s(date_from_target), _d2s(horizon_end), _d2s(today_real), _d2s(calc_today), total),
         'type': 'success',
         'sticky': False,

@@ -1542,6 +1542,69 @@ Recomendado: ejecutar diariamente a las 06:00.
 
 ## 05_finanzas / OH Presupuesto ventas.py
 
+### v14 — Efecto feriado aditivo (feriado que cambia de dia de semana) (2026-09-07)
+
+Corrige la distribucion dia-a-dia del bloque dieciocho cuando el feriado cae en
+distinto dia de semana entre anos (18-sep: lun/mie/jue/vie segun el ano).
+
+**Problema.** Los dias etiquetados (16/17/18) usaban CAL (fecha-equivalente LY x
+factor), pero los dias *hombro* de la rampa no estan etiquetados: caian a
+"weekday-eq LY", que aterriza en un dia feriado del ano anterior (contaminado), el
+motor lo descartaba y usaba "dia-semana limpio promedio" -> aplanaba la rampa.
+Sintomas en la proyeccion 2026: el martes 15-sep proyectaba $5.7M, *menos que un
+martes normal* ($5.8M) pese a ser 3 dias antes del dieciocho; el lunes 14 quedaba
+bajo su propio nivel normal.
+
+Dilema de fondo: la fecha preserva el evento pero rompe el dia de semana; el dia
+de semana preserva el patron pero rompe el evento.
+
+**Regla nueva** (ventana D-5..D+3 alrededor del feriado, por codigo):
+
+    RAMPA  (offset <= +1): proj = baseline_TY[weekday] + YoY * surplus[offset]
+    RESACA (offset >= +2): proj = baseline_TY[weekday] * min(1.0, ratio[offset])
+
+    surplus[offset] = venta_LY[offset] - baseline_LY[weekday de ese dia LY]
+    ratio[offset]   = venta_LY[offset] / baseline_LY[weekday de ese dia LY]
+
+- El efecto se ancla al **offset al feriado**, no al weekday -> sobrevive el cambio
+  de dia. Se mide weekday-limpio (restando a LY su propio baseline) -> no arrastra
+  "era sabado". Es aditivo -> nunca hunde un dia bajo su normal.
+- **Dos tramos** porque el empujon del feriado es ~absoluto (extra fijo de compra)
+  mientras la resaca es ~proporcional (~80-88% de su normal): un aditivo negativo
+  medido en un dia de baseline alto (sab) sobre-resta en uno bajo (dom).
+- **La resaca se define por POSICION, no por signo del surplus base**: el signo esta
+  contaminado por el weekday en que cayo ese offset el ano base. En el backtest el
+  D+2 cayo viernes en 2024 (ocupado, surplus positivo) y sabado en 2025 (resaca):
+  clasificar por signo erro 53.7%; por posicion + cap `ratio <= 1.0` bajo a 15%.
+- El surplus es de **red**, repartido por sala segun tamano (share del rolling30).
+  Esto cubre salas con hueco de datos LY o reaperturas, que antes se aplanaban a
+  "viernes normal" (Panguipulli 645 pasa de $1.57M a $3.87M el 18).
+
+Canon: holiday effect aditivo con ventana (Prophet); event/promotion lift de
+SAP IBP y Oracle Demantra. Se descarto el multiplicativo puro (`baseline x lift`):
+al caer el 18 en un dia ya-alto (vie/sab) compone con el baseline alto, sobre-estima
+el peak y, al re-escalar a masa-evento, hunde los dias de bajo lift bajo su normal.
+
+**Backtest** (predecir dieciocho 2025 jueves desde 2024 miercoles — cambio de dia
+real, red POS): **WAPE 4.9%** vs **14.6%** del naive calendario x factor. Core:
+previa D-1 1.0%, dia D0 1.8%, D+1 2.7%. Peor dia D+2 15% (resaca residual: el
+comportamiento de un D+2-sabado no es del todo inferible desde un ano donde ese
+offset fue viernes).
+
+Parametros nuevos: `ENABLE_HOLIDAY_ADDITIVE=True`, `HOL_WINDOW_PRE=5`,
+`HOL_WINDOW_POST=3`, `HOLIDAY_ADDITIVE_CODES={'INDEPENDENCE_DAY'}`,
+`HOLIDAY_ADDITIVE_BASE_YEARS_BACK=[1]`, `HOL_CLEAN_BASELINE_WEEKS=5`,
+`HOL_RESACA_MIN_OFFSET=2`.
+
+Deuda tecnica visible (PROXY):
+
+- Surplus de red repartido por tamano de sala: asume intensidad relativa de
+  dieciocho uniforme entre salas. Refinamiento: surplus por-sala donde hay data
+  limpia, con fallback a share de red.
+- Surplus de 1 ano base. Multi-ano exige escalar cada ano a nivel TY antes de promediar.
+- Solo `INDEPENDENCE_DAY`. El mecanismo es generico por codigo (extensible a
+  Navidad / Ano Nuevo / Glorias).
+
 ### v13 — Feriados desde modelo + offset policy en codigo
 
 Recalc presupuesto de ayer + futuro hasta 31-12-2026.
