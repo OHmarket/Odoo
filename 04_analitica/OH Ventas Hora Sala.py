@@ -87,10 +87,13 @@
 #   - Hora LOCAL via doble AT TIME ZONE (UTC -> America/Santiago), maneja
 #     DST de Chile. (VALIDADO: sin esto las ventas caen 00-06h.)
 #
-# Sucursal: las 12 crm.team se llaman TODAS "Sales" (verificado), asi que el
-# m2o no es legible. Se usa el mapa canonico team_id -> sucursal, identico al
-# de 03_stock/OH Analisis de Stock.py (TEAM_WAREHOUSE_MAP_FALLBACK). El
-# nombre y el periodo van en x_name para que el registro se lea solo.
+# Sucursal: crm.team.name es un campo TRADUCIBLE (translate=True). En es_CL
+# trae el nombre real ("Ventas Panguipulli 790"); en en_US devuelve "Sales"
+# para las 12. Se lee forzando lang='es_CL', con fallback al mapa hardcodeado
+# de 03_stock/OH Analisis de Stock.py. El nombre y el periodo van tambien en
+# x_name para que el registro se lea solo fuera de contexto.
+# (OJO: una lectura XML-RPC sin context explicito cae a en_US y hace creer
+#  que las 12 salas se llaman igual.)
 #
 # Hora: DOS campos. x_studio_hora (Integer 0-23) para medir/ordenar, y
 # x_studio_hora_desc (Char '25:00') para AGRUPAR -- Odoo no ofrece
@@ -105,8 +108,9 @@ MODEL = 'x_ventas_hora_sala'
 SEMANAS_DEFAULT = 12
 HORA_CORTE_DEFAULT = 5      # inicio del dia operativo (zona muerta validada)
 
-# Mapa canonico team_id -> sucursal (mismo que OH Analisis de Stock.py:303)
-TEAM_SUCURSAL = {
+# FALLBACK team_id -> sucursal (mismo mapa que OH Analisis de Stock.py:303).
+# Solo se usa si crm.team.name no trae nombre util. Ver bloque "nombre de sala".
+TEAM_FALLBACK = {
     5:  'Panguipulli 790',
     6:  'Los Lagos',
     7:  'Futrono',
@@ -199,6 +203,20 @@ d2 = today - datetime.timedelta(days=today.weekday())   # lunes de esta semana (
 d1 = d2 - datetime.timedelta(days=7 * semanas)          # lunes de hace N semanas
 d_hasta = d2 - datetime.timedelta(days=1)               # ultimo domingo (incl.)
 d1s, d2s = d1.isoformat(), d2.isoformat()
+
+# ---- 1b) nombre de sala: crm.team.name es TRADUCIBLE ----
+# crm.team.name tiene translate=True. En es_CL trae el nombre real
+# ("Ventas Panguipulli 790"); en en_US/es_ES devuelve "Sales" para las 12.
+# Por eso una lectura XML-RPC sin contexto (que cae a en_US) hace creer que
+# todas las salas se llaman igual. Aca se fuerza el lang para no depender del
+# usuario que ejecute el Server Action. Fallback al mapa hardcodeado.
+TEAM_SUCURSAL = {}
+for t in env['crm.team'].sudo().with_context(lang='es_CL').search([]):
+    nm = (t.name or '').strip()
+    if nm and nm.lower() != 'sales':
+        TEAM_SUCURSAL[t.id] = nm
+    else:
+        TEAM_SUCURSAL[t.id] = TEAM_FALLBACK.get(t.id, 'team %s' % t.id)
 
 STATES = ('paid', 'invoiced', 'done')
 # Hora local real -> solo para EXTRACT(hour): la hora de reloj que se muestra.
