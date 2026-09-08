@@ -1,7 +1,45 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.21.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.22.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.22.0 (2026-09-08): VITRINA para todo SKU vivo, con piso ESCALONADO por rotacion.
+#   Dos cambios que van JUNTOS (uno sin el otro rompe el modelo, ver abajo):
+#     (a) PRESENTATION_UMBRAL_SEM: 3.0 -> DEMAND_FLOOR_WEEK (~0.23/sem). Queda UN solo
+#         umbral en el modelo: el mismo corte que separa 'sin_salida' de 'SKU vivo'.
+#         Si el SKU se stockea, tiene presencia en gondola. Antes habia dos cortes
+#         (0.23 = vivo, 3.0 = merece vitrina) y el segundo era arbitrario.
+#     (b) piso escalonado: PRESENTATION_PISO_COLA 1 u para mu < PRESENTATION_COLA_UMBRAL
+#         (2/sem), PRESENTATION_PISO_ROTADOR 3 u para mu >= 2/sem.
+#   POR QUE (b) ES OBLIGATORIO CON (a): el piso plano de 3 u estaba calibrado para
+#   rotadores, donde 3 u ~= 1 semana de cobertura (un piso de verdad). Aplicado a la cola
+#   lenta, esas mismas 3 u son 13 SEMANAS de cobertura a mu=0.23 -> la vitrina dejaba de
+#   ser un piso y pasaba a DOMINAR el order-up-to. Medido: bajar el umbral con piso plano
+#   costaba $60,1M CLP (+25.242 u); con el escalon queda en $23,4M CLP (+10.855 u).
+#   IMPACTO MEDIDO (snapshot prod 2026-09-08, x_analisis_de_stock, filas de sala,
+#   excluye cigarros categ 1628). Delta REAL de esta version:
+#     8.451 filas ganan vitrina (7.249 cola a +1 u ; 1.202 rotador a +3 u)
+#     +10.855 u sobre 1.340 SKU distintos = $23.437.050 CLP al costo.
+#   Costo del piso PLANO de 3 u por banda de mu (la alternativa descartada):
+#     [0.23,0.5) 1.841 filas $20,4M | [0.5,1.0) 2.741 $20,9M | [1.0,1.5) 1.633 $8,9M
+#     [1.5,2.0) 1.034 $5,0M | [2.0,2.5) 714 $3,2M | [2.5,3.0) 451 $1,7M
+#   SIN REGRESION: para mu > 3.0 (el set que YA tenia vitrina) la funcion devuelve
+#   exactamente lo mismo que antes (verificado por barrido 3.0-60.0/sem, 0 discrepancias).
+#   El unico tramo que cambia es (0.23, 3.0].
+#   OJO - la banda MAS LENTA es la MAS CARA por unidad ($3.688/u en [0.23,0.5) vs
+#   $1.269/u en [2.5,3.0)): los productos caros rotan lento. Por eso el escalon se
+#   justifica economicamente, no solo por cobertura.
+#   ALCANCE DE LA MEDICION (no sobre-interpretar): los ~$23,3M son el efecto en las filas
+#   de SALA. El target del CD tambien sube, porque el echelon suma los pisos de vitrina de
+#   todas las salas en piso_red (ver v9.9.0: target_echelon = mu_red*R + safety_red +
+#   piso_red). Ese incremento NO esta en la cifra. El total real es mayor; cuanto, lo dice
+#   el dry-run.
+#   Sube capital en sala: va en direccion CONTRARIA a v9.20.0/v9.21.0 (que recortaron
+#   stock parado en salas lentas). Es un trade-off comercial aceptado, no un descuido.
+#   PROXY: el canon (Oracle Retail / SAP F&R) define el presentation stock desde el
+#   PLANOGRAMA (facings x profundidad por SKU-sala), no desde la velocidad. OH no tiene
+#   planograma, asi que umbral + PRESENTATION_DIAS son un proxy de eso. Deuda visible.
+#   VALIDAR con dry-run A/B antes de promover.
 #
 # v9.21.0 (2026-09-05): DEPLOYMENT (CD->sala) SEPARADO de PROCUREMENT (CD<-proveedor).
 #   La sala solo_bodega se dimensiona al Fo de ENVIO (deployment horizon), NO al ciclo de
@@ -285,7 +323,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_21_0_DEPLOYMENT_SPLIT_FO_ENVIO'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_22_0_VITRINA_FLOOR_ESCALONADA'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -422,11 +460,23 @@ NO_CD_PARENT_CATEGORY_IDS_DEFAULT = [1715, 1716, 1717, 1718, 1719, 1653]
 # Reemplaza la politica DISPLAY_* por % (queda apagada). Canon: Oracle presentation stock.
 PRESENTATION_ENABLED    = True
 PRESENTATION_DIAS       = 3.0
-PRESENTATION_UMBRAL_SEM = 3.0
+# v9.22.0 (2026-09-08): el umbral de vitrina se ATA al DEMAND_FLOOR (~0.23/sem), el mismo
+# corte que separa 'sin_salida' de 'SKU vivo'. UN solo umbral en el modelo: si el SKU se
+# stockea, tiene presencia en estante. Historico: 3.0 (rotadores).
+PRESENTATION_UMBRAL_SEM = DEMAND_FLOOR_WEEK
 PRESENTATION_PACK       = 6
+# v9.22.0: piso de presencia ESCALONADO. El piso plano de 3 u estaba calibrado para
+# rotadores (mu>3 -> ~1 sem de cobertura = piso real); aplicado a la cola lenta pasaba a
+# ser 13 sem de cobertura (mu 0.23) y DOMINABA el order-up-to en vez de ser un piso.
+# Con el escalon, la cola recibe presencia minima (1 u) y el rotador mantiene las 3 u.
+PRESENTATION_COLA_UMBRAL = 2.0   # bajo esto = cola lenta -> piso chico
+PRESENTATION_PISO_COLA    = 1.0  # presencia minima: que el SKU exista en gondola
+PRESENTATION_PISO_ROTADOR = 3.0  # piso historico (media presencia, < 1 pack)
 
 # Politica de cola larga (CD->sala): lote minimo (s,S) por caja autofinanciada.
-# Completa hacia abajo la curva de minimos (presentacion solo cubre mu>3/sem).
+# DESACTIVADA en v9.20.0 (umbral 0). Su rol historico era completar hacia abajo la curva
+# de minimos, porque la presentacion solo cubria mu>3/sem; desde v9.22.0 la vitrina baja
+# hasta el DEMAND_FLOOR con piso escalonado, o sea ese hueco ya no existe.
 # Ver proyectos/2026-06-30-cola-larga-lote-caja/diseno.md
 COLA_UMBRAL_WEEK_DEFAULT     = 0.0     # v9.20.0: 0 = cola larga DESACTIVADA. El segmento 0.23-3/sem ya NO arma caja/lote especial; cae en la regla normal order-up-to (mu*R + z*sigma). Regla unica para todo mu > DEMAND_FLOOR. Historico: 3.0. Override por context cola_umbral_week si se quiere reactivar.
 COLA_OBJETIVO_DIAS_DEFAULT   = 30.0    # INERTE con umbral=0. cobertura objetivo del lote (1 mes); dimensiona la fraccion
@@ -556,9 +606,13 @@ def _safety_factor_for(abcxyz, is_cigarros=False):
 
 def _calc_display_stock_units(abcxyz, mu_week, is_cigarros=False):
     # Piso de exhibicion (presentation stock), ADITIVO. mu_week aqui = demanda_semanal
-    # (ver call site). Solo rotadores (demanda > umbral); cigarros excluidos.
+    # (ver call site). Aplica a TODO SKU vivo (demanda > umbral); cigarros excluidos.
     #   raw = ceil(PRESENTATION_DIAS/7 * demanda)
-    #   raw >= pack -> multiplo de pack mas cercano ; 0 < raw < pack -> 3 ; raw 0 -> 0
+    #   raw >= pack -> multiplo de pack mas cercano
+    #   0 < raw < pack -> piso ESCALONADO por rotacion (v9.22.0):
+    #       mu <  PRESENTATION_COLA_UMBRAL -> PRESENTATION_PISO_COLA (cola lenta)
+    #       mu >= PRESENTATION_COLA_UMBRAL -> PRESENTATION_PISO_ROTADOR
+    #   raw 0 -> 0
     if (not PRESENTATION_ENABLED) or is_cigarros:
         return 0.0
     mu = max(_safe_float(mu_week, 0.0), 0.0)
@@ -570,8 +624,8 @@ def _calc_display_stock_units(abcxyz, mu_week, is_cigarros=False):
         raw = raw + 1
     if raw <= 0:
         return 0.0
-    if raw < PRESENTATION_PACK:          # menor a un pack -> media presencia
-        return 3.0
+    if raw < PRESENTATION_PACK:          # menor a un pack -> presencia minima escalonada
+        return PRESENTATION_PISO_COLA if mu < PRESENTATION_COLA_UMBRAL else PRESENTATION_PISO_ROTADOR
     return float(int(round(float(raw) / float(PRESENTATION_PACK))) * PRESENTATION_PACK)
 
 
