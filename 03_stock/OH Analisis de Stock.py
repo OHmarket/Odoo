@@ -1,7 +1,49 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.22.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.23.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.23.0 (2026-09-09): el padre PHANTOM deja de llevar on-hand y valor -> corrige el
+#   DOBLE CONTEO del stock de bodega en SKU con set/pack. Canon SAP (phantom assembly,
+#   aprovisionamiento especial 50) / Oracle (phantom item): el phantom no se stockea ni se
+#   valoriza; la valorizacion vive en el COMPONENTE y "cuantos puedo armar" es una cifra
+#   ATP derivada que jamas se agrega junto a saldos on-hand.
+#   EL BUG: _apply_kit_stock() le deriva al padre kits = min(stock_comp/qty_por_padre).
+#   Correcto como insumo de compra, pero se persistia en los MISMOS campos que el pivote
+#   suma (stock_real / stock_central / stock_value_cash_physical), junto al stock fisico
+#   propio del componente -> el mismo inventario contado dos veces.
+#   Caso canonico: tmpl 10585 padre 69 u ; hijo tmpl 23100 414 u con qty/padre 6.
+#   414/6 = 69 -> el 69 del padre ES el 414 del hijo. Pivote 483, fisico 414.
+#   Es ~2x en VALOR y solo +18% en unidades porque el pack se valoriza a precio de pack
+#   (~6x la unidad): 69 packs x precio_pack == 414 u x precio_unidad (ratio medido 1.00).
+#   MEDIDO (prod 2026-09-09, 54 padres con doble conteo activo):
+#     Bodega central: $19.143.590 de aire sobre $19.693.356 real (+97,2%)
+#     Salas:          $17.217.814 de aire sobre $17.812.815 real (+96,7%)
+#   El dato respalda el canon: 0 padres phantom tienen quants propios (las 82.955 u viven
+#   todas en los componentes). El padre SI es la unidad de compra real (647.970 u en
+#   movimientos DONE, 617 u de OC pendiente) pero NUNCA queda en reposo: al recibirse
+#   explota en componentes. Su on-hand fisico es 0 siempre -> poner sus campos de posesion
+#   en 0 no es convencion de reporte, es el dato correcto.
+#   BUG SECUNDARIO corregido: el guard VALUE_PHANTOM_KITS ya existia para esto pero estaba
+#   A MEDIO IMPLEMENTAR -> se aplicaba solo en el loop de SALAS y la fila CD valorizaba sin
+#   guard. Incluso con value_phantom_kits=False, la BODEGA (lo reportado) seguia duplicada.
+#   Su default pasa True -> False.
+#   QUE CAMBIA, para la fila de un padre phantom (salas y fila CD):
+#     stock_real / stock_effective / stock_central     -> 0
+#     stock_proyectado                                 -> stock_pedido_total (on-hand 0 +
+#         entrante REAL; NO 0 a secas: el padre tiene OC pendiente de verdad)
+#     stock_value_cash_physical / _effective / over_target_value_cash -> 0
+#     x_studio_kits_armables (NUEVO, Float en Studio)  -> la cifra derivada
+#   El HIJO no se toca: su stock es fisico y real.
+#   INVARIANTE CRITICO: la variable stock_real EN MEMORIA sigue siendo la derivada. Todo el
+#   calculo de compra (target, cover, qty_a_pedir, echelon CD, fair share) se hace aguas
+#   arriba y queda IDENTICO; solo cambia lo que se PERSISTE. Por eso la sobrescritura va en
+#   el dict de escritura y no antes: stock_proyectado se REUSA en compra_mensual_estimada
+#   (lineas ~3627 y ~3864) y zerearlo antes inflaria el presupuesto de esos SKU.
+#   Los 3 campos de valor son output puro (se escriben, nunca se releen) y ningun script del
+#   pipeline lee stock_real/stock_central (grep en todo el repo: unico match es este script).
+#   VALIDAR: qty_a_pedir total de filas de padres phantom debe ser 1.193 u antes y despues.
+#   Ver proyectos/2026-09-09-phantom-doble-conteo-bodega/diseno.md
 #
 # v9.22.0 (2026-09-08): VITRINA para todo SKU vivo, con piso ESCALONADO por rotacion.
 #   Dos cambios que van JUNTOS (uno sin el otro rompe el modelo, ver abajo):
@@ -323,7 +365,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_22_0_VITRINA_FLOOR_ESCALONADA'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_23_0_PHANTOM_SIN_ONHAND'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -500,7 +542,13 @@ CIGARROS_SERVICE_LEVEL_DEFAULT = 0.50
 # component_first: costo pack = suma(componentes * cantidad BOM); fallback a costo propio.
 # product_first: usa costo propio del pack; fallback a componentes si viene en cero.
 # value_phantom_kits=False: valor stock = 0 para pool=phantom.
-VALUE_PHANTOM_KITS_DEFAULT = True
+# v9.23.0: default True -> False. El phantom no se valoriza (canon SAP/Oracle): su "stock"
+# es derivado de los componentes, que YA se valorizan en su propia fila -> valorizar ambos
+# duplicaba el valor de inventario (+97,2% en bodega central, medido). El guard existia
+# pero solo se aplicaba en el loop de salas; v9.23.0 lo aplica tambien en la fila CD.
+# OJO: con v9.23.0 el on-hand persistido del padre es 0, asi que value_phantom_kits=True
+# queda INCONSISTENTE (mostraria stock 0 con valor > 0). Se mantiene solo para A/B legacy.
+VALUE_PHANTOM_KITS_DEFAULT = False
 PHANTOM_COST_SOURCE_DEFAULT = 'product_first'
 PHANTOM_PROCUREMENT_MODE_DEFAULT = 'buy_parent_block_children'  # block_parent | allow_parent | buy_parent_block_children
 
@@ -3472,6 +3520,10 @@ else:
                     if rec.get('is_phantom_pool'):
                         decision_parts.append('pool=phantom')
                         decision_parts.append('phantom_value=' + ('on' if VALUE_PHANTOM_KITS else 'off'))
+                        # v9.23.0: on-hand persistido = 0 (canon phantom). La disponibilidad
+                        # derivada queda aca y en x_studio_kits_armables, para poder auditar
+                        # la decision de compra de esta fila sin el campo Studio.
+                        decision_parts.append('kits_armables=' + str(round(_safe_float(rec.get('stock_real'), 0.0), 2)))
                         if rec.get('phantom_block_procurement'):
                             decision_parts.append('phantom_procurement=blocked_parent')
                         if rec.get('kit_component_cost_source'):
@@ -3647,6 +3699,30 @@ else:
                     )
                     # ── fin venta bruta mensual estimada ─────────────────────────────
 
+                    # ── [v9.23.0] El padre phantom no lleva ON-HAND ──────────────────
+                    # Canon SAP (phantom assembly) / Oracle (phantom item): el phantom no
+                    # se stockea. Su stock_real es DERIVADO (min stock_comp/qty_por_padre),
+                    # o sea el MISMO fisico que ya reporta la fila del componente ->
+                    # persistir ambos duplicaba el inventario en cualquier suma del pivote.
+                    # Medido: 0 padres phantom tienen quants propios; su on-hand fisico es 0.
+                    # La cifra derivada se preserva en x_studio_kits_armables (disponibilidad
+                    # ATP: "cuantos packs puedo armar"), NO en un campo de posesion.
+                    # proyectado = stock_pedido_total (on-hand 0 + entrante REAL de OC), no 0.
+                    # OJO: se sobrescribe SOLO aca, no antes, porque stock_proyectado se reusa
+                    # en compra_mensual_estimada (arriba) y zerearlo alli inflaria el gap.
+                    _persist_stock_real        = stock_real
+                    _persist_stock_effective   = stock_effective
+                    _persist_stock_proyectado  = stock_proyectado
+                    _persist_central_total     = central_stock_total
+                    _persist_kits_armables     = 0.0
+                    if rec.get('is_phantom_pool'):
+                        _persist_kits_armables     = stock_real
+                        _persist_stock_real        = 0.0
+                        _persist_stock_effective   = 0.0
+                        _persist_stock_proyectado  = stock_pedido_total
+                        _persist_central_total     = 0.0
+                    # ── fin phantom sin on-hand ──────────────────────────────────────
+
                     vals = {
                         'x_name':                              'STOCK LOCAL T%s · PT%s' % (team_id, tid),
                         'x_studio_company_id':                 company.id,
@@ -3661,12 +3737,17 @@ else:
                         'x_studio_importancia_abc':            rec.get('importancia_abc') or False,
                         'x_studio_rank_abcxyz':                _safe_int(rec.get('rank_abcxyz'), 0),
 
-                        'x_studio_stock_real':                 stock_real,
-                        'x_studio_stock_effective':            stock_effective,
+                        'x_studio_stock_real':                 _persist_stock_real,
+                        'x_studio_stock_effective':            _persist_stock_effective,
                         'x_studio_stock_pedido_compra':        stock_pedido_compra,
                         'x_studio_stock_pedido_transfer':      stock_pedido_transfer,
                         'x_studio_stock_pedido_total':         stock_pedido_total,
-                        'x_studio_stock_proyectado':           stock_proyectado,
+                        'x_studio_stock_proyectado':           _persist_stock_proyectado,
+                        # v9.23.0: disponibilidad ATP derivada del padre phantom ("cuantos
+                        # packs puedo armar con el stock de componentes"). 0 si no es kit.
+                        # Requiere campo Studio Float x_studio_kits_armables; si no existe,
+                        # _filter_vals lo descarta y la cifra queda en decision_reason.
+                        'x_studio_kits_armables':              _persist_kits_armables,
                         'x_studio_demanda_semanal':            demanda_semanal,
                         'x_studio_demanda_estimada_entera':    _demanda_estimada_entera,
                         'x_studio_pvp_bruto_sku':              _pvp_bruto_sku,
@@ -3719,7 +3800,7 @@ else:
                         'x_studio_banda_actual':               'BASE',
 
                         # Opcionales central
-                        'x_studio_stock_central':              central_stock_total,
+                        'x_studio_stock_central':              _persist_central_total,
                         'x_studio_qty_transferir':             transfer_qty,
                         'x_studio_supply_source':              supply_src or 'none',
 
@@ -3827,6 +3908,8 @@ else:
                         decision_reason_full += ' | cd_qty_neta=' + str(round(_safe_float(c.get('cd_qty_neta'), 0.0), 2))
                     if bool(kit_components_tmpl.get(tid)):
                         decision_reason_full += ' | pool=phantom | phantom_value=' + ('on' if VALUE_PHANTOM_KITS else 'off')
+                        # v9.23.0: on-hand persistido = 0 (canon phantom); cifra derivada aca.
+                        decision_reason_full += ' | kits_armables=' + str(round(stock_real, 2))
                         if PHANTOM_PROCUREMENT_MODE == 'block_parent':
                             decision_reason_full += ' | phantom_procurement=blocked_parent'
                         _kc, _ks = _kit_component_cost_for_tmpl(tid)
@@ -3866,6 +3949,30 @@ else:
                         _compra_mensual_units_cd = qty_a_pedir + _gap_residual_cd
                         _compra_mensual_estimada_cd = _compra_mensual_units_cd * purchase_price_cash_unit
                     # ── fin compra mensual CD ─────────────────────────────────────────
+
+                    # ── [v9.23.0] El padre phantom no lleva ON-HAND ni VALOR en el CD ──
+                    # Misma regla que en las filas de sala (ver bloque equivalente arriba).
+                    # Aca vive el bug reportado: el guard VALUE_PHANTOM_KITS estaba aplicado
+                    # SOLO en el loop de salas, asi que la fila de BODEGA CENTRAL valorizaba
+                    # el kit derivado sin guard -> $19.143.590 de aire sobre $19.693.356 real.
+                    # Igual que en salas, se sobrescribe SOLO aca: stock_proyectado se reusa
+                    # arriba en _stock_red_cd (compra mensual estimada del CD).
+                    _cd_is_phantom            = bool(kit_components_tmpl.get(tid))
+                    _cd_stock_real            = stock_real
+                    _cd_stock_effective       = stock_effective
+                    _cd_stock_proyectado      = stock_proyectado
+                    _cd_kits_armables         = 0.0
+                    _cd_value_physical        = stock_real * purchase_price_cash_unit
+                    _cd_value_effective       = stock_effective * purchase_price_cash_unit
+                    if _cd_is_phantom:
+                        _cd_kits_armables     = stock_real
+                        _cd_stock_real        = 0.0
+                        _cd_stock_effective   = 0.0
+                        _cd_stock_proyectado  = stock_pedido_total
+                        if not VALUE_PHANTOM_KITS:
+                            _cd_value_physical  = 0.0
+                            _cd_value_effective = 0.0
+                    # ── fin phantom sin on-hand (CD) ──────────────────────────────────
                     vals_cd = {
                         'x_name':                              'STOCK CENTRAL T%s · PT%s' % (CENTRAL_TEAM_ID, tid),
                         'x_studio_company_id':                 company.id,
@@ -3878,12 +3985,13 @@ else:
                         'x_studio_abcxyz':                     c.get('abcxyz') or '',
                         'x_studio_importancia_abc':            c.get('importancia_abc') or False,
                         'x_studio_rank_abcxyz':                _safe_int(c.get('rank_abcxyz'), 0),
-                        'x_studio_stock_real':                 stock_real,
-                        'x_studio_stock_effective':            stock_effective,
+                        'x_studio_stock_real':                 _cd_stock_real,
+                        'x_studio_stock_effective':            _cd_stock_effective,
                         'x_studio_stock_pedido_compra':        stock_pedido_compra,
                         'x_studio_stock_pedido_transfer':      stock_pedido_transfer,
                         'x_studio_stock_pedido_total':         stock_pedido_total,
-                        'x_studio_stock_proyectado':           stock_proyectado,
+                        'x_studio_stock_proyectado':           _cd_stock_proyectado,
+                        'x_studio_kits_armables':              _cd_kits_armables,
                         'x_studio_demanda_semanal':            0.0,
                         'x_studio_demanda_estimada_entera':    demanda_estimada_entera,
                         'x_studio_pvp_bruto_sku':              pvp_bruto_sku,
@@ -3895,8 +4003,8 @@ else:
                         'x_studio_over_target_units':          0.0,
                         'x_studio_purchase_price_cash_unit':   purchase_price_cash_unit,
                         'x_studio_price_cash_source':          c.get('price_cash_source') or 'none',
-                        'x_studio_stock_value_cash_physical':  stock_real * purchase_price_cash_unit,
-                        'x_studio_stock_value_cash_effective': stock_effective * purchase_price_cash_unit,
+                        'x_studio_stock_value_cash_physical':  _cd_value_physical,
+                        'x_studio_stock_value_cash_effective': _cd_value_effective,
                         'x_studio_over_target_value_cash':     0.0,
                         'x_studio_buy_action':                 buy_action,
                         'x_studio_decision_reason':            decision_reason_full,
@@ -3921,7 +4029,7 @@ else:
                         'x_studio_moq':                        moq,
                         'x_studio_safety_stock_units':         0.0,
                         'x_studio_banda_actual':               'BASE',
-                        'x_studio_stock_central':              stock_real,
+                        'x_studio_stock_central':              _cd_stock_real,
                         'x_studio_qty_transferir':             qty_transferir,
                         'x_studio_supply_source':              supply_source,
                         'x_studio_gmroi_reponer':              0.0,
