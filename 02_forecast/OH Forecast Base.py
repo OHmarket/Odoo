@@ -1,7 +1,31 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version PRODUCTIVA activa: v1.8 (2026-07-06)  [gating von Neumann ON por default]
+# Version PRODUCTIVA activa: v1.10 (2026-09-11)  [+ factor_evento en los buckets t0..t5]
+#   v1.10 (2026-09-11): los buckets t_k multiplican ADEMAS por factor_evento(categ, target+k)
+#         de x_forecast_factor_week (uplift evento x categoria; vispera/dia; umbral 1.20).
+#         Aplica a TODAS las salas (el 18-sep tambien ocurre en urbanas); NO se divide por
+#         base (el evento no esta en el mu... mientras la ventana observada no contenga
+#         una semana-evento -> PREREQUISITO E1 (cleansing de semanas-evento en la ENTRADA)
+#         antes de Navidad, si no doble-cuenta la resaca). Tope FS_EVENTO_CAP=5.0 (PROXY:
+#         Limpieza marca 8.0 = EV_CLAMP de la fuente, artefacto de baseline chico). Sin
+#         gate por apertura (Fase D): Pang645/Lautaro cierran 18-19 y reciben el spike
+#         igual -> se mide con el pronostico sombra (E0). Flag fs_evento=False -> sin evento.
+#   v1.9 (2026-09-11): escribe ADEMAS de mu_week (intacto) la demanda por semana futura
+#         x_studio_mu_week_fs_t0..t5 (time-phased buckets, patron MRP): t_k = mu *
+#         factor_verano(categ, target+k) / factor_verano(categ, ultima semana cerrada).
+#         Curva por categoria desde x_forecast_factor_week (OH Factor Semanal). GATE por
+#         sala: crm.team "Tipo de Local" in {Turisitica, Mixta} -> ON; Urbana/sin tipo ->
+#         t_k = mu (factor 1). Backtest verano 2025-26 (proyectos/2026-09-10-amplitud-
+#         estacional-por-sala): gateado FVA +8.3% global, +17.7% turisticas, bias del
+#         verano -35% -> -1%; la amplitud continua por sala NO pago (descartada). Solo
+#         factor_verano (sin eventos) en este ciclo. mu_week NO cambia: el reader viejo
+#         sigue funcionando; el factor aplicado queda auditable como t_k/mu_week. Flag
+#         context fs_overlay=False -> t_k = mu (campos siempre poblados, neutral).
+#         Separacion de procesos (Marco): el forecast entrega demanda por SKU-semana; el
+#         consumidor (Analisis de Stock) suma su ventana [lead, lead+R], no sabe de
+#         estacionalidad. Base v1.8 intacta debajo.
+#   v1.8 (2026-07-06)  [gating von Neumann ON por default]
 #   v1.8 (PROMOVIDO 2026-07-06): gating por ratio de von Neumann ENCENDIDO por default
 #         (VN_GATING_DEFAULT=True). El CV2 (sobre niveles) confunde varianza ESTACIONAL/
 #         tendencia con ruido -> estacionales caen en 'erratic' y reciben alfa=0.7 (el
@@ -409,6 +433,24 @@ CIGARROS_PISO_CATEG_IDS = _to_int_list(CTX.get('cigarros_piso_categ_ids')) or li
 PISO_ABRIL_INI = str(CTX.get('piso_abril_ini', PISO_ABRIL_INI_DEFAULT) or PISO_ABRIL_INI_DEFAULT)
 PISO_ABRIL_FIN = str(CTX.get('piso_abril_fin', PISO_ABRIL_FIN_DEFAULT) or PISO_ABRIL_FIN_DEFAULT)
 
+# Overlay estacional FS (v1.9): demanda por semana futura t0..t5, gateada por tipo de sala.
+# Solo factor_verano (sin eventos). Con fs_overlay=False los t_k se escriben = mu (neutral).
+FS_OVERLAY = bool(CTX.get('fs_overlay', True))
+FS_HORIZON = 6                                    # t0..t5 = 35d >= L max 4d + R max 30d (medido 2026-09-10)
+FS_CURVE_MODEL_TABLE = 'x_forecast_factor_week'   # curva por categoria x semana (OH Factor Semanal)
+FS_TIPO_FIELD = 'x_studio_selection_field_1cq_1jbvv7q4e'   # crm.team "Tipo de Local"
+FS_TIPO_ON = ('Turisitica', 'Mixta')              # gate ON (ojo: typo 'Turisitica' es el valor real en Studio)
+FS_EVENTO = bool(CTX.get('fs_evento', True))      # v1.10: factor_evento en los buckets (todas las salas)
+FS_EVENTO_CAP = 5.0                               # PROXY: tope defensivo (fuente clamp 8.0 -> artefactos)
+
+
+def _fs_factor(curve, categ, wk):
+    # factor_verano de (categ, semana); sin fila -> 1.0 (zona muerta / categ no elegible).
+    # Recibe el dict como parametro: sin closure (safe_eval rechaza MAKE_CELL).
+    if not categ:
+        return 1.0
+    return _safe_float(curve.get((categ, wk), 1.0), 1.0)
+
 TEAM_IDS = _to_int_list(CTX.get('team_ids')) or list(FILTERED_TEAM_IDS_DEFAULT)
 company = env.company
 
@@ -551,6 +593,39 @@ else:
                 """, (pids,))
                 for pid, cid in env.cr.fetchall():
                     categ_of[_safe_int(pid)] = _safe_int(cid)
+
+            # ----------------------
+            # OVERLAY FS (v1.9): curva por categoria x semana para [ultima cerrada, target+5]
+            # y gate por sala. Carga UNA vez (~62 categ x 7 sem). Cualquier falla -> neutral.
+            # ----------------------
+            fs_curve = {}      # (categ_id, week_start) -> factor_verano
+            fs_ev = {}         # (categ_id, week_start) -> factor_evento (v1.10)
+            fs_gate = {}       # team_id -> True si el overlay aplica
+            fs_curve_err = ''
+            fs_last_week = target_date + datetime.timedelta(weeks=FS_HORIZON - 1)
+            if FS_OVERLAY:
+                try:
+                    env.cr.execute("""
+                        SELECT x_studio_categ_id, x_studio_week_start, x_studio_factor_verano,
+                               x_studio_factor_evento
+                        FROM """ + FS_CURVE_MODEL_TABLE + """
+                        WHERE x_studio_week_start >= %s AND x_studio_week_start <= %s
+                          AND x_studio_categ_id IS NOT NULL
+                    """, (last_closed_monday, fs_last_week))
+                    for cid, wk, fv, fe in env.cr.fetchall():
+                        fs_curve[(_safe_int(cid), wk)] = _safe_float(fv, 1.0)
+                        fs_ev[(_safe_int(cid), wk)] = _safe_float(fe, 1.0)
+                except Exception as e:
+                    fs_curve = {}
+                    fs_ev = {}
+                    fs_curve_err = str(e)[:120]
+                TeamM = env['crm.team'].sudo()
+                if FS_TIPO_FIELD in TeamM._fields:
+                    for t in TeamM.search_read([('id', 'in', TEAM_IDS)], [FS_TIPO_FIELD]):
+                        fs_gate[_safe_int(t.get('id'))] = (t.get(FS_TIPO_FIELD) in FS_TIPO_ON)
+            n_fs_on = 0
+            n_fs_ev = 0        # filas con algun t_k con evento != 1
+            fs_fields_ok = sum(1 for k in range(FS_HORIZON) if _field_exists(fwd_fields, 'x_studio_mu_week_fs_t%d' % k))
 
             # ----------------------
             # PISO ABRIL CIGARROS (opt-in). Venta POS de abril-2026 por (team, product)
@@ -851,6 +926,35 @@ else:
                 _put_field(vals_w, fwd_fields, 'x_studio_week_start', target_date)
                 _put_field(vals_w, fwd_fields, 'x_studio_mu_week', mu)
                 _put_field(vals_w, fwd_fields, 'x_studio_sigma_week', sigma)
+                # v1.9: demanda por semana futura t0..t5. Gate OFF / overlay OFF -> t_k = mu.
+                # Divide por el factor de la ULTIMA semana cerrada: el mu del SES ya trae la
+                # estacionalidad de lo observado; dividir evita doble conteo (backtest A2).
+                fs_on = FS_OVERLAY and fs_gate.get(tid, False)
+                fs_categ = categ_of.get(pid)
+                fs_base = _fs_factor(fs_curve, fs_categ, last_closed_monday) if fs_on else 1.0
+                if fs_base <= 0.0:
+                    fs_base = 1.0
+                row_ev = False
+                for k in range(FS_HORIZON):
+                    wk_k = target_date + datetime.timedelta(weeks=k)
+                    if fs_on:
+                        fk = _fs_factor(fs_curve, fs_categ, wk_k)
+                        tk = mu * fk / fs_base
+                    else:
+                        tk = mu
+                    # v1.10: evento en la salida, todas las salas, sin dividir por base
+                    if FS_EVENTO:
+                        fe_k = _fs_factor(fs_ev, fs_categ, wk_k)
+                        if fe_k > FS_EVENTO_CAP:
+                            fe_k = FS_EVENTO_CAP
+                        if fe_k > 1.0:
+                            tk = tk * fe_k
+                            row_ev = True
+                    _put_field(vals_w, fwd_fields, 'x_studio_mu_week_fs_t%d' % k, tk)
+                if row_ev and mu > 0.0:
+                    n_fs_ev += 1
+                if fs_on and mu > 0.0:
+                    n_fs_on += 1
                 _put_field(vals_w, fwd_fields, 'x_studio_forecast_model_code', model_code, 60)
                 _put_field(vals_w, fwd_fields, 'x_studio_series_type', stype, 20)   # auditoria: tipo de serie LOCAL que eligio el modelo
                 _put_field(vals_w, fwd_fields, 'x_studio_ciclo_de_vida', lifecycle_of.get(pid, ''), 20)   # PLC GLOBAL reusado de la segmentacion (no recalculado)
@@ -868,18 +972,25 @@ else:
                 mc = ' '.join('%s=%s' % (k, v) for k, v in sorted(model_counts.items()))
                 dec = ('ON cleansed_combos=%s base%sw min%sd sev%s qsem=%s' % (n_cleansed, CLEANSE_BASE_WEEKS, CLEANSE_MIN_DAYS, CLEANSE_SEVERE_WEIGHT, len(qweight))) if DECENSOR else 'OFF'
                 piso = ('ON filas=%s abril=%s..%s categ=%s' % (n_piso_abril, PISO_ABRIL_INI, PISO_ABRIL_FIN, CIGARROS_PISO_CATEG_IDS)) if PISO_ABRIL_CIGARROS else 'OFF'
-                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | piso_abril[%s] | teams=%s' % (
+                fso = ('ON gate_on=%s/%s curva=%s filas_on=%s fs_fields=%s/%s%s' % (
+                    sum(1 for v in fs_gate.values() if v), len(fs_gate), len(fs_curve), n_fs_on,
+                    fs_fields_ok, FS_HORIZON, (' ERR_CURVA=' + fs_curve_err) if fs_curve_err else '')) if FS_OVERLAY else 'OFF'
+                fse = ('ON cap=%s filas_ev=%s celdas_ev=%s' % (FS_EVENTO_CAP, n_fs_ev, sum(1 for v in fs_ev.values() if v > 1.0))) if FS_EVENTO else 'OFF'
+                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | piso_abril[%s] | fs_overlay[%s] | fs_evento[%s] | teams=%s' % (
                     VERSION_ID, target_date, window_weeks[0], window_weeks[-1],
-                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, piso, len(TEAM_IDS)), level='info')
+                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, piso, fso, fse, len(TEAM_IDS)), level='info')
             except Exception:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-                'title': 'Forecast Base v1.6',
-                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s | piso_abril=%s' % (
+                'title': 'Forecast Base v1.10',
+                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s | piso_abril=%s | fs_on=%s (gate %s salas, curva %s, fields %s/%s) | evento=%s filas' % (
                     target_date, n_created, n_nonzero, round(mu_total, 0),
                     ('%s combos' % n_cleansed) if DECENSOR else 'off',
-                    ('%s filas' % n_piso_abril) if PISO_ABRIL_CIGARROS else 'off'),
+                    ('%s filas' % n_piso_abril) if PISO_ABRIL_CIGARROS else 'off',
+                    n_fs_on if FS_OVERLAY else 'off',
+                    sum(1 for v in fs_gate.values() if v), len(fs_curve), fs_fields_ok, FS_HORIZON,
+                    n_fs_ev if FS_EVENTO else 'off'),
                 'type': 'success', 'sticky': True}}
     finally:
         env.cr.execute('SELECT pg_advisory_unlock(%s)', (LOCK_KEY,))
