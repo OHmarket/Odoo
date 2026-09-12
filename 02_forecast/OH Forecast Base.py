@@ -1,7 +1,13 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version PRODUCTIVA activa: v1.10 (2026-09-11)  [+ factor_evento en los buckets t0..t5]
+# Version PRODUCTIVA activa: v1.11 (2026-09-12)  [+ curva estacional POR SALA con fallback]
+#   v1.11 (2026-09-12): curva estacional POR SALA. Lee x_studio_team_id de
+#         x_forecast_factor_week (OH Factor Semanal v1.6). Lookup (categ, sala, semana) ->
+#         fallback (categ, NULL, semana) -> 1.0. Si existe curva propia se usa AUNQUE el
+#         gate por tipo este OFF (urbanas: backtest paso 6, bias -20% -> +3%). Sin filas
+#         de sala en la tabla -> t_k IDENTICOS a v1.10 (A/A). factor_evento sin cambios.
+#         Ver proyectos/2026-09-12-factor-evento-por-sala/diseno.md s12 y resultados/paso6.md.
 #   v1.10 (2026-09-11): los buckets t_k multiplican ADEMAS por factor_evento(categ, target+k)
 #         de x_forecast_factor_week (uplift evento x categoria; vispera/dia; umbral 1.20).
 #         Aplica a TODAS las salas (el 18-sep tambien ocurre en urbanas); NO se divide por
@@ -451,6 +457,17 @@ def _fs_factor(curve, categ, wk):
         return 1.0
     return _safe_float(curve.get((categ, wk), 1.0), 1.0)
 
+
+def _fs_factor_sala(curve_sala, curve, categ, tid, wk):
+    # v1.11: factor_verano (categ, sala, semana) -> (categ, semana) -> 1.0.
+    # Dicts por parametro: sin closure (safe_eval rechaza MAKE_CELL).
+    if not categ:
+        return 1.0
+    v = curve_sala.get((categ, tid, wk))
+    if v is None:
+        v = curve.get((categ, wk), 1.0)
+    return _safe_float(v, 1.0)
+
 TEAM_IDS = _to_int_list(CTX.get('team_ids')) or list(FILTERED_TEAM_IDS_DEFAULT)
 company = env.company
 
@@ -601,29 +618,37 @@ else:
             fs_curve = {}      # (categ_id, week_start) -> factor_verano
             fs_ev = {}         # (categ_id, week_start) -> factor_evento (v1.10)
             fs_gate = {}       # team_id -> True si el overlay aplica
+            fs_curve_sala = {} # (categ_id, team_id, week_start) -> factor_verano (v1.11)
             fs_curve_err = ''
             fs_last_week = target_date + datetime.timedelta(weeks=FS_HORIZON - 1)
+            # v1.11: el campo de sala es opcional en la tabla; sin campo -> solo cadena (A/A).
+            FS_HAS_TEAM = 'x_studio_team_id' in (env[FS_CURVE_MODEL_TABLE]._fields or {})
             if FS_OVERLAY:
                 try:
                     env.cr.execute("""
                         SELECT x_studio_categ_id, x_studio_week_start, x_studio_factor_verano,
-                               x_studio_factor_evento
+                               x_studio_factor_evento, """ + ('x_studio_team_id' if FS_HAS_TEAM else 'NULL::int') + """
                         FROM """ + FS_CURVE_MODEL_TABLE + """
                         WHERE x_studio_week_start >= %s AND x_studio_week_start <= %s
                           AND x_studio_categ_id IS NOT NULL
                     """, (last_closed_monday, fs_last_week))
-                    for cid, wk, fv, fe in env.cr.fetchall():
-                        fs_curve[(_safe_int(cid), wk)] = _safe_float(fv, 1.0)
-                        fs_ev[(_safe_int(cid), wk)] = _safe_float(fe, 1.0)
+                    for cid, wk, fv, fe, tid_c in env.cr.fetchall():
+                        if tid_c is None:
+                            fs_curve[(_safe_int(cid), wk)] = _safe_float(fv, 1.0)
+                            fs_ev[(_safe_int(cid), wk)] = _safe_float(fe, 1.0)   # evento: SOLO cadena
+                        else:
+                            fs_curve_sala[(_safe_int(cid), _safe_int(tid_c), wk)] = _safe_float(fv, 1.0)
                 except Exception as e:
                     fs_curve = {}
                     fs_ev = {}
+                    fs_curve_sala = {}
                     fs_curve_err = str(e)[:120]
                 TeamM = env['crm.team'].sudo()
                 if FS_TIPO_FIELD in TeamM._fields:
                     for t in TeamM.search_read([('id', 'in', TEAM_IDS)], [FS_TIPO_FIELD]):
                         fs_gate[_safe_int(t.get('id'))] = (t.get(FS_TIPO_FIELD) in FS_TIPO_ON)
             n_fs_on = 0
+            n_fs_sala = 0      # v1.11: filas que usaron curva PROPIA de sala
             n_fs_ev = 0        # filas con algun t_k con evento != 1
             fs_fields_ok = sum(1 for k in range(FS_HORIZON) if _field_exists(fwd_fields, 'x_studio_mu_week_fs_t%d' % k))
 
@@ -929,16 +954,27 @@ else:
                 # v1.9: demanda por semana futura t0..t5. Gate OFF / overlay OFF -> t_k = mu.
                 # Divide por el factor de la ULTIMA semana cerrada: el mu del SES ya trae la
                 # estacionalidad de lo observado; dividir evita doble conteo (backtest A2).
-                fs_on = FS_OVERLAY and fs_gate.get(tid, False)
                 fs_categ = categ_of.get(pid)
-                fs_base = _fs_factor(fs_curve, fs_categ, last_closed_monday) if fs_on else 1.0
+                # v1.11: curva propia de sala gana al gate por tipo; sin propia -> gate + cadena (v1.10).
+                # CONSISTENCIA DE FAMILIA: la propia se usa solo si existe para la semana BASE y
+                # para el TARGET. El writer regenera desde monday_now y congela el pasado: la
+                # primera semana tras desplegar, la base (last_closed_monday) no tiene fila de
+                # sala -> sin este guard, mixtas dividirian f_sala(T+k) / f_cadena(base).
+                fs_has_own = (FS_OVERLAY
+                              and ((fs_categ, tid, last_closed_monday) in fs_curve_sala)
+                              and ((fs_categ, tid, target_date) in fs_curve_sala))
+                fs_on = FS_OVERLAY and (fs_gate.get(tid, False) or fs_has_own)
+                fs_base = ((_fs_factor_sala(fs_curve_sala, fs_curve, fs_categ, tid, last_closed_monday)
+                            if fs_has_own else _fs_factor(fs_curve, fs_categ, last_closed_monday))
+                           if fs_on else 1.0)
                 if fs_base <= 0.0:
                     fs_base = 1.0
                 row_ev = False
                 for k in range(FS_HORIZON):
                     wk_k = target_date + datetime.timedelta(weeks=k)
                     if fs_on:
-                        fk = _fs_factor(fs_curve, fs_categ, wk_k)
+                        fk = (_fs_factor_sala(fs_curve_sala, fs_curve, fs_categ, tid, wk_k)
+                              if fs_has_own else _fs_factor(fs_curve, fs_categ, wk_k))
                         tk = mu * fk / fs_base
                     else:
                         tk = mu
@@ -955,6 +991,8 @@ else:
                     n_fs_ev += 1
                 if fs_on and mu > 0.0:
                     n_fs_on += 1
+                if fs_has_own and mu > 0.0:
+                    n_fs_sala += 1
                 _put_field(vals_w, fwd_fields, 'x_studio_forecast_model_code', model_code, 60)
                 _put_field(vals_w, fwd_fields, 'x_studio_series_type', stype, 20)   # auditoria: tipo de serie LOCAL que eligio el modelo
                 _put_field(vals_w, fwd_fields, 'x_studio_ciclo_de_vida', lifecycle_of.get(pid, ''), 20)   # PLC GLOBAL reusado de la segmentacion (no recalculado)
@@ -972,8 +1010,8 @@ else:
                 mc = ' '.join('%s=%s' % (k, v) for k, v in sorted(model_counts.items()))
                 dec = ('ON cleansed_combos=%s base%sw min%sd sev%s qsem=%s' % (n_cleansed, CLEANSE_BASE_WEEKS, CLEANSE_MIN_DAYS, CLEANSE_SEVERE_WEIGHT, len(qweight))) if DECENSOR else 'OFF'
                 piso = ('ON filas=%s abril=%s..%s categ=%s' % (n_piso_abril, PISO_ABRIL_INI, PISO_ABRIL_FIN, CIGARROS_PISO_CATEG_IDS)) if PISO_ABRIL_CIGARROS else 'OFF'
-                fso = ('ON gate_on=%s/%s curva=%s filas_on=%s fs_fields=%s/%s%s' % (
-                    sum(1 for v in fs_gate.values() if v), len(fs_gate), len(fs_curve), n_fs_on,
+                fso = ('ON gate_on=%s/%s curva=%s curva_sala=%s filas_on=%s filas_sala=%s fs_fields=%s/%s%s' % (
+                    sum(1 for v in fs_gate.values() if v), len(fs_gate), len(fs_curve), len(fs_curve_sala), n_fs_on, n_fs_sala,
                     fs_fields_ok, FS_HORIZON, (' ERR_CURVA=' + fs_curve_err) if fs_curve_err else '')) if FS_OVERLAY else 'OFF'
                 fse = ('ON cap=%s filas_ev=%s celdas_ev=%s' % (FS_EVENTO_CAP, n_fs_ev, sum(1 for v in fs_ev.values() if v > 1.0))) if FS_EVENTO else 'OFF'
                 log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | piso_abril[%s] | fs_overlay[%s] | fs_evento[%s] | teams=%s' % (
@@ -983,12 +1021,12 @@ else:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-                'title': 'Forecast Base v1.10',
-                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s | piso_abril=%s | fs_on=%s (gate %s salas, curva %s, fields %s/%s) | evento=%s filas' % (
+                'title': 'Forecast Base v1.11',
+                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s | piso_abril=%s | fs_on=%s fs_sala=%s (gate %s salas, curva %s, fields %s/%s) | evento=%s filas' % (
                     target_date, n_created, n_nonzero, round(mu_total, 0),
                     ('%s combos' % n_cleansed) if DECENSOR else 'off',
                     ('%s filas' % n_piso_abril) if PISO_ABRIL_CIGARROS else 'off',
-                    n_fs_on if FS_OVERLAY else 'off',
+                    n_fs_on if FS_OVERLAY else 'off', n_fs_sala if FS_OVERLAY else 'off',
                     sum(1 for v in fs_gate.values() if v), len(fs_curve), fs_fields_ok, FS_HORIZON,
                     n_fs_ev if FS_EVENTO else 'off'),
                 'type': 'success', 'sticky': True}}

@@ -380,7 +380,29 @@ Cambios activos:
 
 ---
 
+## 02_forecast / OH Factor Semanal.py  (writer de x_forecast_factor_week; antes en proyectos/2026-06-03-diagnostico-estacionalidad/)
+
+### v1.6 — Curva estacional por (sala, categoría), híbrida por tipo (2026-09-12)
+
+- La serie se trae por `(categ, semana)` Y por `(categ, sala, semana)` en una sola pasada (`UNION ALL`); se fitea curva propia por celda con los **mismos gates** (`MIN_WEEKS_FIT=40`, `VOL_MIN_QTY=30`, YoY, amplitud, zona muerta) y se persiste con `x_studio_team_id` (NULL = cadena). Cadena idéntica a v1.5.
+- Regla híbrida (backtest paso 6): tipo `Turisitica` **no** recibe curva propia (un solo verano de historia: el pico propio no transfiere; la cadena pooled es más estable). Mixta y Urbana sí.
+- `factor_evento` NO cambia: las filas de sala copian el de cadena para (categ, semana).
+- Contexto: `sala_curves` (default True; sin el campo Studio → modo cadena = A/A), `dry_run` (default True: solo log). Purga solo semanas futuras; el pasado queda congelado con su versión.
+- Primera corrida real 2026-09-12 22:54: 14.040 filas (3.172 cadena + 10.868 sala), 209 celdas con curva propia, 0 errores; DRY_RUN previo idéntico (determinista). Validación de persistidas: `resultados/paso7.md` (PASA).
+- Cadencia: **mensual** (cron de Odoo). Ubicación productiva: `02_forecast/OH Factor Semanal.py` (la v1.5 queda como historial en `proyectos/2026-06-03-diagnostico-estacionalidad/`).
+
 ## 02_forecast / OH Forecast Base.py
+
+### v1.11 — Curva estacional POR SALA con fallback a cadena (2026-09-12)
+
+- Lee `x_studio_team_id` de `x_forecast_factor_week` (writer v1.6). Lookup `(categ, sala, semana)` → fallback `(categ, NULL, semana)` → 1.0 (`_fs_factor_sala`).
+- La curva propia gana al gate binario por tipo: urbanas con curva propia dejan de ir "planas" (backtest paso 6: bias −20,3% → +2,9%).
+- Guard de **familia consistente**: la propia se usa solo si existe para la semana base Y el target; si no, cadena para ambos. Evita mezclar `f_sala(T+k)/f_cadena(base)` la primera semana tras un despliegue.
+- `factor_evento` sin cambios (solo filas de cadena). Sin filas de sala en la tabla → `t_k` idénticos a v1.10 (A/A verificado 2026-09-12: 12/12 filas).
+- Backtest en unidades por la fórmula del motor, verano 2025-26, paridad con sep-2026: RED WAPE 14,6% → 9,9%, bias −1,9% → +1,2% (híbrido por tipo). `a_sala` continuo descartado (errático: 0,7% / +22% / +122% según ventana y métrica).
+- Log: `curva_sala=N filas_sala=N`. Pendiente: verificar `filas_sala > 0` el 2026-09-14; recalibrar turísticas al cerrar verano 2026-27; validar primavera (iso 37–49).
+- Diseño, backtests y validación: `proyectos/2026-09-12-factor-evento-por-sala/` (`diseno.md` §12, `resultados/paso4..7.md`).
+
 
 ### v1.5 — Cleansing de quiebre POR DIA ponderado por perfil dia-semana (2026-06-02)
 
