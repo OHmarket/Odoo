@@ -511,6 +511,14 @@ Resultado: backtest por semana + local + product.product + metodo.
 
 ## 02_forecast / OH Price Correccion.py
 
+### v6.0 — Demand sensing en cervezas con evento de precio (2026-06-01)
+
+- Ademas del factor, MIDE el nuevo nivel post-evento con venta diaria (canon SAP IBP / o9): `nivel_medido` = venta de los ultimos 7 dias completos (MM7 × 7), agregada todas las salas, por producto.
+- Escribe 3 campos en `x_price_coreccion`: `x_studio_nivel_medido`, `x_studio_dias_medidos`, `x_studio_sensing_estado` ('midiendo' <7 dias / 'confirmado' >=7).
+- Gates: vigencia (`dias_medidos <= SENSING_MAX_DAYS`, ~6 sem; pasado eso el SMA del motor ya absorbio el nivel) y senal (`nivel_medido > 0`, para no forzar `mu_week=0` por quiebre o producto muerto).
+- El detector solo MIDE; el RESET de nivel y el gating fino los hace el motor. **Validado: −13pp post-confirmacion.**
+- Ver `proyectos/2026-06-01-demand-sensing/fase1_diseno.md`.
+
 ### v5.9 — REVERTIDO: canibalizacion pasiva con lista blanca L2 (2026-05-12)
 
 Probada: canibalizacion pasiva con lista blanca de categ L2. Resultado: WAPE +0.04pp neutro, no agarro los outliers reales (Royal Guard quedo igual). Probable causa: CPI por sub-cat L3 separa "Cervezas Tradicionales" de "Cervezas Promocion".
@@ -584,6 +592,87 @@ Revertido por decision: evitar acoplar el motor a casuisticas especificas del ne
 ---
 
 ## 03_stock / OH Analisis de Stock.py
+
+### v9.24.0 — Consume los buckets estacionales del motor (2026-09-11)
+
+- Donde la formula usaba `mu` plano × horizonte, ahora usa `mu_fs` = promedio de los buckets `x_studio_mu_week_fs_t0..t5` que escribe `OH Forecast Base` v1.10 (curva por categoria gateada por Tipo de Local + factor de evento).
+- **Invariante A/A**: si `t_k == mu` (curva plana, gate OFF, flag OFF o campos ausentes) el resultado es identico a v9.23.0.
+- Fuera de alcance (siguen con `mu` base): vitrina, share fair-share, ROP/cola larga.
+- Ver `proyectos/2026-09-10-amplitud-estacional-por-sala` (B2).
+
+### v9.23.0 — El padre phantom deja de llevar on-hand y valor (2026-09-09)
+
+- Corrige el **DOBLE CONTEO** del stock de bodega en SKU con set/pack. Canon SAP (phantom assembly, aprovisionamiento especial 50) / Oracle (phantom item): el phantom no se stockea ni se valoriza; la valorizacion vive en el COMPONENTE y "cuantos puedo armar" es una cifra ATP derivada que jamas se agrega junto a saldos on-hand.
+- El bug: `_apply_kit_stock()` derivaba al padre `kits = min(stock_comp/qty)` y lo persistia en los MISMOS campos que el pivote suma (`stock_real`, `stock_central`, `stock_value_cash_physical`), junto al stock fisico del componente.
+- **Medido (prod 2026-09-09, 54 padres con doble conteo activo): $19.143.590 de aire sobre $19.693.356 real en bodega central (+97,2%) y $17.217.814 sobre $17.812.815 en salas (+96,7%).**
+- Para el padre phantom: `stock_real`/`stock_effective`/`stock_central` y los 3 campos de valor pasan a 0; la cifra derivada va a `x_studio_kits_armables` (campo nuevo). El hijo no se toca.
+- Ver `proyectos/2026-09-09-phantom-doble-conteo-bodega/diseno.md`.
+
+### v9.22.0 — Vitrina para todo SKU vivo, con piso escalonado por rotacion (2026-09-08)
+
+- Dos cambios que van JUNTOS: (a) `PRESENTATION_UMBRAL_SEM` 3.0 → `DEMAND_FLOOR_WEEK` (~0,23/sem) — queda UN solo umbral en el modelo; (b) piso escalonado: 1 u para `mu < 2/sem`, 3 u para `mu >= 2/sem`.
+- Por que (b) es obligatorio con (a): el piso plano de 3 u estaba calibrado para rotadores (~1 semana de cobertura); aplicado a la cola lenta son 13 SEMANAS a mu=0,23 → la vitrina dejaba de ser piso y pasaba a DOMINAR el order-up-to.
+- **Medido: +10.855 u sobre 1.340 SKU = $23.437.050 al costo. Con piso plano de 3 u habria costado $60,1M (+25.242 u).**
+- Sin regresion para `mu > 3.0` (verificado por barrido 3.0–60.0/sem, 0 discrepancias). Sube capital en sala: trade-off comercial aceptado.
+
+### v9.21.0 — Deployment (CD→sala) separado de procurement (CD←proveedor) (2026-09-05)
+
+- La sala `solo_bodega` se dimensiona al Fo de ENVIO (deployment horizon), no al ciclo de compra R del proveedor: `target_sala = mu*Fo_envio + z*sigma*sqrt(1sem)`.
+- El CD sigue comprando a R (echelon, `mu_red*R`) y guarda el colchon de red POOLED; solo cambia el ritmo de DESPACHO a sala. Canon SAP APO (procurement vs deployment).
+- Revierte v9.16.0.
+
+### v9.20.0 — Cola larga desactivada: regla unica order-up-to (2026-09-05)
+
+- Se elimina el segmento intermedio 0,23–3/sem que "armaba caja" (lote (s,S) por caja autofinanciada, v9.6.0). Quedan 2 segmentos: `mu <= 0,23` sin_salida/congelar; `mu > 0,23` order-up-to normal.
+
+### v9.19.0 — Gatillo ROP eliminado: reorden hasta el target (2026-08-27)
+
+- El ROP de revision continua (v9.15.0) disparaba cerca del vacio (~lead+review), mal calzado con la compra PERIODICA: OH pide a cada proveedor cada R dias con timing manual.
+- Sintoma: SKU con stock << target quedaban en `no_comprar`. Se pasa a order-up-to puro.
+- Elimina `REVIEW_DIAS`.
+
+### v9.18.0 — El proveedor sale del campo del producto, no de la ultima factura (2026-08-27)
+
+- Fuente autoritativa: `x_studio_proveedor_compra` del producto. Antes se inferia de `x_vendor_bill_cost_lin`; con codigos duplicados las DTE se enlazan al producto equivocado y el proveedor salia mal (ej. VINO Castillo de Molina → proveedor real CCU, facturas de Embonor mal enlazadas por code 9030).
+
+### v9.17.0 — purchase_ok=False corta la compra tambien para solo_bodega (2026-08-27)
+
+- El gate `no_disponible_compra` eximia a los `solo_bodega` → un SKU con compra desactivada se compraba igual via `compra_cd`. **Medido: 26 SKU, ~$1,5M** (Nectar del Valle, Coca Light, Pepsi Zero, licores).
+- Guard en el loop del echelon CD: `not purchase_ok` → `qty_a_pedir=0` y skip.
+
+### v9.16.0 — La sala surtida por CD usa el ciclo completo del proveedor (2026-08-27)
+
+- `period_weeks = R` tambien para rotacion ALTA. El cap fast-lead 7d (`CD_FAST_LEAD_DAYS`, v9.8.0) queda eliminado por decision comercial: los rotadores estables se mantienen ~1 mes en sala en vez de 7d + colchon. El safety sigue sobre 1 sem.
+- Revertido despues por v9.21.0.
+
+### v9.15.0 — Punto de reorden (ROP) canonico (2026-08-25)
+
+- El gatillo de `reponer_ahora` pasa de `50%*target` (proxy) a `ROP = mu*(L+REVIEW) + z*sigma*sqrt(L+REVIEW)` (Silver-Pyke-Peterson).
+- El proxy estaba calibrado para ciclo semanal; con R=30d por proveedor quedaba ~2 semanas inflado → reordenaba muy temprano en R largos y muy tarde en R cortos.
+- Eliminado en v9.19.0.
+
+### v9.14.0 — Elimina el cover_cap y activa LEAD_SAFETY por default (2026-08-25)
+
+- El `cover_cap` (techo 15d/30d por rotacion, v9.7.0) quedo muerto: medido, no mordia a `solo_bodega` (0% con target sobre el cap). Se quitan `_cover_cap_days`, constantes `COVER_CAP_*` y su bloque.
+- `LEAD_SAFETY` pasa a default TRUE (modelo validado en produccion).
+
+### v9.13.0 — Elimina el cap MAX_COVER_WEEKS (2026-08-25)
+
+- Estaba muerto: el fast-lead 7d (v9.8.0) y la cola larga (v9.6.0) subsumen su efecto → nunca decidia el target. Unico residuo era apretar el `financial_ceiling` de `solo_bodega`; ahora queda en `period*2` (igual que compra directa). Limpieza, no cambio de modelo.
+
+### v9.12.0 — si.delay ya no se lee (2026-08-25)
+
+- El horizonte R viene SIEMPRE de `res.partner.x_studio_dias_cobertura_compra`; sin poblar → `DEFAULT_COBERTURA_DIAS` global (7d = neutral, tuneable por context), NO `si.delay`.
+- R es incondicional (fuera del flag). `LEAD_SAFETY` gobierna solo el modelo de safety: `sqrt(L)` vs `sqrt(R)`.
+
+### v9.11.0 — R y L explicitos por proveedor (2026-08-25)
+
+- Dos campos nuevos en `res.partner`: `x_studio_dias_cobertura_compra` (R, horizonte de pedido) y `x_studio_lead_entrega_dias` (L, ventana del safety).
+
+### v9.10.0 — Separa ciclo (R) de lead (L) en la compra a proveedor (2026-08-24)
+
+- Modelo order-point canonico (Silver-Pyke-Peterson / Nahmias, sistema (s,Q)): `target = mu*R + z*sigma*sqrt(L)`.
+- R = cada cuanto PIDES (eleccion de negocio) → dimensiona el stock de CICLO. L = lead de entrega → dimensiona el safety.
 
 ### v9.9.0 — La compra del CD deja de heredar el cap de cobertura de la sala (2026-07-20)
 
@@ -1333,6 +1422,13 @@ Adicionalmente se eliminaron de los headers del script:
 
 ## 03_stock / OH Generacion de Documentos.py
 
+### v1.8 — STRICT_PURCHASE_UOM_BOX deja de bloquear la compra unitaria legitima (2026-08-27)
+
+- Antes descartaba TODO producto con `uom_po == unidad base` (motivo `uom_compra_no_caja`) → **119 SKU con compra por unidad (destilados, etc., ~$5-7M) nunca entraban a la OC** (ej. 9078/9079 Red Label).
+- Ahora bloquea solo el misconfig peligroso: `uom_po == unidad` **Y** `moq > 1` (ahi qty/precio se descuadran). `moq <= 1` = compra por unidad → pasa.
+
+### v1.7 — (sin entrada; ver header del script) *(reconstruido: el header salta de v1.6 a v1.8)*
+
 ### v1.6 — Bandas y presupuesto por rank ABCXYZ (2026-06-08)
 
 Redefine el universo de los flags y la prioridad de compra en base al ranking
@@ -1570,6 +1666,26 @@ No incluye (deuda visible): Bancos, Arriendos, Remuneraciones, TGR, BAT.
 Recomendado: ejecutar diariamente a las 06:00.
 
 ---
+
+## 03_stock / OH Quiebre de Stock.py
+
+### v3.2 — Deteccion de quiebres POR EVIDENCIA *(reconstruido del header, sin fecha explicita)*
+
+Reemplaza `STOCKOUT_v2_0`. Motiva el rediseno el diagnostico 2026-06-12: el metodo viejo (reconstruir balance hacia atras 400 dias y marcar `balance<=0`) producia **59,5% de dias-quiebre con balance NEGATIVO** (imposible: 0 quants negativos en Odoo) y **44,6% con VENTA ese dia** (no puede ser quiebre: no vendes lo que no tienes). Perpetuacion de hasta 413 dias.
+
+Principio nuevo (canon SAP / Oracle Retail):
+
+- La VENTA y el STOCK REAL son prueba de disponibilidad, no el balance contable reconstruido.
+- Dia OOS = surtido ACTIVO (vendio en ventana movil N) **AND** disponibilidad 0.
+- El stock al momento de ejecutar es verdad del dia: resuelve la mayoria de los falsos perpetuos gratis (**64% de los pares >=30d tienen stock real hoy**).
+
+Logica por (sala, SKU, dia D), orden stock-primero:
+
+- `disponible` = `end_raw > 0` OR `out_D > 0` (tiene stock O vendio).
+- `activo` = vendio en los ultimos N=45 dias (PROXY: out-move ≈ venta; las salas casi no transfieren hacia afuera).
+- `reliable` = tramo reciente donde el roll NO cruzo a negativo; al primer dia con balance<0 hacia atras, ese dia y los mas viejos quedan NO confiables (se evita la cola perpetua fantasma).
+
+Se marca CADA dia mientras el producto falte y siga siendo surtido. Insumo de de-censura para el forecast.
 
 ## 05_finanzas / OH Presupuesto ventas.py
 

@@ -1,7 +1,29 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.23.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.24.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.24.0 (2026-09-11): CONSUMO de los buckets estacionales del motor (B2 del proyecto
+#   proyectos/2026-09-10-amplitud-estacional-por-sala). OH Forecast Base v1.10 escribe, ademas
+#   de mu_week (intacto), la demanda por semana futura x_studio_mu_week_fs_t0..t5 ya
+#   estacionalizada (curva por categoria gateada por Tipo de Local + factor de evento).
+#   REGLA UNICA: donde la formula usaba mu plano x horizonte, ahora usa mu_fs = promedio
+#   ponderado de los buckets sobre la VENTANA de esa decision (pesos = solapamiento
+#   fraccionario de cada semana; mas alla de t5 se repite t5). Formulas INTACTAS:
+#     sala compra directa : ventana [L, L+R]        -> mu_fs*R + z*sigma*sqrt(L)
+#     sala surtida por CD : ventana [0, Fo_envio]   -> mu_fs*Fo + safety   (PROXY: desde hoy)
+#     CD echelon (OC real): ventana [L_prov, L+R]   -> sum(mu_fs_sala)*R + safety
+#   INVARIANTE A/A: si t_k == mu (curva plana, gate OFF, flag OFF o campos ausentes)
+#   -> mu_fs == mu -> resultado IDENTICO a v9.23.0. Fuera de alcance (siguen con mu base):
+#   vitrina, share fair-share, ROP/cola larga. Los combos agregan t_k igual que mu.
+#   TAMBIEN la compra mensual estimada y la venta bruta mensual estimada: demanda del mes
+#   restante = suma de los buckets semanales [0, MONTH_REMAINING_WEEKS], no mu x semanas.
+#   Auditoria: rec mu_fs -> x_studio_mu_week_fs (si el campo existe en x_analisis_de_stock);
+#   cd_mu_red_fs en el echelon. DIAG A/B en la MISMA corrida (log 'FS_BUCKETS'): target
+#   con mu base vs con mu_fs por sala + echelon, para medir en DRY_RUN sin correr dos veces.
+#   Flag context fs_buckets=False -> mu_fs = mu (apaga sin tocar codigo).
+#   Backtest verano 2025-26 del overlay: FVA +8.3% global, +17.7% turisticas, bias del
+#   verano -35% -> -1% (ver diseno.md del proyecto).
 #
 # v9.23.0 (2026-09-09): el padre PHANTOM deja de llevar on-hand y valor -> corrige el
 #   DOBLE CONTEO del stock de bodega en SKU con set/pack. Canon SAP (phantom assembly,
@@ -365,7 +387,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_23_0_PHANTOM_SIN_ONHAND'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_24_0_FS_BUCKETS'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -1101,6 +1123,37 @@ HARD_RESET          = bool(CTX.get('hard_reset', HARD_RESET_DEFAULT))
 DRY_RUN             = bool(CTX.get('dry_run', DRY_RUN_DEFAULT))
 CD_ECHELON_PERIOD   = bool(CTX.get('cd_echelon_period', CD_ECHELON_PERIOD_ENABLED_DEFAULT))
 LEAD_SAFETY         = bool(CTX.get('lead_safety', LEAD_SAFETY_ENABLED_DEFAULT))
+FS_BUCKETS          = bool(CTX.get('fs_buckets', True))   # v9.24.0: consumir t0..t5 del motor
+FS_BUCKETS_N        = 6
+
+
+def _fs_window_mu(fs_t, mu, start_w, horizon_w):
+    # v9.24.0: demanda media sobre la ventana [start, start+horizon) en SEMANAS desde los
+    # buckets t_k del motor. Peso de cada bucket = solapamiento fraccionario con la ventana;
+    # mas alla del ultimo bucket se repite el ultimo. Sin buckets / flag OFF / mu<=0 /
+    # horizonte<=0 -> mu (A/A neutral). Sin closures (safe_eval).
+    mu = max(_safe_float(mu, 0.0), 0.0)
+    if not FS_BUCKETS or not fs_t or mu <= 0.0:
+        return mu
+    start = max(_safe_float(start_w, 0.0), 0.0)
+    hor = min(_safe_float(horizon_w, 0.0), 52.0)
+    if hor <= 0.0:
+        return mu
+    end = start + hor
+    n = len(fs_t)
+    acc = 0.0
+    wsum = 0.0
+    k = int(start)
+    while k < end:
+        lo = max(float(k), start)
+        hi = min(float(k + 1), end)
+        w = hi - lo
+        if w > 0.0:
+            idx = k if k < n else n - 1
+            acc += _safe_float(fs_t[idx], 0.0) * w
+            wsum += w
+        k += 1
+    return (acc / wsum) if wsum > 0.0 else mu
 LEAD_DIAS           = _safe_float(CTX.get('lead_dias', LEAD_DIAS_DEFAULT), LEAD_DIAS_DEFAULT)
 LEAD_WEEKS          = max(LEAD_DIAS / 7.0, 0.0)
 DEFAULT_COBERTURA_DIAS  = _safe_float(CTX.get('default_cobertura_dias', DEFAULT_COBERTURA_DIAS_DEFAULT), DEFAULT_COBERTURA_DIAS_DEFAULT)
@@ -2007,8 +2060,9 @@ else:
                     'x_studio_mu_week_adjusted',   # capa demand sensing (COALESCE, ver OH Demand Sensing)
                     'x_studio_sigma_week',
                     'x_studio_xyz_local',
-                ]
+                ] + ['x_studio_mu_week_fs_t%d' % _k for _k in range(FS_BUCKETS_N)]   # v9.24.0
                 fwd_read_fields = [f for f in fwd_read_fields if fwd_fields.get(f)]
+                _fs_fields_ok = all(fwd_fields.get('x_studio_mu_week_fs_t%d' % _k) for _k in range(FS_BUCKETS_N))
 
                 fwd_domain = [(FWD_TEAM_FIELD, 'in', valid_team_ids)]
                 if GLOBAL_TEAM_ID:
@@ -2041,6 +2095,8 @@ else:
                         'share_of_pool': 1.0,
                         'supplier_id':   supplier_partner_map.get(tmpl_id, False),
                         'xyz_local':     (r.get('x_studio_xyz_local') or '').strip().upper(),
+                        # v9.24.0: buckets t0..t5 (None si el motor aun no los escribe)
+                        'fs_t':          ([_safe_float(r.get('x_studio_mu_week_fs_t%d' % _k), 0.0) for _k in range(FS_BUCKETS_N)] if _fs_fields_ok else None),
                     }
 
                     if GLOBAL_TEAM_ID and team_id == GLOBAL_TEAM_ID:
@@ -2068,6 +2124,7 @@ else:
                         'share_of_pool': _safe_float(_p.get('share_of_pool'), 1.0),
                         'supplier_id':   _p.get('supplier_id') or False,
                         'xyz_local':     (_p.get('xyz_local') or ''),
+                        'fs_t':          (list(_p.get('fs_t')) if _p.get('fs_t') else None),   # v9.24.0
                     }
 
                 def _merge_pool_child_into_parent(_map, _parent_key, _child_payload, _qty_per_parent, _seed_payload=None):
@@ -2085,12 +2142,22 @@ else:
                         _current = _clone_fwd_payload(_seed_payload or _child_payload)
                         _current['mu_week'] = 0.0
                         _current['sigma_week'] = 0.0
+                        _current['fs_t'] = None          # v9.24.0: se reconstruye desde el hijo
 
                     _old_mu = _safe_float(_current.get('mu_week'), 0.0)
                     _old_sigma = _safe_float(_current.get('sigma_week'), 0.0)
 
                     _current['mu_week'] = _old_mu + _mu_parent_equiv
                     _current['sigma_week'] = ((_old_sigma ** 2.0) + (_sigma_parent_equiv ** 2.0)) ** 0.5
+                    # v9.24.0: los buckets del hijo se agregan al padre igual que mu (en unidades de padre)
+                    _child_fs = (_child_payload or {}).get('fs_t')
+                    if _child_fs:
+                        _cur_fs = _current.get('fs_t') or ([0.0] * len(_child_fs))
+                        _new_fs = []
+                        for _i in range(len(_cur_fs)):
+                            _cv = _safe_float(_child_fs[_i], 0.0) if _i < len(_child_fs) else 0.0
+                            _new_fs.append(_safe_float(_cur_fs[_i], 0.0) + _cv / _qty)
+                        _current['fs_t'] = _new_fs
 
                     # Clave: el SKU padre compra para el pool completo.
                     # Si dejamos share_of_pool < 1, el padre compraría mirando solo una fracción del stock.
@@ -2362,6 +2429,8 @@ else:
                 # v9.10.0: acumulador A/B de compra directa para el DRY_RUN. Baseline
                 # (lead_safety off) vs on -> compara target_cash y safety_cash por log.
                 _LEAD_DIAG = {'cd_n': 0, 'cd_target_cash': 0.0, 'cd_safety_cash': 0.0}
+                _FS_DIAG = {}                                   # v9.24.0: team -> {n, base, fs} (target u)
+                _FS_DIAG_CD = {'n': 0, 'base': 0.0, 'fs': 0.0}  # v9.24.0: echelon (ciclo u)
                 local_hit  = 0
                 global_hit = 0
                 fwd_miss   = 0
@@ -2557,7 +2626,15 @@ else:
                             _fcw_sku = _financial_ceiling_weeks(payment_days_sku)
                             financial_ceiling_sku = max(_fcw_sku, period_weeks * 2.0)
 
-                        mu_for_target = mu_week if mu_week > DEMAND_FLOOR_WEEK else demanda_semanal
+                        # v9.24.0: demanda estacional a la VENTANA de la decision, desde los buckets
+                        # del motor. Compra directa: [L, L+R]. Surtida por CD: [0, Fo_envio] (PROXY:
+                        # desde hoy; el transito CD->sala es de dias). Sin buckets -> mu (A/A).
+                        fs_t = fwd.get('fs_t') or None
+                        if solo_bodega:
+                            mu_fs = _fs_window_mu(fs_t, mu_week, 0.0, sala_work_weeks)
+                        else:
+                            mu_fs = _fs_window_mu(fs_t, mu_week, L_sku_weeks, period_weeks)
+                        mu_for_target = mu_fs if mu_fs > DEMAND_FLOOR_WEEK else demanda_semanal
                         if solo_bodega:
                             if mu_for_target > DEMAND_FLOOR_WEEK:
                                 z_sala = _safety_factor_for(abcxyz_efectivo, is_cigarros)
@@ -2580,6 +2657,23 @@ else:
                             target_units         = demanda_semanal * H_fb + safety_stock_units
                             reorder_target_weeks = (target_units / demanda_semanal if demanda_semanal > DEMAND_FLOOR_WEEK else H_fb)
                             reorder_target_weeks = _clamp(reorder_target_weeks, 0.0, financial_ceiling_sku)
+
+                        # v9.24.0 DIAG A/B (misma corrida): target con mu base vs con mu_fs, por sala.
+                        if FS_BUCKETS and fs_t and mu_week > DEMAND_FLOOR_WEEK and abs(mu_fs - mu_week) > 1e-9:
+                            if solo_bodega:
+                                _tb = mu_week * sala_work_weeks + safety_stock_units
+                            elif protection_weeks > 0.0:
+                                _tb = _calc_target_units(abcxyz_efectivo, mu_week, sigma_week, protection_weeks, moq, financial_ceiling_sku, is_cigarros,
+                                                         safety_weeks=(L_sku_weeks if LEAD_SAFETY else None))[0]
+                            else:
+                                _tb = target_units
+                            _fd = _FS_DIAG.get(team_id)
+                            if _fd is None:
+                                _fd = {'n': 0, 'base': 0.0, 'fs': 0.0}
+                                _FS_DIAG[team_id] = _fd
+                            _fd['n'] += 1
+                            _fd['base'] += _tb
+                            _fd['fs'] += target_units
 
                         # v9.6.0: cola larga -> lote minimo (s,S) por caja autofinanciada.
                         # Solo solo_bodega y mu <= umbral. Order-up-to = caja/fraccion ~mensual;
@@ -2774,6 +2868,8 @@ else:
                             'no_disponible_compra': no_disponible_compra,
                             'qty_compra_cd': 0.0,
                             'mu_week': mu_week,
+                            'mu_fs': mu_fs,                  # v9.24.0
+                            'fs_t': fs_t,                    # v9.24.0
                             'sigma_week': sigma_week,
                             'period_weeks': period_weeks,
                             'lead_weeks': lead_weeks,
@@ -3129,6 +3225,7 @@ else:
                         'demanda_estimada_entera': 0.0,
                         'venta_bruta_estimada': 0.0,
                         'demanda_semanal_origen_cd': 0.0,
+                        'fs_t_origen_cd': None,     # v9.24.0: suma de buckets de los locales origen
                         'stock_proyectado_origen_cd': 0.0,
                     }
                     abc = abc_map.get(tid) or {}
@@ -3181,6 +3278,14 @@ else:
                             base['demanda_estimada_entera'] += _dem_ent
                             base['venta_bruta_estimada'] += _dem_ent * _pvp_b
                             base['demanda_semanal_origen_cd'] += _safe_float(rec.get('demanda_semanal'), 0.0)
+                            # v9.24.0: buckets de los locales origen (misma unidad que demanda_semanal)
+                            _rf = rec.get('fs_t')
+                            if _rf:
+                                _bf = base.get('fs_t_origen_cd') or ([0.0] * len(_rf))
+                                _nf = []
+                                for _i in range(len(_bf)):
+                                    _nf.append(_safe_float(_bf[_i], 0.0) + (_safe_float(_rf[_i], 0.0) if _i < len(_rf) else 0.0))
+                                base['fs_t_origen_cd'] = _nf
                             # Agregar stock proyectado de los locales que originan esta compra_cd,
                             # para presupuestar mensual a nivel SKU-red sin double counting por local.
                             base['stock_proyectado_origen_cd'] += _safe_float(rec.get('stock_proyectado'), 0.0)
@@ -3263,10 +3368,12 @@ else:
                     piso_red = 0.0
                     target_installation = 0.0    # Σ target de las salas (installation stock)
                     safety_installation = 0.0    # Σ safety de las salas (sin poolear, solo reporte)
+                    _fs_recs = []                # v9.24.0: (mu_i, fs_t_i) para la ventana del CD
                     for rec in records_by_tmpl.get(tid, []):
                         mu_i = _safe_float(rec.get('mu_week'), 0.0)
                         if mu_i > 0.0:
                             mu_red += mu_i
+                            _fs_recs.append((mu_i, rec.get('fs_t')))
                         sig_i = _safe_float(rec.get('sigma_week'), 0.0)
                         if sig_i > 0.0:
                             sigma_sq_red += sig_i ** 2.0
@@ -3339,7 +3446,17 @@ else:
                             _cd_L_weeks = _cd_ld / 7.0
                     _cd_safety_weeks = _cd_L_weeks if LEAD_SAFETY else period_weeks_sku
                     safety_cd_units = z_cd * sigma_red * (_cd_safety_weeks ** 0.5)
-                    target_echelon = mu_red * period_weeks_sku + safety_red + piso_red + safety_cd_units
+                    # v9.24.0: demanda de red ESTACIONAL a la ventana del CD [L_prov, L+R] desde los
+                    # buckets de cada sala (la OC al proveedor ve el verano/evento). Sin buckets -> mu_red.
+                    mu_red_fs = 0.0
+                    for _mi, _ft in _fs_recs:
+                        mu_red_fs += _fs_window_mu(_ft, _mi, _cd_L_weeks, period_weeks_sku)
+                    if mu_red_fs <= 0.0:
+                        mu_red_fs = mu_red
+                    _FS_DIAG_CD['n'] += 1
+                    _FS_DIAG_CD['base'] += mu_red * period_weeks_sku
+                    _FS_DIAG_CD['fs'] += mu_red_fs * period_weeks_sku
+                    target_echelon = mu_red_fs * period_weeks_sku + safety_red + piso_red + safety_cd_units
                     if CD_ECHELON_PERIOD:
                         target_red = max(target_installation, target_echelon)
                     else:
@@ -3369,6 +3486,7 @@ else:
                     base['cd_target_weeks']  = period_weeks_sku
                     base['cd_target_units']  = target_red
                     base['cd_mu_red']        = mu_red
+                    base['cd_mu_red_fs']     = mu_red_fs   # v9.24.0
                     base['cd_sigma_red']     = sigma_red
                     base['cd_safety_units']  = safety_red
                     base['cd_safety_period'] = safety_cd_units      # v9.9.0: safety de la ventana del proveedor
@@ -3674,7 +3792,10 @@ else:
                             _compra_w1_units = transfer_qty
                         else:
                             _compra_w1_units = qty_a_pedir
-                        _demanda_mes_units = max(demanda_semanal * MONTH_REMAINING_WEEKS, 0.0)
+                        # v9.24.0: demanda del mes RESTANTE = suma de los buckets semanales (t0..tn),
+                        # no mu plano x semanas (misma regla que el target; A/A si t_k == mu).
+                        _mu_mes = _fs_window_mu(rec.get('fs_t') or None, demanda_semanal, 0.0, MONTH_REMAINING_WEEKS)
+                        _demanda_mes_units = max(_mu_mes * MONTH_REMAINING_WEEKS, 0.0)
                         _gap_residual_units = max(
                             _demanda_mes_units - stock_proyectado - _compra_w1_units,
                             0.0
@@ -3694,8 +3815,9 @@ else:
                     # Mismo MONTH_REMAINING_WEEKS que compra_mensual → coherencia garantizada.
                     # Referencia externa: presupuesto real ~ estimado / 1.14
                     #   (gap = list_price catalogo vs venta real con descuentos).
-                    _venta_bruta_mensual_estimada = (
-                        demanda_semanal * MONTH_REMAINING_WEEKS * _pvp_bruto_sku
+                    _venta_bruta_mensual_estimada = (   # v9.24.0: suma de buckets del mes restante
+                        _fs_window_mu(rec.get('fs_t') or None, demanda_semanal, 0.0, MONTH_REMAINING_WEEKS)
+                        * MONTH_REMAINING_WEEKS * _pvp_bruto_sku
                     )
                     # ── fin venta bruta mensual estimada ─────────────────────────────
 
@@ -3823,6 +3945,14 @@ else:
                         # ── fin campos GMROI ─────────────────────────────────────────
                     }
 
+                    # v9.24.0: auditoria del perfil semanal (campos opcionales en x_analisis_de_stock)
+                    if fields_map.get('x_studio_mu_week_fs'):
+                        vals['x_studio_mu_week_fs'] = _safe_float(rec.get('mu_fs'), 0.0)
+                    _fsw = rec.get('fs_t') or None
+                    for _k in range(FS_BUCKETS_N):
+                        _fk = 'x_studio_mu_week_fs_t%d' % _k
+                        if fields_map.get(_fk):
+                            vals[_fk] = _safe_float(_fsw[_k], 0.0) if (_fsw and _k < len(_fsw)) else _safe_float(rec.get('mu_week'), 0.0)
                     if fields_map.get('x_studio_motivo_eliminar'):
                         vals['x_studio_motivo_eliminar'] = rec.get('motivo_eliminar') or ''
 
@@ -3943,7 +4073,9 @@ else:
                     if _phantom_blocked_cd or (qty_a_pedir <= 0.0 and _demanda_origen_cd <= 0.0):
                         _compra_mensual_estimada_cd = 0.0
                     else:
-                        _demanda_mes_cd = max(_demanda_origen_cd * MONTH_REMAINING_WEEKS, 0.0)
+                        # v9.24.0: mes restante = suma de buckets de los locales origen (A/A si t_k == mu)
+                        _mu_mes_cd = _fs_window_mu(c.get('fs_t_origen_cd') or None, _demanda_origen_cd, 0.0, MONTH_REMAINING_WEEKS)
+                        _demanda_mes_cd = max(_mu_mes_cd * MONTH_REMAINING_WEEKS, 0.0)
                         _stock_red_cd = stock_proyectado + _stock_proy_origen_cd
                         _gap_residual_cd = max(_demanda_mes_cd - _stock_red_cd - qty_a_pedir, 0.0)
                         _compra_mensual_units_cd = qty_a_pedir + _gap_residual_cd
@@ -4038,6 +4170,12 @@ else:
                         'x_studio_costo_oh_sku':               costo_oh_map.get(tid) or purchase_price_cash_unit,
                         'x_studio_pvp_neto_sku':               pvp_neto_map.get(tid, 0.0),
                     }
+                    # v9.24.0: perfil semanal de la RED origen en la fila CD (suma de buckets de los locales)
+                    _fsc = c.get('fs_t_origen_cd') or None
+                    for _k in range(FS_BUCKETS_N):
+                        _fk = 'x_studio_mu_week_fs_t%d' % _k
+                        if fields_map.get(_fk):
+                            vals_cd[_fk] = _safe_float(_fsc[_k], 0.0) if (_fsc and _k < len(_fsc)) else _safe_float(c.get('demanda_semanal_origen_cd'), 0.0)
                     if fields_map.get('x_studio_stock_source_mode'):
                         vals_cd['x_studio_stock_source_mode'] = 'central'
                     # Trazabilidad OC/picking que disparan stock_pedido en CD.
@@ -4079,6 +4217,21 @@ else:
                         ),
                         level='info'
                     )
+                except Exception:
+                    pass
+
+                # v9.24.0: DIAG A/B FS_BUCKETS (misma corrida). delta = (fs/base - 1) en unidades
+                # de target; solo filas donde mu_fs != mu (curva con pendiente o evento).
+                try:
+                    _fs_parts = []
+                    for _t_id in sorted(_FS_DIAG.keys()):
+                        _d = _FS_DIAG[_t_id]
+                        _fs_parts.append('team%s n=%s base=%.0f fs=%.0f d=%+.1f%%' % (
+                            _t_id, _d['n'], _d['base'], _d['fs'], ((_d['fs'] / _d['base'] - 1.0) * 100.0) if _d['base'] > 0 else 0.0))
+                    log('%s | FS_BUCKETS=%s | salas[%s] | echelon n=%s ciclo_base=%.0f ciclo_fs=%.0f d=%+.1f%%' % (
+                        VERSION_ID, ('ON' if FS_BUCKETS else 'OFF'), ' ; '.join(_fs_parts) or 'sin filas con mu_fs!=mu',
+                        _FS_DIAG_CD['n'], _FS_DIAG_CD['base'], _FS_DIAG_CD['fs'],
+                        ((_FS_DIAG_CD['fs'] / _FS_DIAG_CD['base'] - 1.0) * 100.0) if _FS_DIAG_CD['base'] > 0 else 0.0), level='info')
                 except Exception:
                     pass
 
