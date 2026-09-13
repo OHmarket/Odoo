@@ -116,11 +116,14 @@ Scripts agrupados por dominio funcional. Pipeline productivo:
 
 ```
 1. 01_segmentacion/  OH Calculo ABCXYZ.py           (segmentacion base)
-2. 02_forecast/      OH Price Correccion.py         (ajusta factor por precio)
-3. 02_forecast/      OH Forecast Base.py            (motor de demanda)
-4. 03_stock/         OH Analisis de Stock.py        (calcula compra/transfer)
-5. 03_stock/         OH Generacion de Documentos.py (crea OC + traslados)
+2. 02_forecast/      OH Forecast Base.py            (motor de demanda + buckets t0..t5)
+3. 03_stock/         OH Analisis de Stock.py        (calcula compra/transfer)
+4. 03_stock/         OH Generacion de Documentos.py (crea OC + traslados)
 ```
+
+`02_forecast/OH Price Correccion.py` **NO esta corriendo** (verificado
+2026-09-13): sin cron, sin Server Action, su modelo `x_price_coreccion` no
+existe y el motor ya no lo lee. Decidir si revivirlo o moverlo a `_legacy/`.
 
 La version vigente de cada script esta en su propio header — no se duplica aqui
 para que no quede desactualizada.
