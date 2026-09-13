@@ -598,6 +598,18 @@ Revertido por decision: evitar acoplar el motor a casuisticas especificas del ne
 
 ## 03_stock / OH Analisis de Stock.py
 
+### v9.25.0 — stock_pedido_compra descuenta lo recepcionado (2026-09-13)
+
+- **Error de diseno corregido**: el transito de compra sumaba `product_uom_qty` de todo `stock_move` abierto con `purchase_line_id`. Si un backorder o guia huerfana conservaba el move de una linea **ya recibida completa**, la mercaderia contaba dos veces: on-hand + transito. Frenaba la recompra de esos SKU.
+- Caso real: OC35139 Evercrisp, guia `LL200/IN/02851` en `draft` con 17 moves, de los cuales 10 eran lineas 100% recibidas por 02849/02850.
+- Canon: *open PO quantity* = cantidad pedida − cantidad recibida (SAP MM EKPO-MENGE menos GR; Oracle *quantity due*).
+- Regla por linea de OC: `transito = min(SUM moves abiertos, max(product_qty − qty_received, 0))` en UoM del producto, repartido proporcional entre los moves abiertos de la linea (conserva la sala). `min()` porque moves cancelados = OC dada por cerrada (regla OH) → 0.
+- `x_studio_oc_pendientes` deja de listar la OC para un SKU cuya linea ya no tiene saldo.
+- Transferencias sin OC: **sin cambio**.
+- **Medido (prod 2026-09-13, XML-RPC)**: 255 moves, 250 claves producto×ubicacion. **237 identicas (A/A)**; 13 cambian, todas `LL200/Stock`. Transito compra 7.199,0 → 7.077,7 u (−121,3 u, −1,7%). 10 SKU de OC35139 pasan a 0; 3 bajan 0,1 u por redondeo de `qty_received` en cajas.
+- Fuera de alcance (pregunta abierta): excluir moves `draft` del transito de compra, como ya hace el SQL de transferencias.
+- Ver `proyectos/2026-09-13-oc-pendientes-olvidadas/` (`saldo_linea_ref.py` + `test_saldo_linea.py`, 7 casos).
+
 ### v9.24.0 — Consume los buckets estacionales del motor (2026-09-11)
 
 - Donde la formula usaba `mu` plano × horizonte, ahora usa `mu_fs` = promedio de los buckets `x_studio_mu_week_fs_t0..t5` que escribe `OH Forecast Base` v1.10 (curva por categoria gateada por Tipo de Local + factor de evento).

@@ -1,7 +1,19 @@
 # OH Analisis de Stock LOCAL + Bodega Central
 # ============================================================
 #
-# Version activa: v9.24.0 (ver CHANGELOG.md para historial completo)
+# Version activa: v9.25.0 (ver CHANGELOG.md para historial completo)
+#
+# v9.25.0 (2026-09-13): stock_pedido_compra DESCUENTA LO RECEPCIONADO. Canon open PO
+#   quantity = pedido - recibido (SAP MM / Oracle quantity due). Antes se sumaba todo
+#   stock_move abierto con OC: un backorder o guia huerfana con el move de una linea ya
+#   recibida completa contaba la mercaderia DOS veces (on-hand + transito). Caso:
+#   OC35139 Evercrisp, guia LL200/IN/02851 (draft), 10 lineas 100% recibidas.
+#   Por linea: transito = min(SUM moves abiertos, max(product_qty - qty_received, 0)) en
+#   UoM producto, repartido proporcional entre sus moves (conserva la sala). min():
+#   moves cancelados = OC cerrada -> 0. x_studio_oc_pendientes solo lista OC con saldo.
+#   A/A medido en prod: 237/250 claves producto x ubicacion identicas; 13 cambian (todas
+#   LL200), transito compra 7.199 -> 7.078 u. Transferencias sin OC: SIN CAMBIO.
+#   Ver proyectos/2026-09-13-oc-pendientes-olvidadas (saldo_linea_ref.py + tests).
 #
 # v9.24.0 (2026-09-11): CONSUMO de los buckets estacionales del motor (B2 del proyecto
 #   proyectos/2026-09-10-amplitud-estacional-por-sala). OH Forecast Base v1.10 escribe, ademas
@@ -387,7 +399,7 @@
 # Detalles, fixes historicos y metricas de snapshots: ver CHANGELOG.md.
 # ------------------------------------------------------------
 
-VERSION_ID = 'OH_STOCK_ANALYSIS_v9_24_0_FS_BUCKETS'
+VERSION_ID = 'OH_STOCK_ANALYSIS_v9_25_0_SALDO_LINEA'
 
 TZ_NAME  = 'America/Santiago'
 LOCK_KEY = 99009441
@@ -1809,39 +1821,68 @@ else:
                     # Si la OC fue creada en cajas, sumar directo product_uom_qty subcuenta el stock entrante.
                     # Convertimos a la UoM base del producto:
                     # qty_base = qty_move / uom_move.factor * uom_product.factor
+                    #
+                    # v9.25.0: el transito se mide contra el SALDO DE LA LINEA de OC, no contra
+                    # la suma de moves vivos. Canon open PO quantity = pedido - recibido (SAP MM
+                    # EKPO-MENGE menos GR; Oracle quantity due). Antes, un backorder/guia
+                    # huerfana con el move de una linea YA recibida completa contaba la
+                    # mercaderia dos veces (on-hand + transito): OC35139, LL200/IN/02851.
+                    # Por linea: transito = min(SUM moves abiertos, max(product_qty - qty_received, 0)),
+                    # en UoM del producto, repartido proporcional entre los moves abiertos de
+                    # la linea. min(): moves cancelados = OC dada por cerrada -> 0.
+                    # El ratio se calcula sobre TODOS los moves abiertos de la linea y recien
+                    # despues se filtra por ubicacion, para que no dependa de la sala consultada.
+                    # A/A: linea sin recepcion y moves == pedido -> identico a v9.24.0.
                     env.cr.execute("""
-                        SELECT sm.product_id,
-                               SUM(
+                        WITH mv AS (
+                            SELECT sm.product_id,
+                                   sm.purchase_line_id,
+                                   sm.location_dest_id,
                                    CASE
                                        WHEN um.category_id = up.category_id
                                             AND COALESCE(um.factor, 0.0) <> 0.0
                                        THEN COALESCE(sm.product_uom_qty, 0.0) / um.factor * up.factor
                                        ELSE COALESCE(sm.product_uom_qty, 0.0)
-                                   END
-                               ) AS qty
-                        FROM stock_move sm
-                        JOIN stock_location src ON src.id = sm.location_id
-                        JOIN stock_location dst ON dst.id = sm.location_dest_id
-                        JOIN product_product pp ON pp.id = sm.product_id
-                        JOIN product_template pt ON pt.id = pp.product_tmpl_id
-                        JOIN uom_uom um ON um.id = sm.product_uom
-                        JOIN uom_uom up ON up.id = pt.uom_id
-                        WHERE sm.company_id = %s
-                          AND sm.state NOT IN ('done', 'cancel')
-                          AND sm.purchase_line_id IS NOT NULL
-                          AND dst.usage = 'internal'
-                          AND sm.location_dest_id IN %s
-                        GROUP BY sm.product_id
-                        HAVING ABS(
-                            SUM(
-                                CASE
-                                    WHEN um.category_id = up.category_id
-                                         AND COALESCE(um.factor, 0.0) <> 0.0
-                                    THEN COALESCE(sm.product_uom_qty, 0.0) / um.factor * up.factor
-                                    ELSE COALESCE(sm.product_uom_qty, 0.0)
-                                END
-                            )
-                        ) > 0.00001
+                                   END AS qty_base,
+                                   CASE
+                                       WHEN ul.category_id = up.category_id
+                                            AND COALESCE(ul.factor, 0.0) <> 0.0
+                                       THEN GREATEST(COALESCE(pol.product_qty, 0.0) - COALESCE(pol.qty_received, 0.0), 0.0) / ul.factor * up.factor
+                                       ELSE GREATEST(COALESCE(pol.product_qty, 0.0) - COALESCE(pol.qty_received, 0.0), 0.0)
+                                   END AS saldo_base
+                            FROM stock_move sm
+                            JOIN stock_location dst ON dst.id = sm.location_dest_id
+                            JOIN purchase_order_line pol ON pol.id = sm.purchase_line_id
+                            JOIN product_product pp ON pp.id = sm.product_id
+                            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                            JOIN uom_uom um ON um.id = sm.product_uom
+                            JOIN uom_uom ul ON ul.id = pol.product_uom
+                            JOIN uom_uom up ON up.id = pt.uom_id
+                            WHERE sm.company_id = %s
+                              AND sm.state NOT IN ('done', 'cancel')
+                              AND sm.purchase_line_id IS NOT NULL
+                              AND dst.usage = 'internal'
+                        ),
+                        ab AS (
+                            SELECT mv.*,
+                                   SUM(mv.qty_base) OVER (PARTITION BY mv.purchase_line_id) AS abierto_base
+                            FROM mv
+                        )
+                        SELECT product_id, qty
+                        FROM (
+                            SELECT product_id,
+                                   SUM(
+                                       CASE
+                                           WHEN abierto_base > 0.0
+                                           THEN qty_base * LEAST(1.0, saldo_base / abierto_base)
+                                           ELSE 0.0
+                                       END
+                                   ) AS qty
+                            FROM ab
+                            WHERE location_dest_id IN %s
+                            GROUP BY product_id
+                        ) t
+                        WHERE ABS(qty) > 0.00001
                     """, (company.id, loc_tuple))
                     for pid_r, qty_r in env.cr.fetchall():
                         pid_i = _safe_int(pid_r)
@@ -1897,6 +1938,8 @@ else:
 
                     # Nombres de OC pendientes que disparan stock_pedido_compra.
                     # Se listan sin qty para la trazabilidad simple del usuario.
+                    # v9.25.0: solo lineas con saldo por recibir (misma regla que la qty):
+                    # una OC cuya linea ya se recibio completa no es pendiente de ese SKU.
                     env.cr.execute("""
                         SELECT DISTINCT pp.product_tmpl_id, po.name
                           FROM stock_move sm
@@ -1909,6 +1952,7 @@ else:
                            AND sm.purchase_line_id IS NOT NULL
                            AND dst.usage = 'internal'
                            AND sm.location_dest_id IN %s
+                           AND COALESCE(pol.product_qty, 0.0) - COALESCE(pol.qty_received, 0.0) > 0.00001
                     """, (company.id, loc_tuple))
                     for tid_r, name_r in env.cr.fetchall():
                         tmpl_id = _safe_int(tid_r)
