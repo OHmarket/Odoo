@@ -393,6 +393,16 @@ Cambios activos:
 
 ## 02_forecast / OH Forecast Base.py
 
+### v1.12 — Cierre por feriado irrenunciable (2026-09-13)
+
+- Las salas de `TEAMS_NO_ABREN_IRRENUNCIABLE` (Pang 645, Lautaro) no operan en feriados irrenunciables: el bucket `t_k` de esa semana se multiplica por el ajuste de cierre. **Capacidad cero, no demanda deprimida.**
+- `ajuste = (1 − peso_días_cerrados) × CIERRE_CONCENTRACION`. El peso por día de semana se **mide** de `pos_order` (día operativo, corte 05:00, 12 semanas) — no está hardcodeado. Las fechas salen de `x_studio_is_irrenunciable`, así que Navidad y Año Nuevo entran solos.
+- `CIERRE_CONCENTRACION = 0.90` es **PROXY medido** (n=10 ocurrencias): el modelo puro `1−peso` resultó optimista en 8 de 10 porque los días cerrados cargan más que su peso normal en semana de evento. Ver `proyectos/2026-09-12-factor-evento-por-sala/paso8_ajuste_cierre.py`.
+- Se aplica **después** del factor de evento, a propósito: el día cerrado pierde también el pico, que es justo cuando cae.
+- Medido antes del fix: el 18-19-sep-2026 (vie+sáb = 49–51% de su semana) ambas salas recibían factor 1,371 — 3× de más. Exceso 4.671 u = **$6.998.308 al costo** en compras y traslados.
+- Corrida 2026-09-13 16:34: `cierre[ON celdas=2 filas=2194 8:2026-09-14=0.44 10:2026-09-14=0.46]`, 0 errores. Efecto verificado: t1/t0 de 645 y Lautaro pasa a 0,72–0,73 (bajan) mientras los controles suben 1,63–1,67.
+- **Deuda declarada**: el hogar natural del cierre es la tabla de factores (writer v1.7), donde sería auditable por consulta en vez de solo visible en el output. Ubicación táctica por urgencia del 18-sep.
+
 ### v1.11 — Curva estacional POR SALA con fallback a cadena (2026-09-12)
 
 - Lee `x_studio_team_id` de `x_forecast_factor_week` (writer v1.6). Lookup `(categ, sala, semana)` → fallback `(categ, NULL, semana)` → 1.0 (`_fs_factor_sala`).
@@ -1563,6 +1573,16 @@ Recomendado: ejecutar diariamente a las 06:00.
 ---
 
 ## 05_finanzas / OH Presupuesto ventas.py
+
+### v15 — Cierre por feriado irrenunciable (2026-09-13)
+
+- Las salas de `TEAMS_NO_ABREN_IRRENUNCIABLE` (Pang 645, Lautaro) proyectan **0** en fechas irrenunciables. Override **final**: pisa CAL/LY4/TY4, el floor por local y el efecto aditivo v14 — los tres proyectaban venta en un día con la persiana abajo.
+- Fechas desde `x_studio_is_irrenunciable` del maestro de feriados; no hay fechas hardcodeadas.
+- Medido antes del fix: el v14 proyectaba **$10.819.346** para esas dos salas en el 18 y 19-sep-2026, más $2.060.835 en Navidad. Total $12.880.181 en 6 días-sala.
+- El surplus de red **no se reasigna** a las salas abiertas — PROXY conservador: con un año de historia no se puede medir cuánto se transfiere, y para un presupuesto quedarse corto es el error barato.
+- Verificado 2026-09-13: las 6 filas en $0, salas de control intactas.
+- Por qué constante y no derivado del POS: se probó y la historia **no distingue excepción de política** (Lautaro abrió 3 veces en 2025 por excepción; con las 3 ocurrencias más recientes sale "abre"). Por qué constante y no campo Studio: 2 salas, regla estable, y el repo ya maneja así sus reglas (`HOLIDAY_OFFSET_POLICY`, `EXCLUDED_CODES`).
+
 
 ### v14 — Efecto feriado aditivo (feriado que cambia de dia de semana) (2026-09-07)
 

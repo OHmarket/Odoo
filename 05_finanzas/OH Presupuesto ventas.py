@@ -2,7 +2,19 @@
 # OH Presupuesto Ventas - Recalc ayer + futuro hasta 31-12-2026
 # ============================================================
 #
-# Version activa: v14 (ver CHANGELOG.md para historial completo)
+# Version activa: v15 (ver CHANGELOG.md para historial completo)
+#
+#   v15 (2026-09-12): CIERRE por feriado IRRENUNCIABLE. Las salas de
+#     TEAMS_NO_ABREN_IRRENUNCIABLE proyectan 0 en las fechas irrenunciables
+#     (bandera x_studio_is_irrenunciable del maestro de feriados). Override
+#     FINAL: pisa CAL/LY4/TY4, el floor por local y el efecto aditivo v14.
+#     Canon: un dia cerrado no es demanda deprimida, es CAPACIDAD CERO; no se
+#     pronostica, se calendariza. Medido 2026-09-12: el v14 proyectaba
+#     $10.819.346 para Pang 645 + Lautaro en el 18 y 19-sep-2026, dias en que
+#     ambas cierran. El surplus de red NO se reasigna a las salas abiertas
+#     (PROXY conservador: con un ano de historia no se puede medir cuanto se
+#     transfiere; para un presupuesto, quedarse corto es el error barato).
+#     Ver proyectos/2026-09-12-factor-evento-por-sala/diseno.md s8 (v1).
 #
 # Objetivo:
 #   - Recalcula presupuesto de ayer (D-1) y proyecta hacia el futuro
@@ -29,7 +41,7 @@
 # Detalles, fixes historicos y esquema completo: ver CHANGELOG.md.
 # ============================================================
 
-VERSION_ID = "PRESU_WD_TAG_v14_HOLIDAY_ADDITIVE__DIECIOCHO_OFFSET_SURPLUS"
+VERSION_ID = "PRESU_WD_TAG_v15_CIERRE_IRRENUNCIABLE"
 
 # ================== Parametros ==================
 TZ_NAME = 'America/Santiago'
@@ -115,6 +127,21 @@ LOCK_KEY = 1424122
 # === Modelos de feriados ===
 HOL_OCC_MODEL = 'x_holiday_occurrence'
 HOL_MAS_MODEL = 'x_holiday_master'
+
+# === v15: salas que NO abren en feriados irrenunciables ===
+# Regla de negocio (Marco, 2026-09-12): Pang 645 y Lautaro cierran en TODOS los
+# irrenunciables, Navidad 2026 incluida. Las 3 aperturas de Lautaro en 2025
+# (Labor Day 170%, 18-sep parcial 26%, Navidad 137%) fueron EXCEPCIONES, no
+# politica: quedan como outliers declarados.
+# Por que constante y no derivado del POS: se probo (2026-09-12) y la historia
+# NO distingue excepcion de politica -> con las 3 ocurrencias mas recientes
+# Lautaro sale 'abre' por Navidad-2025. La informacion no esta en el dato.
+# Por que constante y no campo Studio: 2 salas, regla estable, y este repo ya
+# maneja asi sus reglas de negocio (HOLIDAY_OFFSET_POLICY, EXCLUDED_CODES...).
+TEAMS_NO_ABREN_IRRENUNCIABLE = set([8, 10])   # 8=Panguipulli 645, 10=Lautaro
+# Se llena en _load_holiday_bases leyendo x_studio_is_irrenunciable del maestro.
+# Mutacion de un set ya definido: no requiere 'global' (prohibido en safe_eval).
+IRREN_CODES = set()
 
 # === Política P/H por código de feriado ===
 # La FECHA sale del modelo; aquí solo se define cómo marcar días alrededor.
@@ -285,9 +312,12 @@ def _load_holiday_bases(years):
     master_ids = list(set(master_ids))
     code_by_id = {}
     if master_ids:
-        mrows = Mas.browse(master_ids).read(['x_studio_code'])
+        mrows = Mas.browse(master_ids).read(['x_studio_code', 'x_studio_is_irrenunciable'])
         for r in mrows:
-            code_by_id[r['id']] = (r.get('x_studio_code') or '').strip().upper()
+            _c = (r.get('x_studio_code') or '').strip().upper()
+            code_by_id[r['id']] = _c
+            if _c and r.get('x_studio_is_irrenunciable'):
+                IRREN_CODES.add(_c)          # v15 (mutacion: sin global)
 
     for r in occ_rows:
         yy = r.get('x_studio_year')
@@ -445,6 +475,18 @@ for (d0, tid), v in daily_sales.items():
 holiday_class_by_year = {}
 taginfo_by_year = {}
 base_main_by_tag_by_year = _load_holiday_bases(all_years_sales)
+
+# v15: fechas de feriados IRRENUNCIABLES (todos los anos cargados).
+irren_dates = set()
+for _yy in base_main_by_tag_by_year:
+    for _code in base_main_by_tag_by_year[_yy]:
+        if _code in IRREN_CODES:
+            _dt = base_main_by_tag_by_year[_yy][_code]
+            if _dt:
+                if isinstance(_dt, str):
+                    _dt = datetime.date.fromisoformat(_dt[:10])
+                irren_dates.add(_dt)
+n_cierre_rows = [0]      # contador por referencia (sin global)
 
 def _build_holiday_maps_for_year(yy):
     date_from_y, date_to_y = _year_bounds(yy)
@@ -911,6 +953,16 @@ while d <= horizon_end:
             base_mode = 'HOL_ADD'
             floor_team_applied = False
 
+        # ================== v15: CIERRE por feriado IRRENUNCIABLE ==================
+        # Capacidad cero: la sala no abre ese dia. Va AL FINAL a proposito, para
+        # pisar CAL/LY4/TY4, el floor por local y el efecto aditivo v14 (todos
+        # ellos proyectarian venta en un dia con la persiana abajo).
+        if (tid in TEAMS_NO_ABREN_IRRENUNCIABLE) and (d in irren_dates):
+            proj = 0.0
+            base_mode = 'CIERRE_IRREN'
+            floor_team_applied = False
+            n_cierre_rows[0] += 1
+
         # === métricas vs real: solo hasta AYER ===
         if d <= calc_today:
             bruto_curr = v_curr
@@ -1050,8 +1102,9 @@ action = {
     'tag': 'display_notification',
     'params': {
         'title': 'Presupuesto de Ventas',
-        'message': 'OK | v14 | HolidayAdditive | Desde %s a %s | Hoy=%s | Ayer=%s | Registros=%s'
-                   % (_d2s(date_from_target), _d2s(horizon_end), _d2s(today_real), _d2s(calc_today), total),
+        'message': 'OK | v15 | HolidayAdditive + CierreIrrenunciable | Desde %s a %s | Hoy=%s | Ayer=%s | Registros=%s | dias-sala en cero por cierre=%s (salas %s, %s fechas irrenunciables)'
+                   % (_d2s(date_from_target), _d2s(horizon_end), _d2s(today_real), _d2s(calc_today), total,
+                      n_cierre_rows[0], sorted(TEAMS_NO_ABREN_IRRENUNCIABLE), len(irren_dates)),
         'type': 'success',
         'sticky': False,
     }

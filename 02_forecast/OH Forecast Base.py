@@ -1,7 +1,20 @@
 # OH Forecast Base - Pronostico semanal por modelo-base auto-seleccionado
 # ============================================================
 #
-# Version PRODUCTIVA activa: v1.11 (2026-09-12)  [+ curva estacional POR SALA con fallback]
+# Version PRODUCTIVA activa: v1.12 (2026-09-13)  [+ CIERRE por feriado irrenunciable]
+#   v1.12 (2026-09-13): las salas de TEAMS_NO_ABREN_IRRENUNCIABLE no operan en los
+#         feriados irrenunciables -> el bucket t_k de esa semana se multiplica por
+#         el ajuste de cierre. CAPACIDAD CERO, no demanda deprimida: el dia cerrado
+#         no vende y ademas pierde el pico del evento, que es justo cuando cae.
+#         ajuste = (1 - peso_dias_cerrados) * CIERRE_CONCENTRACION
+#         peso por dia-semana medido de pos_order (dia operativo, corte 05:00).
+#         CIERRE_CONCENTRACION=0.90 es PROXY medido: el modelo puro (1-peso) salio
+#         optimista en 8 de 10 ocurrencias (ratio obs/esp mediana 0.90) porque los
+#         dias cerrados cargan MAS que su peso normal en semana de evento.
+#         Medido 2026-09-12: sin esto el 18-19-sep-2026 (vie+sab = 49-51% de su
+#         semana) Lautaro y Pang645 reciben factor 1.371 -> 3x de mas; exceso
+#         4.671 u = $6.998.308 al costo en compras y traslados.
+#         Ver proyectos/2026-09-12-factor-evento-por-sala/ (paso8, diseno.md s8).
 #   v1.11 (2026-09-12): curva estacional POR SALA. Lee x_studio_team_id de
 #         x_forecast_factor_week (OH Factor Semanal v1.6). Lookup (categ, sala, semana) ->
 #         fallback (categ, NULL, semana) -> 1.0. Si existe curva propia se usa AUNQUE el
@@ -444,6 +457,19 @@ PISO_ABRIL_FIN = str(CTX.get('piso_abril_fin', PISO_ABRIL_FIN_DEFAULT) or PISO_A
 FS_OVERLAY = bool(CTX.get('fs_overlay', True))
 FS_HORIZON = 6                                    # t0..t5 = 35d >= L max 4d + R max 30d (medido 2026-09-10)
 FS_CURVE_MODEL_TABLE = 'x_forecast_factor_week'   # curva por categoria x semana (OH Factor Semanal)
+
+# === v1.12: cierre por feriado irrenunciable ===
+# Regla de negocio (Marco, 2026-09-12): Pang 645 y Lautaro cierran en TODOS los
+# irrenunciables, Navidad incluida. Las 3 aperturas de Lautaro en 2025 fueron
+# EXCEPCIONES, no politica. Derivarlo del POS no sirve: se probo y la historia no
+# distingue excepcion de politica. Constante, como el resto de reglas del repo.
+TEAMS_NO_ABREN_IRRENUNCIABLE = set([8, 10])   # 8=Panguipulli 645, 10=Lautaro
+CIERRE_CONCENTRACION = 0.90      # PROXY medido (n=10): el dia cerrado carga mas que su peso normal
+CIERRE_DOW_WEEKS = 12            # semanas para medir el peso por dia de semana
+CIERRE_TZ = 'America/Santiago'
+CIERRE_CORTE_HORAS = 5           # dia operativo OH: corte 05:00 (la madrugada es del dia anterior)
+HOL_OCC_TABLE = 'x_holiday_occurrence'
+HOL_MAS_TABLE = 'x_holiday_master'
 FS_TIPO_FIELD = 'x_studio_selection_field_1cq_1jbvv7q4e'   # crm.team "Tipo de Local"
 FS_TIPO_ON = ('Turisitica', 'Mixta')              # gate ON (ojo: typo 'Turisitica' es el valor real en Studio)
 FS_EVENTO = bool(CTX.get('fs_evento', True))      # v1.10: factor_evento en los buckets (todas las salas)
@@ -647,8 +673,64 @@ else:
                 if FS_TIPO_FIELD in TeamM._fields:
                     for t in TeamM.search_read([('id', 'in', TEAM_IDS)], [FS_TIPO_FIELD]):
                         fs_gate[_safe_int(t.get('id'))] = (t.get(FS_TIPO_FIELD) in FS_TIPO_ON)
+
+            # ---------- v1.12: ajuste de cierre por (sala, semana) ----------
+            # 1) peso por dia de semana, dia operativo (corte 05:00), ultimas N semanas
+            # 2) fechas irrenunciables del horizonte
+            # 3) ajuste = (1 - peso de los dias cerrados de esa semana) * concentracion
+            fs_cierre = {}     # (team_id, week_start) -> ajuste (0..1)
+            cierre_err = ''
+            _teams_cierran = [t for t in TEAM_IDS if t in TEAMS_NO_ABREN_IRRENUNCIABLE]
+            if _teams_cierran:
+                try:
+                    _dow_desde = last_closed_monday - datetime.timedelta(weeks=CIERRE_DOW_WEEKS)
+                    env.cr.execute("""
+                        SELECT crm_team_id,
+                               EXTRACT(ISODOW FROM ((date_order AT TIME ZONE 'UTC' AT TIME ZONE %s)
+                                                    - (%s * interval '1 hour')))::int AS dow,
+                               SUM(COALESCE(amount_total, 0.0))
+                        FROM pos_order
+                        WHERE state IN ('paid', 'done', 'invoiced')
+                          AND crm_team_id = ANY(%s)
+                          AND date_order >= %s AND date_order < %s
+                        GROUP BY 1, 2
+                    """, (CIERRE_TZ, CIERRE_CORTE_HORAS, _teams_cierran,
+                          _dow_desde, last_closed_monday))
+                    _dow = {}
+                    for _t, _d, _v in env.cr.fetchall():
+                        _dow[(_safe_int(_t), _safe_int(_d))] = _safe_float(_v, 0.0)
+                    # fechas irrenunciables dentro del horizonte de buckets
+                    env.cr.execute("""
+                        SELECT o.x_studio_holiday_date
+                        FROM """ + HOL_OCC_TABLE + """ o
+                        JOIN """ + HOL_MAS_TABLE + """ m ON m.id = o.x_studio_holiday_id
+                        WHERE m.x_studio_is_irrenunciable IS TRUE
+                          AND o.x_studio_holiday_date >= %s
+                          AND o.x_studio_holiday_date <= %s
+                    """, (target_date, fs_last_week + datetime.timedelta(days=6)))
+                    for (_fecha,) in env.cr.fetchall():
+                        if isinstance(_fecha, datetime.datetime):
+                            _fecha = _fecha.date()
+                        _wk = _fecha - datetime.timedelta(days=_fecha.weekday())
+                        _iso = _fecha.isoweekday()
+                        for _t in _teams_cierran:
+                            _tot = 0.0
+                            for _k in range(1, 8):
+                                _tot += _dow.get((_t, _k), 0.0)
+                            if _tot <= 0.0:
+                                continue      # sin historia: no se ajusta nada
+                            _peso = _dow.get((_t, _iso), 0.0) / _tot
+                            _prev = fs_cierre.get((_t, _wk), 1.0)
+                            # varios feriados en la misma semana: los pesos se acumulan
+                            fs_cierre[(_t, _wk)] = max(0.0, _prev - _peso)
+                    for _key in list(fs_cierre.keys()):
+                        fs_cierre[_key] = fs_cierre[_key] * CIERRE_CONCENTRACION
+                except Exception as e:
+                    fs_cierre = {}
+                    cierre_err = str(e)[:120]
             n_fs_on = 0
             n_fs_sala = 0      # v1.11: filas que usaron curva PROPIA de sala
+            n_fs_cierre = 0    # v1.12: filas con algun bucket ajustado por cierre
             n_fs_ev = 0        # filas con algun t_k con evento != 1
             fs_fields_ok = sum(1 for k in range(FS_HORIZON) if _field_exists(fwd_fields, 'x_studio_mu_week_fs_t%d' % k))
 
@@ -970,6 +1052,7 @@ else:
                 if fs_base <= 0.0:
                     fs_base = 1.0
                 row_ev = False
+                row_cierre = False
                 for k in range(FS_HORIZON):
                     wk_k = target_date + datetime.timedelta(weeks=k)
                     if fs_on:
@@ -986,6 +1069,12 @@ else:
                         if fe_k > 1.0:
                             tk = tk * fe_k
                             row_ev = True
+                    # v1.12: capacidad cero. Va DESPUES del evento: el dia cerrado
+                    # pierde tambien el pico, que es justo cuando cae.
+                    _aj_c = fs_cierre.get((tid, wk_k))
+                    if _aj_c is not None:
+                        tk = tk * _aj_c
+                        row_cierre = True
                     _put_field(vals_w, fwd_fields, 'x_studio_mu_week_fs_t%d' % k, tk)
                 if row_ev and mu > 0.0:
                     n_fs_ev += 1
@@ -993,6 +1082,8 @@ else:
                     n_fs_on += 1
                 if fs_has_own and mu > 0.0:
                     n_fs_sala += 1
+                if row_cierre and mu > 0.0:
+                    n_fs_cierre += 1
                 _put_field(vals_w, fwd_fields, 'x_studio_forecast_model_code', model_code, 60)
                 _put_field(vals_w, fwd_fields, 'x_studio_series_type', stype, 20)   # auditoria: tipo de serie LOCAL que eligio el modelo
                 _put_field(vals_w, fwd_fields, 'x_studio_ciclo_de_vida', lifecycle_of.get(pid, ''), 20)   # PLC GLOBAL reusado de la segmentacion (no recalculado)
@@ -1014,21 +1105,25 @@ else:
                     sum(1 for v in fs_gate.values() if v), len(fs_gate), len(fs_curve), len(fs_curve_sala), n_fs_on, n_fs_sala,
                     fs_fields_ok, FS_HORIZON, (' ERR_CURVA=' + fs_curve_err) if fs_curve_err else '')) if FS_OVERLAY else 'OFF'
                 fse = ('ON cap=%s filas_ev=%s celdas_ev=%s' % (FS_EVENTO_CAP, n_fs_ev, sum(1 for v in fs_ev.values() if v > 1.0))) if FS_EVENTO else 'OFF'
-                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | piso_abril[%s] | fs_overlay[%s] | fs_evento[%s] | teams=%s' % (
+                fsc = ('ON celdas=%s filas=%s %s%s' % (
+                    len(fs_cierre), n_fs_cierre,
+                    ' '.join(['%s:%s=%.2f' % (_kk[0], _kk[1], _vv) for _kk, _vv in sorted(fs_cierre.items())]),
+                    (' ERR=' + cierre_err) if cierre_err else '')) if fs_cierre or cierre_err else 'sin cierres en horizonte'
+                log('%s | target=%s | win=%s..%s | purged=%s | created=%s | nonzero=%s | mu_sum=%s | models[%s] | decensor[%s] | piso_abril[%s] | fs_overlay[%s] | fs_evento[%s] | cierre[%s] | teams=%s' % (
                     VERSION_ID, target_date, window_weeks[0], window_weeks[-1],
-                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, piso, fso, fse, len(TEAM_IDS)), level='info')
+                    purge_count, n_created, n_nonzero, round(mu_total, 1), mc, dec, piso, fso, fse, fsc, len(TEAM_IDS)), level='info')
             except Exception:
                 pass
 
             action = {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-                'title': 'Forecast Base v1.11',
-                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s | piso_abril=%s | fs_on=%s fs_sala=%s (gate %s salas, curva %s, fields %s/%s) | evento=%s filas' % (
+                'title': 'Forecast Base v1.12',
+                'message': 'OK | target=%s | filas=%s | con venta=%s | mu_sum=%s | cleansed=%s | piso_abril=%s | fs_on=%s fs_sala=%s (gate %s salas, curva %s, fields %s/%s) | evento=%s filas | cierre=%s filas' % (
                     target_date, n_created, n_nonzero, round(mu_total, 0),
                     ('%s combos' % n_cleansed) if DECENSOR else 'off',
                     ('%s filas' % n_piso_abril) if PISO_ABRIL_CIGARROS else 'off',
                     n_fs_on if FS_OVERLAY else 'off', n_fs_sala if FS_OVERLAY else 'off',
                     sum(1 for v in fs_gate.values() if v), len(fs_curve), fs_fields_ok, FS_HORIZON,
-                    n_fs_ev if FS_EVENTO else 'off'),
+                    n_fs_ev if FS_EVENTO else 'off', n_fs_cierre),
                 'type': 'success', 'sticky': True}}
     finally:
         env.cr.execute('SELECT pg_advisory_unlock(%s)', (LOCK_KEY,))
