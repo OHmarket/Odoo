@@ -49,7 +49,7 @@ ENTRADA: pos.order, product.product, product.category, stock.quant
    └─ OUTPUT: x_calculo_abc_xyz (unica verdad de segmentacion)
 
     ↓
-2A. OH PRICE CORRECCION (Detector) [PARALELO]  ⚠️ NO ESTÁ CORRIENDO — ver aviso en III.D
+2A. OH PRICE CORRECCION  ⚠️ ELIMINADO 2026-09-13 (no funcionó) — ver III.D
     ├─ Lee eventos de precio y promo desde x_loyalty_promo_event
     ├─ Calcula factor de ajuste por elasticidad (A×1.3, B×1.0, C×0.7)
     ├─ Incluye CPI canibal ponderado por importancia competidor
@@ -311,13 +311,12 @@ consumidor. Las semanas pasadas quedan congeladas con el factor que estaba
 vigente: es el historial para el monitor de sesgo.
 
 #### D. **x_price_coreccion** (Correcciones de Precio — Detector)
-> **⚠️ Verificado 2026-09-13 — este script NO está corriendo.** No tiene cron ni
-> Server Action en Odoo, su modelo destino `x_price_coreccion` no existe, y el
-> motor ya no lo lee (queda un comentario: *"campo placeholder muerto"*). El
-> `.py` sigue en `02_forecast/` y CLAUDE.md aún lo lista como paso 2 del
-> pipeline. Decidir: revivirlo (crear el modelo Studio + SA + cron, y volver a
-> conectar el motor) o moverlo a `_legacy/`. Mientras tanto, lo que describe
-> esta sección **no ocurre**.
+> **⚠️ ELIMINADO 2026-09-13 — no funcionó bien (decisión de negocio).** El
+> script está en `_legacy/OH Price Correccion.py`. Nunca llegó a producción:
+> sin cron, sin Server Action, su modelo destino `x_price_coreccion` no existe
+> en Odoo y el motor no lo referencia. **Lo que describe esta sección no ocurre
+> ni va a ocurrir**; se conserva como referencia histórica del intento
+> (demand sensing, medición de nivel post-evento).
 
 
 
@@ -441,7 +440,7 @@ SCRIPT 1: OH Calculo ABCXYZ
 └─ PERSISTE: x_calculo_abc_xyz (versión única)
             Ej: 5,241 SKUs clasificados
 
-SCRIPT 2A [PARALELO]: Detector Precio  ⚠️ NO ESTÁ CORRIENDO (ver III.D)
+SCRIPT 2A: Detector Precio  ⚠️ ELIMINADO 2026-09-13 (ver III.D)
 ├─ Entrada: x_loyalty_promo_event (manual o cron)
 ├─ Calcula elasticidad ABC sobre factor base
 ├─ Incluye CPI canibal (competencia Trébol)

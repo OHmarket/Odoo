@@ -509,7 +509,12 @@ Resultado: backtest por semana + local + product.product + metodo.
 
 ---
 
-## 02_forecast / OH Price Correccion.py
+## 02_forecast / OH Price Correccion.py  ⚠️ ELIMINADO (2026-09-13)
+
+> **Archivado en `_legacy/` el 2026-09-13: no funcionó bien.** Nunca llegó a
+> producción — sin cron, sin Server Action, el modelo destino `x_price_coreccion`
+> no existe en Odoo y el motor no lo referencia. El historial de abajo es del
+> desarrollo, no de un script que haya corrido en el pipeline.
 
 ### v6.0 — Demand sensing en cervezas con evento de precio (2026-06-01)
 

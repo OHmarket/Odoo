@@ -121,9 +121,6 @@ Scripts agrupados por dominio funcional. Pipeline productivo:
 4. 03_stock/         OH Generacion de Documentos.py (crea OC + traslados)
 ```
 
-`02_forecast/OH Price Correccion.py` **NO esta corriendo** (verificado
-2026-09-13): sin cron, sin Server Action, su modelo `x_price_coreccion` no
-existe y el motor ya no lo lee. Decidir si revivirlo o moverlo a `_legacy/`.
 
 La version vigente de cada script esta en su propio header — no se duplica aqui
 para que no quede desactualizada.
@@ -142,7 +139,8 @@ legacy). Solo backtests; los proyectos en diseno NO viven aqui.
 
 `_legacy/` es historial, no usar: `HM SI Forecast.py`, `OH Forecast Semanal.py`,
 `OH SMA4 Forecast.py`, `OH Calib Factors.py`, `OH Cobertura ABCXYZ por Sala.py`,
-`OH Normalizacion Demanda.py`. Backtests con model codes `hm_si_*` son del motor
+`OH Normalizacion Demanda.py`, `OH Price Correccion.py` (archivado 2026-09-13:
+no funciono bien; el motor nunca lo leyo y su modelo Studio no llego a existir). Backtests con model codes `hm_si_*` son del motor
 viejo; `ses_*`/`sma6_*` del actual.
 
 ## Documentacion de gobierno
