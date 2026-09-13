@@ -49,7 +49,7 @@ Script 5: OH Forecast Backtest.py   ← Valida Script 2 (compara vs venta real)
   - `CHANGE_CONTROL_LOG.md` — registro de cambios (opcional, para auditoría)
 - `CLAUDE.md` — reglas no-negociables (canon SAP IBP, REG-1 control, etc.)
 - `SISTEMA_REABASTECIMIENTO_COMPLETO.md` — arquitectura 30k pies
-- `AGENTE_DESARROLLO_FLUJO.md` — cómo Claude opera (5 fases)
+- `CLAUDE.md` (raíz) — cómo opera Claude: Fase 0/Fase 1, reglas no negociables, flujo git
 
 ### Laboratorio (REGLA: TODO experimento aquí, NUNCA en raíz)
 - `proyectos/<YYYY-MM-DD>-<slug>/` — experimentos en desarrollo

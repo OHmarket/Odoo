@@ -76,7 +76,8 @@ Usada en Fase 4 (Implementación + Backtest) para validar que el cambio es segur
 - [ ] CHANGELOG.md actualizado con nueva versión
 - [ ] Descripción clara: qué problema, qué solución, qué impacto
 - [ ] IMPACT_MATRIX.md actualizado (si cambio nueva área)
-- [ ] AGENTE_DESARROLLO_FLUJO.md actualizado (si afecta a proceso)
+- [ ] `CLAUDE.md` (raíz) actualizado (si el cambio afecta al proceso)
+- [ ] repo == producción: el `.py` coincide con el `python_code` del Server Action MOTOR
 - [ ] memory/ actualizado con lecciones aprendidas
 - [ ] **repo == prod validado vía API** (si el script ya corre en Odoo): el `.py`
       coincide con el `python_code` del **motor** Server Action (XML-RPC read-only
@@ -138,4 +139,4 @@ LISTO PARA COMMIT
 ---
 
 **Última actualización:** 2026-07-16
-**Relacionado:** `IMPACT_MATRIX.md`, `CHANGELOG.md`, `AGENTE_DESARROLLO_FLUJO.md`, `memory/ref_sa_motor_cron_mapping.md`
+**Relacionado:** `IMPACT_MATRIX.md`, `CHANGELOG.md`, `CLAUDE.md` (raíz), `memory/ref_sa_motor_cron_mapping.md`

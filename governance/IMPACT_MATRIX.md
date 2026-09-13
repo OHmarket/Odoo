@@ -99,4 +99,4 @@ Risk: [LOW / MEDIUM / HIGH]
 ---
 
 **Última actualización:** 2026-07-16
-**Relacionado:** `CHANGELOG.md`, `VALIDATION_CHECKLIST.md`, `AGENTE_DESARROLLO_FLUJO.md`
+**Relacionado:** `CHANGELOG.md`, `VALIDATION_CHECKLIST.md`, `CLAUDE.md` (raíz)
