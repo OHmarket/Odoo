@@ -413,7 +413,6 @@ Cambios activos:
 - Log: `curva_sala=N filas_sala=N`. Pendiente: verificar `filas_sala > 0` el 2026-09-14; recalibrar turísticas al cerrar verano 2026-27; validar primavera (iso 37–49).
 - Diseño, backtests y validación: `proyectos/2026-09-12-factor-evento-por-sala/` (`diseno.md` §12, `resultados/paso4..7.md`).
 
-
 ### v1.5 — Cleansing de quiebre POR DIA ponderado por perfil dia-semana (2026-06-02)
 
 `_cleanse_stockout` deja de borrar la semana entera y reemplazarla por el baseline historico. Ahora de-censura por la fraccion de VENTA que estuvo disponible (proportional unconstraining, canon SAP IBP):
@@ -1583,7 +1582,6 @@ Recomendado: ejecutar diariamente a las 06:00.
 - Verificado 2026-09-13: las 6 filas en $0, salas de control intactas.
 - Por qué constante y no derivado del POS: se probó y la historia **no distingue excepción de política** (Lautaro abrió 3 veces en 2025 por excepción; con las 3 ocurrencias más recientes sale "abre"). Por qué constante y no campo Studio: 2 salas, regla estable, y el repo ya maneja así sus reglas (`HOLIDAY_OFFSET_POLICY`, `EXCLUDED_CODES`).
 
-
 ### v14 — Efecto feriado aditivo (feriado que cambia de dia de semana) (2026-09-07)
 
 Corrige la distribucion dia-a-dia del bloque dieciocho cuando el feriado cae en
@@ -1668,3 +1666,176 @@ Parametros operativos:
 - `LONG_WINDOW_DAYS = 365` (ventana larga referencia anual).
 - `WEEKS_FOR_WD_AVG = 4` (semanas para promedio working-day).
 - `FILTERED_TEAM_IDS = [18, 16, 12, 10, 9, 8, 7, 6, 5, 17, 13, 11]`.
+
+---
+
+## 06_contabilidad / OH Cuadre Fiscal DTE.py
+
+### v0.20 — Signo del ajuste de impuesto en notas de credito (2026-09-12)
+
+Los pasos de ajuste de impuesto no podian cuadrar NINGUNA nota de credito.
+
+**Problema.** PASO 1.7 (margen tabaco) y PASO 1.9 / 1.9b (IVA de redondeo) calculaban
+el ajuste como `monto_del_DTE - balance`. En una nota de credito el `balance` de la
+linea de impuesto es **negativo** (medido: 125 de 125 lineas de impuesto de
+`in_refund` en el lote de 118 draft), mientras `<MontoImp>` / `<IVA>` del DTE y
+`amount_tax` son **positivos**. Esa resta no corrige: da el doble y le invierte el
+signo a la linea.
+
+Medido en `N/C 484575`: `delta = 142.608 - (-141.672) = 284.280`, que deja la linea
+en `+142.608` sobre un documento de credito. `cuadra_3` falla y el savepoint revierte
+**siempre**.
+
+Desde v0.15, que metio las N/C al universo, estos pasos nunca cerraron una. Fallaban
+**cerrado** (revertian, no corrompian el asiento), asi que el sintoma fue hold eterno
+y no un asiento mal contabilizado.
+
+**Fix.** Se escribe el OBJETIVO con el signo del documento
+(`signo = -1.0 if m.move_type == 'in_refund' else 1.0`), no un delta. El header de
+v0.15 ya advertia que `in_refund` usa `amount_*` positivos y NO `balance`; los pasos
+de ajuste quedaron fuera de esa revision.
+
+**Alcance medido, sin inflarlo.** Sobre las 118 draft al 2026-09-12 el fix habilita
+~2 notas de credito de BAT (484575 y 487122), no mas. El residuo del resto **no es de
+signo ni de redondeo**: es ILA mal clasificado. Es una correccion de correctitud, no
+un desatasco de cola.
+
+**Limitacion de la medicion.** La simulacion offline no modela fielmente como Odoo
+recompone `amount_tax` tras escribir `amount_currency` cuando el signo se invierte
+(la suma no es lineal). La medicion confiable es el log del propio motor. Y el DRY_RUN
+no es preview fiel: se saltea el `fpos` del PASO 1.
+
+**DESCARTADO — PASO 1.10.** Se implemento y se midio un cierre atomico de precio +
+retenciones + IVA en un savepoint unico, emparejando cada `<ImptoReten>` con su linea
+via `TipoImp == account.tax.l10n_cl_sii_code`. Motivacion real: el PASO 1.7 compara
+`tot['otros']` (la SUMA de las retenciones) contra UNA linea (tax 44), y **19 de las
+73 facturas con ImptoReten del lote traen 2 o 3 a la vez** (vinos sii 25 + cervezas 26
++ analc 27/271), donde esa suma no le corresponde a ninguna linea sola.
+
+La simulacion dio **4 facturas cerradas de 118**. El residuo de las otras no es
+redondeo: hay lineas sin el impuesto que el DTE declara (20 facturas traen `TipoImp`
+26 y Odoo no tiene ninguna linea de ese impuesto) o con el equivocado (CCU:
+`Vinos 20,5%` por $2.200 donde el DTE no declara sii 25). Forzar el monto dejaria el
+total cuadrado con el **desglose tributario mal**, distorsionando el F29.
+
+No justifica esa complejidad en el paso mas delicado del motor. Deuda tecnica
+visible: el arreglo real es de maestro (`supplier_taxes_id` por producto), no de
+codigo. Diagnostico completo y scripts en
+`proyectos/2026-09-12-cuadre-draft-todos/`.
+
+**Dato de contexto (2026-09-12).** De las 118 draft con DTE, el cuello de botella NO
+es el motor: **68 son `codigo_no_vinculado`** y **48 ya cuadran en plata** (riesgo
+<= $2), bloqueadas solo por lineas sin producto. Ahi esta el retorno, no en los pasos
+de ajuste de impuesto.
+
+### v0.19 — El hold se sella con la version del motor (2026-09-12)
+
+Un hold dejaba de ser "esta factura espera" para ser "esta factura no vuelve nunca".
+
+**Problema.** `x_studio_fecha_check` se sella DESPUES de procesar la factura (y con
+`env.flush_all()` previo, a proposito, para que la escritura de la propia fpos no
+invalide el hold). Efecto colateral no visto: la marca queda SIEMPRE por delante de
+cualquier escritura que haga el motor, asi que la regla de re-entrada del PASO 0
+
+```python
+if ult <= fh:          # ult = max(write_date del move y de sus lineas)
+    en_hold += 1
+    continue
+```
+
+no se cumple nunca por si sola. Una factura apartada solo volvia a la cola si la
+tocaba un **humano**. Consecuencia: **un fix del motor no podia alcanzar jamas las
+facturas que ese mismo bug habia apartado.**
+
+**Como se destapo.** El PASO 1.9b (v0.18) se escribio para 12 draft de BAT en hold
+`diferencia_impuesto` por $3-$5 de redondeo. Tras pegar v0.18 y correrlo, las 12
+seguian en draft: `fecha_check` 05:04 sobre un ultimo cambio 05:03:42. El PASO 0 las
+excluia del lote y el 1.9b **no se ejecutaba nunca**. Codigo muerto.
+
+**Magnitud medida (2026-09-12).** No eran 12: de **126 draft con DTE** en la ventana
+`2026-07-01..2026-09-30`, **126 tenian hold del motor**. El 100% del universo estaba
+trancado.
+
+| Motivo del hold | Facturas |
+|---|---|
+| `codigo_no_vinculado` | 69 |
+| `diferencia_impuesto` | 32 |
+| `linea_descuadrada` | 24 |
+| `flete_descuadrado` | 3 |
+| `precio` | 1 |
+
+**Fix.** El hold lleva ahora el sello `[motor vX.Y]` (`SELLO_VERSION`) en
+`x_studio_sugerencia`, y el PASO 0 solo respeta los holds con el sello de la version
+EN CURSO. Subir `VERSION_MOTOR` libera de una a las que quedaron pegadas por el bug
+recien arreglado; las que sigan fallando reciben hold nuevo con el sello actual y
+vuelven a salir de la cola. Es la invalidacion por version de siempre: la regla
+cambio, el veredicto cacheado ya no vale.
+
+**Alcance de la primera corrida.** Ningun hold existente tiene sello, asi que v0.19
+los ignora a todos y el universo se re-evalua completo: 126 facturas, ~4 corridas
+(`MAX_MOVES = 40`), posteando como mucho 20 por corrida (`MAX_POST = 20`). Los gates
+son los mismos, asi que la calidad del posteo no cambia; lo que cambia es que las
+reparables dejan de estar congeladas. Las 69 de `codigo_no_vinculado` volveran a
+hold: necesitan vinculacion humana, que es correcto.
+
+**Convencion nueva.** Subir `VERSION_MOTOR` en todo cambio que altere QUE se
+considera cuadrado. No subirlo en un cambio cosmetico (mensajes, logs).
+
+**Validacion.** `proyectos/2026-09-12-bat-codigos-sin-vincular/validar_v019.py`
+(read-only) mide cuantos holds libera el sello, por motivo y por proveedor.
+
+### v0.18 — PASO 1.9b: cuadre fino del IVA sin margen de tabaco (2026-09-12)
+
+Saca el cuadre de redondeo del IVA de adentro del camino del tabaco, que lo hacia
+inalcanzable para cualquier factura sin `<ImptoReten>`.
+
+**Problema.** El PASO 1.9 (v0.16) vive ANIDADO dentro del PASO 1.7, cuya guarda es:
+
+```python
+if not ok and not dn and not ila and tot['otros'] > TOL and (di or dt):
+```
+
+`tot['otros'] > TOL` exige que el DTE traiga `<ImptoReten>` — el IVA de margen de
+tabaco. Una factura sin ese impuesto (BAT de puro vape, y cualquier proveedor sin
+ILA ni retencion) nunca alcanza el 1.9. Su residuo de redondeo del IVA —Odoo suma
+el 19% por linea, el DTE redondea el total— queda por encima de `TOL = 2` y deja
+`di`/`dt` en falso: hold `diferencia_impuesto` **eterno por 3 o 4 pesos**.
+
+**Medicion (2026-09-12, draft de BAT).** 9 facturas con el neto ya EXACTO contra el
+DTE y delta de +$3 a +$5, todas en hold:
+
+| Factura | d_iva | otros | dn |
+|---|---|---|---|
+| 17347486 | −5 | 0 | False |
+| 17347461/63/64/67/70 | −4 | 0 | False |
+| 17178301 | −4 | 0 | False |
+| 17178350 | −3 | 0 | False |
+| 17520507 | −3 | 0 | False |
+
+**Fix.** Bloque nuevo PASO 1.9b con la condicion COMPLEMENTARIA
+(`tot['otros'] <= TOL`) y su propio savepoint `cuadre_iva`. El camino del margen
+—que ya funciona— no se toca; no hay solape entre las dos guardas. Misma mecanica
+que el 1.9: escribir SOLO `amount_currency` de la linea de IVA (Odoo re-balancea el
+termino de pago) y `cuadra_3` decide si persiste o revierte.
+
+**Guarda intacta.** Solo residuos `TOL < |d_iva| <= TOL_IVA` (30). Un descuadre real
+de IVA sigue sin tocarse: verificado en FAC 17838906 (`d_iva = 11.097`, una linea
+sin `supplier_taxes_id` en el maestro) — el 1.9b **no** la toma.
+
+**Validacion.** `proyectos/2026-09-12-bat-codigos-sin-vincular/validar_v018.py`
+simula las guardas contra los datos reales: de 12 draft, toma 9 y las 9 quedan
+`cuadra_3 == OK` (postean); las 3 restantes no las toca.
+
+**Contexto.** Estas facturas llegaron a ese estado tras el proyecto
+`2026-09-12-bat-codigos-sin-vincular`: 287 lineas de BAT estaban vinculadas al
+comodin `RETENCION CIGARROS` (servicio sin `supplier_taxes_id`), asi que el gate
+`falta_sku` las daba por buenas —tenian producto— y caian en `diferencia_impuesto`.
+Re-vinculadas al producto real, el neto cuadro exacto y quedo al descubierto este
+residuo de redondeo.
+
+**Pendiente (NO incluido en v0.18, un cambio por version).** Deadlock PASO 1.5 ↔
+PASO 1.7 cuando una factura de tabaco necesita fix de precio Y ajuste de margen:
+1.5 revierte porque tras cuadrar el precio el margen sigue descuadrado, y 1.7 exige
+`not dn`, que falla porque 1.5 revirtio. Se bloquean mutuamente. Misma clase que el
+deadlock del especifico diesel que resolvio v0.17 metiendo ambos en un savepoint.
+Medido en FAC 17365936 (+15.639) y FAC 17838969 (+96.785), hold `linea_descuadrada`.

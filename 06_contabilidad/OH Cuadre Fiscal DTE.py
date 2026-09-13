@@ -1,4 +1,66 @@
-# OH Cuadre Fiscal DTE v0.17  (ir.actions.server / account.move / safe_eval)
+# OH Cuadre Fiscal DTE v0.20  (ir.actions.server / account.move / safe_eval)
+#
+# Diferencias con v0.19:
+#   1. SIGNO en NOTAS DE CREDITO. Los ajustes de impuesto (PASO 1.7 margen de
+#      tabaco, PASO 1.9 y 1.9b IVA de redondeo) calculaban el delta como
+#      `monto_del_DTE - balance`. En una nota de credito el `balance` de la linea de
+#      impuesto es NEGATIVO -medido 2026-09-12: 125 de 125 lineas de impuesto de
+#      in_refund en el lote- mientras el <MontoImp>/<IVA> del DTE y amount_tax son
+#      POSITIVOS. Esa resta no corrige: suma el DOBLE y le da vuelta el signo a la
+#      linea. En N/C 484575 el delta salia 142.608 - (-141.672) = 284.280, el
+#      re-check de cuadra_3 fallaba y el savepoint revertia SIEMPRE.
+#      Efecto: desde v0.15, que metio las N/C al universo, estos pasos NO podian
+#      cuadrar NINGUNA nota de credito. Fallaban cerrado (revertian, no corrompian),
+#      asi que el sintoma era hold eterno, no un asiento mal.
+#      Ahora se escribe el OBJETIVO con el signo del documento
+#      (`signo = -1 si in_refund`), no un delta.
+#      El header de v0.15 ya avisaba que in_refund usa amount_* positivos y NO
+#      balance; los pasos de ajuste quedaron fuera de esa revision.
+#
+#   DESCARTADO en esta version (ver proyectos/2026-09-12-cuadre-draft-todos/):
+#   se implemento y se MIDIO un PASO 1.10 que cerraba precio + retenciones + IVA en
+#   un savepoint unico, emparejando cada <ImptoReten> con su linea via TipoImp ==
+#   l10n_cl_sii_code (el PASO 1.7 compara la SUMA de las retenciones contra UNA
+#   linea, y 19 de 73 facturas del lote traen 2 o 3 retenciones a la vez). La
+#   simulacion sobre las 118 draft dio solo 4 facturas cerradas: el residuo de las
+#   otras NO es redondeo sino ILA mal clasificado -lineas sin el impuesto que el DTE
+#   declara, o con el equivocado- y forzar el monto dejaria el total cuadrado con el
+#   desglose tributario MAL, distorsionando el F29. No justifica la complejidad en el
+#   paso mas delicado del motor. Queda como deuda tecnica visible: el arreglo real es
+#   de maestro (supplier_taxes_id por producto), no de codigo.
+#
+# Diferencias con v0.18:
+#
+# Diferencias con v0.18:
+#   1. HOLD SELLADO POR VERSION. Hasta v0.18 un hold era DEFINITIVO frente al
+#      codigo: `x_studio_fecha_check` se sella DESPUES de procesar la factura, asi
+#      que siempre queda por delante de cualquier escritura del propio motor y la
+#      regla de re-entrada del PASO 0 (`ult <= fh`) no se cumple nunca. Una factura
+#      apartada solo volvia a la cola si la tocaba un HUMANO -> **un fix del motor
+#      no podia alcanzar jamas las facturas que ese mismo bug habia apartado**.
+#      Medido 2026-09-12: el PASO 1.9b de v0.18 quedo como CODIGO MUERTO. Las 12
+#      draft de BAT que venia a arreglar tenian fecha_check 05:04 sobre un ultimo
+#      cambio 05:03:42; el PASO 0 las excluia y el 1.9b no se ejecutaba nunca.
+#      Ahora el hold lleva el sello `[motor vX.Y]` en x_studio_sugerencia y el
+#      PASO 0 solo respeta los que traen el sello de la version EN CURSO. Subir
+#      VERSION_MOTOR libera de una a las que quedaron pegadas por el bug recien
+#      arreglado; las que sigan fallando reciben hold nuevo con el sello actual y
+#      vuelven a salir de la cola. Los 162 holds existentes no tienen sello, asi
+#      que la primera corrida de v0.19 los ignora a todos: el universo se re-evalua
+#      completo una vez (acotado por MAX_MOVES=40 y MAX_POST=20 por corrida).
+#
+# Diferencias con v0.17:
+#   1. PASO 1.9b: el cuadre fino del IVA (PASO 1.9) tambien corre en facturas SIN
+#      margen de tabaco. Hasta v0.17 el 1.9 vivia ANIDADO dentro del PASO 1.7,
+#      cuya guarda exige tot['otros'] > TOL (que el DTE traiga <ImptoReten>). Una
+#      factura sin ese impuesto nunca lo alcanzaba: su residuo de redondeo del IVA
+#      -unos pesos, por encima de TOL=2- dejaba `di`/`dt` en falso y la mandaba a
+#      hold ETERNO por 3 o 4 pesos. Medido 2026-09-12: 8 draft de BAT de puro vape
+#      en hold 'diferencia_impuesto' con delta +$3..+$5 (FAC 17347461/63/64/67/70,
+#      17347486, 17178301, 17178350, 17520507), todas con el neto ya exacto.
+#      El bloque nuevo usa la condicion COMPLEMENTARIA (tot['otros'] <= TOL) y su
+#      propio savepoint, asi que el camino del margen -que ya funciona- no se toca.
+#      Guarda intacta: solo residuos <= TOL_IVA; un descuadre real de IVA no se toca.
 #
 # Diferencias con v0.16:
 #   1. PASO 1.6: especifico diesel NO recuperable (combustible, CodImpAdic 28,
@@ -216,6 +278,23 @@ NOMBRE_ESPECIFICO = 'Ajuste Impuesto Especifico Diesel (no recuperable)'  # v0.1
                                    # diesel (PASO 1.6). Idempotente: si ya existe
                                    # en la factura, no se re-agrega.
 MARCA_HOLD = 'cuadre v0.7:'   # firma de los holds propios (ver PASO 0) — NO TOCAR: v0.8 sigue usando esta firma
+VERSION_MOTOR = 'v0.20'   # v0.19: version que sella cada hold. El PASO 0 solo respeta
+                          # los holds puestos por ESTA version; los de una version
+                          # anterior se ignoran y la factura vuelve a la cola. Sin esto
+                          # un hold es DEFINITIVO frente al codigo: `fecha_check` se
+                          # sella DESPUES de procesar, asi que siempre queda por delante
+                          # de cualquier escritura del propio motor y la regla de
+                          # re-entrada (ult <= fh) nunca se cumple. Resultado: una
+                          # factura apartada solo volvia si la tocaba un HUMANO, y un fix
+                          # del motor no podia alcanzarla nunca. Medido 2026-09-12: el
+                          # PASO 1.9b (v0.18) quedo como codigo muerto -- las 12 draft de
+                          # BAT que venia a arreglar estaban apartadas con fecha_check
+                          # 05:04 sobre un ultimo cambio 05:03:42 y no re-entraban.
+                          # Subir VERSION_MOTOR en cada cambio que altere QUE se considera
+                          # cuadrado: libera de una las que quedaron pegadas por el bug
+                          # recien arreglado. Las que sigan fallando reciben hold nuevo
+                          # con el sello actual y vuelven a salir de la cola.
+SELLO_VERSION = '[motor %s]' % VERSION_MOTOR
 
 
 # ============================================================================
@@ -782,7 +861,7 @@ def _post_estado(move, texto):
 
 env.cr.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_KEY,))
 if not env.cr.fetchone()[0]:
-    log('cuadre-fiscal v0.17: lock ocupado, salgo')
+    log('cuadre-fiscal v0.20: lock ocupado, salgo')
     action = {'type': 'ir.actions.act_window_close'}
 else:
     HOY = datetime.date.today()
@@ -817,6 +896,12 @@ else:
                                         ('x_studio_tipo_error', '!=', 'draft'),
                                         ('x_studio_sugerencia', 'like', MARCA_HOLD)]):
         if not h.x_studio_factura:
+            continue
+        # v0.19: solo respeta los holds que puso ESTA version del motor. Un hold sin
+        # el sello actual lo dejo una version anterior, con reglas que ya cambiaron:
+        # ignorarlo devuelve la factura a la cola para que el codigo nuevo la evalue.
+        # Sin esto el hold es definitivo frente al codigo (ver VERSION_MOTOR).
+        if SELLO_VERSION not in (h.x_studio_sugerencia or ''):
             continue
         mid = h.x_studio_factura.id
         f = h.x_studio_fecha_check
@@ -882,7 +967,7 @@ else:
                 continue
         lote.append(m)
 
-    msgs = ['=== OH Cuadre Fiscal DTE v0.17 (dry=%s post=%s) ventana=%s..%s ==='
+    msgs = ['=== OH Cuadre Fiscal DTE v0.20 (dry=%s post=%s) ventana=%s..%s ==='
             % (DRY_RUN, DO_POST, DESDE, HASTA),
             'universo=%d  en_hold=%d  lote=%d  (de los cuales tabaco=%d)'
             % (len(universo), en_hold, len(lote), n_tabaco)]
@@ -1226,11 +1311,23 @@ else:
                 lambda l: l.tax_line_id and l.tax_line_id.id == TAX_MARGEN)
             if l44:
                 l44 = l44[0]
-                delta = round(tot['otros'] - l44.balance, 2)
+                # v0.20 SIGNO: en una NOTA DE CREDITO el balance de la linea de
+                # impuesto es NEGATIVO (medido: 125 de 125 lineas de impuesto de
+                # in_refund en el lote del 2026-09-12), mientras el <MontoImp> del DTE
+                # y amount_tax son POSITIVOS. `tot['otros'] - balance` entonces no
+                # corrige: suma el DOBLE y le da vuelta el signo a la linea. Efecto
+                # medido en N/C 484575: delta = 142.608 - (-141.672) = 284.280, el
+                # re-check falla y el savepoint revierte SIEMPRE -> hasta v0.19 este
+                # paso no podia cuadrar NINGUNA nota de credito, y las N/C entraron al
+                # universo en v0.15. Se escribe el OBJETIVO con el signo del
+                # documento, no un delta.
+                signo = -1.0 if m.move_type == 'in_refund' else 1.0
+                objetivo = round(signo * tot['otros'], 2)
+                delta = round(objetivo - l44.amount_currency, 2)
                 if abs(delta) > TOL:
                     env.flush_all()
                     env.cr.execute("SAVEPOINT cuadre_margen")
-                    l44.write({'amount_currency': round(l44.amount_currency + delta, 2)})
+                    l44.write({'amount_currency': objetivo})
                     env.flush_all()
                     # PASO 1.9: cuadre fino del IVA al DTE (dentro del MISMO savepoint).
                     # Odoo calcula el IVA 19% por linea y lo redondea; en facturas
@@ -1249,10 +1346,11 @@ else:
                         and l.balance)
                     if liva:
                         liva = liva.sorted(key=lambda l: abs(l.balance))[-1]
-                        d_iva = round(tot['iva'] - liva.balance, 2)
+                        # v0.20: mismo criterio de signo que el margen (ver arriba).
+                        obj_iva = round(signo * tot['iva'], 2)
+                        d_iva = round(obj_iva - liva.amount_currency, 2)
                         if abs(d_iva) > TOL and abs(d_iva) <= TOL_IVA:
-                            liva.write({'amount_currency':
-                                        round(liva.amount_currency + d_iva, 2)})
+                            liva.write({'amount_currency': obj_iva})
                             env.flush_all()
                     ok3, dn3, di3, dt3 = cuadra_3(m.amount_untaxed, m.amount_tax,
                                                   m.amount_total, tot, TOL)
@@ -1268,6 +1366,49 @@ else:
                         env.invalidate_all(flush=False)
                         msgs.append('  %-16s ajuste margen -> %s%s'
                                     % (m.name, 'cuadraria' if ok3 else 'NO cuadra',
+                                       ' [DRY]' if DRY_RUN else ''))
+
+        # --- PASO 1.9b (v0.18): cuadre fino del IVA en facturas SIN margen de tabaco.
+        # El PASO 1.9 vive ANIDADO dentro del PASO 1.7, cuya guarda exige
+        # tot['otros'] > TOL, o sea que el DTE traiga <ImptoReten>. Una factura sin
+        # ese impuesto (BAT de puro vape, y cualquier proveedor sin ILA ni retencion)
+        # nunca llega al 1.9: su residuo de redondeo del IVA -unos pocos pesos, por
+        # encima de TOL=2- deja `di`/`dt` en falso y la manda a hold ETERNO.
+        # Medido 2026-09-12: 8 draft de BAT en hold 'diferencia_impuesto' por +$3..+$5
+        # (FAC 17347461/63/64/67/70, 17347486, 17178301, 17178350, 17520507).
+        # Misma logica y mismas guardas que el 1.9; se separa por la condicion
+        # complementaria (tot['otros'] <= TOL) para NO tocar el camino del margen,
+        # que ya funciona. Un descuadre de IVA > TOL_IVA sigue sin tocarse.
+        if not ok and not dn and not ila and tot['otros'] <= TOL and (di or dt):
+            liva_s = m.line_ids.filtered(
+                lambda l: l.tax_line_id and l.tax_line_id.id != TAX_MARGEN and l.balance)
+            if liva_s:
+                liva_s = liva_s.sorted(key=lambda l: abs(l.balance))[-1]
+                # v0.20: en in_refund el balance es NEGATIVO y el <IVA> del DTE
+                # POSITIVO; restarlos suma el doble. Se escribe el objetivo con el
+                # signo del documento (mismo criterio que el PASO 1.7).
+                signo_s = -1.0 if m.move_type == 'in_refund' else 1.0
+                obj_iva_s = round(signo_s * tot['iva'], 2)
+                d_iva_s = round(obj_iva_s - liva_s.amount_currency, 2)
+                if abs(d_iva_s) > TOL and abs(d_iva_s) <= TOL_IVA:
+                    env.flush_all()
+                    env.cr.execute("SAVEPOINT cuadre_iva")
+                    liva_s.write({'amount_currency': obj_iva_s})
+                    env.flush_all()
+                    ok9, dn9, di9, dt9 = cuadra_3(m.amount_untaxed, m.amount_tax,
+                                                  m.amount_total, tot, TOL)
+                    if ok9 and not DRY_RUN:
+                        env.cr.execute("RELEASE SAVEPOINT cuadre_iva")
+                        ok, dn, di, dt = ok9, dn9, di9, dt9
+                        msgs.append('  %-16s AJUSTE IVA redondeo %+d -> cuadra'
+                                    % (m.name, int(round(d_iva_s))))
+                    else:
+                        env.cr.execute("ROLLBACK TO SAVEPOINT cuadre_iva")
+                        # ver PASO 1.5: invalidate_all(flush=False) para NO re-persistir.
+                        env.invalidate_all(flush=False)
+                        msgs.append('  %-16s ajuste IVA redondeo %+d -> %s%s'
+                                    % (m.name, int(round(d_iva_s)),
+                                       'cuadraria' if ok9 else 'NO cuadra',
                                        ' [DRY]' if DRY_RUN else ''))
 
         # --- PASO 1.8: auto-fix de UoM de pack INEQUIVOCO (todo-o-nada, savepoint)
@@ -1460,7 +1601,10 @@ else:
                     'x_studio_estado': 'pendiente',
                     'x_studio_fecha_check': ahora,
                     'x_studio_monto_riesgo': abs(m.amount_total - tot['total']),
-                    'x_studio_sugerencia': '%s %s (%s)' % (MARCA_HOLD, mt, det)}
+                    # v0.19: el sello de version es lo que hace que este hold bloquee.
+                    # Al subir VERSION_MOTOR deja de coincidir y la factura re-entra.
+                    'x_studio_sugerencia': '%s %s (%s) %s' % (MARCA_HOLD, mt, det,
+                                                              SELLO_VERSION)}
             if lid:
                 vals['x_studio_line_id'] = lid
             if prev:
@@ -1480,6 +1624,6 @@ else:
     env.cr.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
     action = {
         'type': 'ir.actions.client', 'tag': 'display_notification',
-        'params': {'title': 'Cuadre Fiscal DTE v0.17 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
+        'params': {'title': 'Cuadre Fiscal DTE v0.20 (%s)' % ('DRY_RUN' if DRY_RUN else 'APLICADO'),
                    'message': texto, 'sticky': True},
     }
