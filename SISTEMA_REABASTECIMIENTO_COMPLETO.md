@@ -874,26 +874,49 @@ context['apply_bias_outlier'] = False      # sin v3.48
 1. Script 1: OH Calculo ABCXYZ (cron semanal, lunes 6am)
    └─ Actualiza x_calculo_abc_xyz (5,241 SKUs)
 
-2A. Detector Precio v6.0 (cron diario)
-    └─ Actualiza x_price_coreccion (47 eventos aprox)
-
-2B. Margen SA 1435 (cron diario)
+2B. Margen — "OH Calculo Margen por Producto" (cron SEMANAL, lunes 05:30)
     └─ Actualiza x_margen_por_producto_
 
-3. Script 3: OH Forecast Base v1.8 (cron semanal, lunes 08:00 — SA 1591 → 1576)
-   └─ Cálculo: ~45 seg (12 teams × 5,241 SKUs)
-   └─ Salida: x_hm_si_forecast (62,892 registros/semana)
-   └─ Auditoria: Full trail de transformaciones
+2C. OH Factor Semanal  ⚠️ SIN CRON al 2026-09-13 — se corre a mano
+    └─ Actualiza x_forecast_factor_week (52 semanas futuras)
+    └─ Cadencia prevista: MENSUAL. Debe correr ANTES que el motor lea la tabla;
+       su horizonte son 52 semanas, así que un mes de desfase no rompe nada,
+       pero deja la curva vieja.
 
-4. Script 4: OH Analisis de Stock v9.8.0 (cron semanal, lunes 9am)
-   └─ Cálculo: ~30 seg (12 teams × 5,241 SKUs)
+3. Script 3: OH Forecast Base — cron "OH SES Forecast" (SEMANAL, lunes 08:00)
+   └─ SA 1591 → browse(1576).run()
+   └─ Cálculo: ~45 seg (12 teams × ~5.200 SKUs)
+   └─ Salida: x_hm_si_forecast (mu_week, sigma_week, mu_week_fs_t0..t5)
+
+4. Script 4: OH Analisis de Stock — cron DIARIO, 12:00
+   └─ Cálculo: ~30 seg
    └─ Salida: x_analisis_de_stock (decisiones compra)
+   └─ OJO: corre TODOS los días, no solo el lunes. Cualquier ajuste manual
+      sobre sus insumos se recalcula en la siguiente corrida.
 
 5. Script 5: OH Generacion de Documentos (manual, lunes 10am)
    └─ Crea: purchase.order + stock.picking (Borrador)
    └─ Revisión humana Compras + Operaciones
    └─ Confirmación → stock.quant actualiza
 ```
+
+### 9.1-bis Crons reales (verificado 2026-09-13)
+
+| Cron | Frecuencia | Hora |
+|---|---|---|
+| OH ABC/XYZ Calculo | semanal (lunes) | 06:15 |
+| OH ABC/XYZ Productos | mensual | día 1, 08:30 |
+| OH Cambio de Precios | semanal (lunes) | 05:00 |
+| OH Calculo Margen por Producto | semanal (lunes) | 05:30 |
+| **OH SES Forecast** (motor) | **semanal (lunes)** | **08:00** |
+| OH Quiebres de Stock | diario | 08:00 |
+| **OH Análisis de Stock** | **diario** | **12:00** |
+| OH Presupuesto de Ventas | diario | 04:05 |
+| **OH Factor Semanal** | **sin cron** | manual |
+
+El orden del lunes importa: ABC/XYZ (06:15) → motor (08:00) → Análisis de
+Stock (12:00). Factor Semanal debe correr antes que el motor para que la curva
+esté fresca; hoy depende de que alguien lo dispare.
 
 ### 9.2 Validar Resultados
 
