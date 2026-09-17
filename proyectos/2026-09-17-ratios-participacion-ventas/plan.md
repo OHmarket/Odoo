@@ -8,9 +8,33 @@
 | 2 | DIAG read-only para safe_eval | HECHO — `DIAG_ratios_participacion.py` |
 | 3 | Lint safe_eval | HECHO — `lint_safe_eval.py`, pasa |
 | 4 | Corrida en seco con env falso | HECHO — `test_diag_offline.py`, 4 escenarios |
-| 5 | **Correr en Odoo y leer el reporte** | PENDIENTE — lo corre el usuario |
-| 6 | Auditar el mapeo PROXY contra el plan de cuentas real | PENDIENTE — depende de 5 |
-| 7 | Decidir si se promueve a `04_analitica/` o queda como consulta | PENDIENTE |
+| 5 | Correr contra produccion | HECHO — via `consulta_ratios_jsonrpc.py` (read-only, desde fuera) |
+| 6 | Auditar el mapeo PROXY contra el plan de cuentas real | HECHO — 3 correcciones, ver abajo |
+| 7 | Decidir si se promueve a `04_analitica/` o queda como consulta | PENDIENTE — decision del usuario |
+
+## Mapeo PROXY: correcciones hechas tras ver el plan de cuentas real
+
+1. `410182 Mercado Pago` caia en OTROS GASTOS -> COMISIONES MEDIOS DE PAGO.
+2. `410197 Gastos Bancarios` caia en OTROS GASTOS -> GASTOS FINANCIEROS
+   (la palabra clave era 'banco' y la cuenta dice 'bancarios').
+3. `410161 Mantencion Electrica` caia en ELECTRICIDAD -> MANTENCION. El grupo
+   MANTENCION ahora se evalua ANTES que ELECTRICIDAD. Sin esto, la luz salia
+   2,4% en vez de 2,2%.
+
+Queda sin naturaleza clara `410115 Gastos Menores no tributables`: el nombre
+no dice que gasto es y pesa lo suficiente para importar. Vive en OTROS GASTOS
+hasta que alguien lo abra.
+
+## Hallazgo que cambia como se lee el resultado
+
+La venta del periodo cae fuerte entre enero y julio. NO es un problema
+contable: el conteo de tickets POS cae en la misma proporcion y la venta
+contable calza con el POS neteado dentro de 0-6% todos los meses (correr
+`DIAG_venta_mensual.py` para ver el contraste). Es el negocio que se achico.
+Consecuencia para el analisis: el ratio acumulado ene-jul mezcla dos tamanos
+de negocio distintos, asi que hay que mirar tambien el corte de los ultimos
+meses aparte. Los gastos fijos -arriendo, remuneraciones- no bajan con la
+venta, y ahi es donde se ve.
 
 ## Como correrlo
 
